@@ -127,7 +127,21 @@
   #threadbar .count { font-size:11.5px; color:var(--muted-2); margin-left:auto;
                font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
 
-  #actions { display:none; margin-top:14px; }
+  /* Actions ride with the FIRST answer rather than trailing the page, so the
+     thread reads top-down: answer, what you can do with it, then follow-ups. */
+  #actions { display:none; margin-top:16px; padding-top:14px;
+             border-top:1px solid var(--line); }
+  #actions .acts { display:flex; flex-wrap:wrap; gap:8px; margin-top:9px; }
+  #actions .acts-head { display:flex; align-items:center; }
+  #actions .acts-head .label { margin:0; }
+  #actions .dismiss {
+    margin-left:auto; width:24px; height:24px; border-radius:7px;
+    border:1px solid var(--line-2); background:transparent; color:var(--muted);
+    cursor:pointer; font-size:14px; line-height:1; padding:0;
+  }
+  #actions .dismiss:hover { color:var(--fg); border-color:var(--line-3); }
+  .intent-draft { color:var(--muted); font-size:12.5px; margin-top:10px; }
+
   .acts { display:flex; flex-wrap:wrap; gap:8px; margin-top:9px; }
   .act { padding:11px 15px; border-radius:var(--radius-sm); border:1px solid var(--line-2);
          background:var(--panel); color:var(--fg); font-size:13px; cursor:pointer;
@@ -213,11 +227,6 @@
     <div class="bar" id="bar" hidden><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
   </section>
 
-  <section id="actions">
-    <div class="label">Do something with this</div>
-    <div class="acts" id="actlist"></div>
-  </section>
-
   <section id="draft">
     <div class="box">
       <div class="head">
@@ -279,24 +288,51 @@ const TURNS = [];
 // every "Do something with this" button.
 let SOURCES = [];
 
-// Conversation history persists per brain, so switching pages or reloading does
-// not lose the thread. Keyed by brain: the demo brain and an uploaded brain are
-// different contexts, and mixing them would show answers from documents the
-// user is not currently looking at.
-const HISTORY_KEY = 'kestrel.history.' + (BRAIN || 'demo');
-const HISTORY_MAX = 60;          // turns kept; roughly 30 exchanges
+// "draft a mail", "write an email", "compose a note to Dana" - when the question
+// asks for one, the mail is produced automatically rather than making the user
+// hunt for the button.
+const DRAFT_INTENT = /\b(draft|write|compose|reply|email|e-?mail|mail)\b/i;
+
+// Conversations persist per brain as a LIST, the way a chat app keeps them:
+// each has an id, a title, a timestamp and its own turns. Keyed by brain because
+// the demo brain and an uploaded brain are different contexts, and mixing them
+// would show answers from documents the user is not currently looking at.
+const CHATS_KEY = 'kestrel.chats.' + (BRAIN || 'demo');
+const CHAT_MAX = 30;             // conversations kept
+const TURNS_MAX = 60;            // turns kept per conversation
+
+// A specific conversation can be opened with ?chat=<id>; otherwise this is a
+// fresh one that only becomes visible in the sidebar once it has a question.
+const CHAT_ID = new URLSearchParams(location.search).get('chat')
+  || 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+function allChats() {
+  try {
+    const raw = localStorage.getItem(CHATS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
+}
 
 function saveHistory() {
+  if (!TURNS.length) return;
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(TURNS.slice(-HISTORY_MAX)));
+    const chats = allChats().filter(c => c.id !== CHAT_ID);
+    const firstUser = TURNS.find(t => t.role === 'user');
+    chats.unshift({
+      id: CHAT_ID,
+      title: (firstUser?.text || 'Untitled').slice(0, 60),
+      at: Date.now(),
+      turns: TURNS.slice(-TURNS_MAX),
+    });
+    localStorage.setItem(CHATS_KEY, JSON.stringify(chats.slice(0, CHAT_MAX)));
+    // Tell the sidebar to re-render its list; it was built at load time.
+    window.dispatchEvent(new Event('kestrel:chats'));
   } catch (e) { /* private mode or quota - history is a convenience, not state */ }
 }
 
 function loadHistory() {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (e) { return []; }
+  const chat = allChats().find(c => c.id === CHAT_ID);
+  return chat ? chat.turns : [];
 }
 const bar      = document.getElementById('bar');
 const go       = document.getElementById('go');
@@ -546,8 +582,31 @@ async function ask(q) {
       renderSources(bubble.parentElement, sources);
       SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
       LAST = { q, text };
-      buildActions();
+
+      // Mount the action panel inside the FIRST answer only, once. It then stays
+      // put while follow-ups stack below it, which is what makes the thread read
+      // in order rather than trailing a panel at the bottom of the page.
+      if (!document.getElementById('actions')) {
+        const panel = document.createElement('div');
+        panel.id = 'actions';
+        panel.innerHTML =
+          '<div class="acts-head"><span class="label">Do something with this</span>' +
+          '<button class="dismiss" type="button" title="Hide">×</button></div>' +
+          '<div class="acts" id="actlist"></div>';
+        panel.querySelector('.dismiss').addEventListener('click', () => {
+          panel.remove();
+        });
+        bubble.parentElement.appendChild(panel);
+      }
+      buildActions(document.getElementById('actlist'));
       document.getElementById('actions').style.display = 'block';
+
+      // If the question asked for a mail, produce it there and then rather than
+      // making the user find the button. Copy and Open-in-mail come with it.
+      if (DRAFT_INTENT.test(q)) {
+        showDraft('email', 'Email draft');
+        document.getElementById('draft').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
       threadBar.style.display = 'flex';
       turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
       saveHistory();
@@ -591,7 +650,12 @@ document.getElementById('export-txt')?.addEventListener('click', () =>
   download('kestrel-conversation.txt', transcript('txt')));
 document.getElementById('clear-chat')?.addEventListener('click', () => {
   TURNS.length = 0;
-  try { localStorage.removeItem(HISTORY_KEY); } catch (e) {}
+  try {
+    // Remove only this conversation. Wiping every chat would be a surprising
+    // amount of destruction for a button that sits inside one chat.
+    const rest = allChats().filter(c => c.id !== CHAT_ID);
+    localStorage.setItem(CHATS_KEY, JSON.stringify(rest));
+  } catch (e) {}
   threadEl.innerHTML = '<div class="placeholder" id="empty">Ask a question to start. Follow-ups keep the thread.</div>';
   threadBar.style.display = 'none';
   document.getElementById('actions').style.display = 'none';
@@ -735,8 +799,11 @@ function showDraft(kind, label) {
   draftBody.scrollTop = 0;
 }
 
-function buildActions() {
-  const list = document.getElementById('actlist');
+// The panel is built into whichever element is passed, so it can live inside the
+// first answer instead of at the end of the page.
+function buildActions(host) {
+  const list = host || document.getElementById('actlist');
+  if (!list) return;
   list.innerHTML = '';
   ACTIONS.forEach(a => {
     const b = document.createElement('button');

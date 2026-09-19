@@ -23,6 +23,7 @@
   const params = new URLSearchParams(location.search);
   const brain = params.get('brain') || params.get('dataset') || '';
   const qs = brain ? '?brain=' + encodeURIComponent(brain) : '';
+  const currentChat = params.get('chat') || '';
 
   const path = location.pathname.replace(/\/+$/, '') || '/';
   const PAGES = [
@@ -44,6 +45,45 @@
       '<span class="badge" style="margin:0 0 0 2px">' + brain + '</span></div>'
     : '';
 
+  // Conversation list. Stored by index.html under kestrel.chats.<brain>; read
+  // here so the sidebar can list and switch between past chats the way a chat
+  // app does. Failures are swallowed - the sidebar must never break a page.
+  function chatList() {
+    try {
+      const raw = localStorage.getItem('kestrel.chats.' + (brain || 'demo'));
+      const all = raw ? JSON.parse(raw) : [];
+      return all.slice().sort((a, b) => (b.at || 0) - (a.at || 0));
+    } catch (e) { return []; }
+  }
+
+  function renderChats() {
+    const box = document.getElementById('sb-chats');
+    if (box) box.innerHTML = chatGroup();
+  }
+
+  function chatGroup() {
+    const chats = chatList();
+    const sep = qs ? '&' : '?';
+    let html = '<div class="nav-label">Chats</div>' +
+      '<a class="nav-item" href="/' + (qs || '') + '">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+      'stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>' +
+      '<span>New chat</span></a>';
+
+    if (!chats.length) {
+      html += '<div class="chat-empty">No saved chats yet</div>';
+      return html;
+    }
+    chats.slice(0, 12).forEach(c => {
+      const active = c.id === currentChat ? ' active' : '';
+      const title = (c.title || 'Untitled').replace(/[<>&"]/g, '');
+      html += '<a class="nav-item chat-item' + active + '" href="/' + (qs || '?') +
+              sep + 'chat=' + encodeURIComponent(c.id) + '" title="' + title + '">' +
+              '<span class="chat-title">' + title.slice(0, 30) + '</span></a>';
+    });
+    return html;
+  }
+
   const shell = document.createElement('aside');
   shell.className = 'shell';
   shell.innerHTML =
@@ -54,6 +94,7 @@
     '</div>' +
     '<nav class="nav">' +
       '<div class="nav-label">Workspace</div>' + links + brainRow +
+      '<div id="sb-chats"></div>' +
     '</nav>' +
     '<div class="sb-foot">' +
       '<div class="row"><span class="led" id="sb-led"></span>' +
@@ -70,6 +111,14 @@
 
   document.body.insertBefore(toggle, document.body.firstChild);
   document.body.insertBefore(shell, document.body.firstChild);
+
+  renderChats();
+  // index.html dispatches this after saving; the sidebar is otherwise built once
+  // at load and a new conversation would not appear until a reload.
+  window.addEventListener('kestrel:chats', renderChats);
+  window.addEventListener('storage', e => {
+    if (!e.key || e.key.indexOf('kestrel.chats.') === 0) renderChats();
+  });
 
   // Status LED. "healthy" alone is not enough — the tenant's /health is
   // unauthenticated, so only claim ok when the authenticated probe passed.

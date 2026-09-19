@@ -130,6 +130,17 @@ body {
 .led.ok { background: var(--good); box-shadow: 0 0 9px rgba(110,231,160,.55); }
 .led.bad { background: var(--bad); box-shadow: 0 0 9px rgba(240,138,138,.55); }
 
+/* Saved conversations, listed like a chat app. */
+.nav-item.chat-item { padding-left: 12px; }
+.nav-item.chat-item .chat-title {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px;
+}
+.nav-item.chat-item.active { background: var(--panel-3); }
+.chat-empty {
+  padding: 8px 12px; font-size: 12px; color: var(--muted-2); font-style: italic;
+}
+
 /* ------------------------------------------------------------------ main */
 .app-main { margin-left: var(--sb-w); min-height: 100%; padding: 44px 44px 84px; }
 .wrap { max-width: 880px; margin: 0 auto; }
