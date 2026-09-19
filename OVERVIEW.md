@@ -122,10 +122,14 @@ exactly **219 nodes / 500 edges**, rather than re-ingesting and risking a differ
 - **Dropped the Cognee SDK from the deploy** — same HTTP API via a light `requests` client.
   Smaller image, faster build, fewer failure modes, identical behaviour.
 - **`mock | cloud` provider adapter** — a dead network cannot kill a live demo.
-- **Graph pre-built, never ingested on stage** — ingestion is the slowest, least
-  predictable step.
-- **Explicit kill list** — no connectors, no auth, no multi-tenancy, no live ingestion, no
+- **The demo graph is pre-built; the upload is a separate, optional beat** — ingestion is the
+  slowest, least predictable step, so the four demo questions never depend on it. The upload
+  path is demonstrated on its own, measured at ~34s for 3 files.
+- **Explicit kill list** — no connectors, no auth, no per-user isolation, no billing, no
   fine-tuning. Scope & Prioritisation is worth 5 points on its own.
+- **One dashboard, many brains** — `?dataset=` on every read route. `COGNEE_DATASET` used to be
+  read at process start, which bound the app to a single brain; that refactor is what makes the
+  upload feature meaningful rather than decorative.
 - **Health checks must be able to fail** — the upstream `/health` was unauthenticated and
   reported healthy with a dead key, so it was replaced in the critical path by an
   authenticated probe. A check you have never seen fail is not evidence of anything.

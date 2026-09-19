@@ -124,7 +124,7 @@ fan-out. This makes the architecture claim self-evidencing instead of rhetorical
 | # | Feature | Moves | Effort | Notes |
 |---|---|---|---|---|
 | 2.1 | **"Not in the graph" path** — when recall finds nothing, say so explicitly instead of producing fluent filler | Reliability, Technical Implementation | low | Directly answers the judge's sharpest question. High value per minute. |
-| 2.2 | **Read-only brain switcher** — a dropdown that points the app at a second pre-seeded dataset | Scalability, System Architecture | medium | The honest, cheap version of the platform story. Requires reworking `COGNEE_DATASET` from a startup env var into a per-request parameter — see §6. |
+| 2.2 | ~~Read-only brain switcher~~ — **BUILT** | Scalability, System Architecture | done | `?dataset=` on every read route, plus the `/brains` dashboard. The per-request refactor it required is in `app.py`. |
 | 2.3 | **Subgraph highlight after answering** — dim the graph to only the nodes the answer traversed | Technical Implementation, Scalability | medium | Visually proves the graph is doing work, not decoration. |
 | 2.4 | **Timeline / entity resolution view** — the same entity with conflicting attributes shown over time | Problem Clarity | medium | Generalises the contradiction catch into a reusable view. |
 | 2.5 | **Live verification page** — surface smoke/warmup results in the UI | Reliability | low | Turns your test suite into demo evidence. |
@@ -139,15 +139,15 @@ brains". They are **real business features** and **scored liabilities** in the c
 
 | # | Feature | Why it is not now |
 |---|---|---|
-| 3.1 | **File upload → brain creation** (`POST /api/brains`, multipart, async ingest, progress) | Needs a document parser, a job queue, a progress UI, and failure handling — none tested. The app currently has **zero write endpoints**. |
-| 3.2 | **Real auth + per-tenant isolation** | No rubric line. Any mid-demo breakage costs Reliability. |
+| 3.1 | ~~File upload → brain creation~~ — **BUILT** | Shipped: `POST /api/brains` with a real parser (`documents.py`), progress streaming, and per-file failure reporting. Verified end to end in 34.1s. |
+| 3.2 | **Real auth + per-tenant isolation** | Still the biggest genuine gap. Brains are global to the tenant; there is no "my brains". No rubric line, but it is the first thing a product-minded judge will ask. |
 | 3.3 | **Connector sync** (Drive, Slack, Notion, Jira) | OAuth flows. W.Brain already ships these; matching them is not differentiation. |
 | 3.4 | **COGX export/import** | Portability. Cognee 1.0 parity, not an edge. |
 | 3.5 | **Brain sharing and permissions** | Depends on 3.2. |
 | 3.6 | **Scheduled re-ingest / drift detection** — "this contract changed since last week" | Genuinely compelling, genuinely large. The strongest post-event idea here. |
 | 3.7 | **Billing and plan tiers** | Premature by definition. |
 | 3.8 | **Audit log** — who asked what, and what it saw | Enterprise requirement, not a demo feature. |
-| 3.9 | **Retention and deletion UI** | The API supports it (see §6), the UI does not. |
+| 3.9 | **Retention policy** | Deleting a brain is now possible from the UI; what is missing is a policy, a TTL, and an audit trail. |
 
 ---
 
@@ -171,60 +171,68 @@ Each of these has been considered and rejected for a specific reason:
 You asked me to state precisely what we have and what we do not. This section is the answer,
 with the evidence.
 
-### 6.1 The headline
+### 6.1 The headline — this changed
 
-**There is no dataset-upload feature. There is no way for a user to create a company brain
-through the application.** The web tier has **six routes, and every single one is a GET**:
+**An earlier revision of this document stated that no upload feature existed. That is no longer
+true: it was built and verified.** The web tier went from six GET routes with no write path to a
+full create / list / delete surface.
 
-```
-app.py:60   @app.get("/health")
-app.py:97   @app.get("/api/ask")      ?q=<question>
-app.py:113  @app.get("/api/graph")
-app.py:123  @app.get("/api/stats")
-app.py:143  @app.get("/")
-app.py:148  @app.get("/graph")
-```
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/health` | health + authenticated tenant probe |
+| GET | `/api/ask?q=&dataset=` | streamed answer, any brain |
+| GET | `/api/graph?dataset=` | graph, any brain |
+| GET | `/api/stats?dataset=` | node/edge counts, any brain |
+| GET | `/api/brains` | list every brain |
+| **POST** | `/api/brains` | **create a brain from uploaded files** |
+| GET | `/api/brains/{name}/events` | ingestion progress (NDJSON) |
+| **DELETE** | `/api/brains/{name}` | remove a brain |
+| GET | `/` `/graph` `/brains` `/upload` | pages; `?brain=` scopes the first two |
 
-**Not one POST. Not one PUT. Not one DELETE.** The application is read-only.
+The load-bearing change underneath it: `COGNEE_DATASET` used to be read at **process start**, so
+the app was bound to one dataset. Every read route now takes `?dataset=`, which is what lets a
+single dashboard serve every brain.
 
 ### 6.2 What we HAVE
 
 | Capability | Where | Notes |
 |---|---|---|
-| Text ingestion into a named dataset | `cognee_cloud.remember()` → outbound `POST /api/v1/remember` | Multipart with a **text field** (`raw_data=<text>`), not a file upload |
-| Per-brain isolation **as a parameter** | `ingest.py --dataset X`; `COGNEE_DATASET` env var; `pipeline.py` accepts a `dataset` kwarg | This is real and it works |
-| Multi-tenant fan-out, demonstrated | `ingest_corpus` across 3 ephemeral containers into isolated datasets | The architecture-level capability is proven |
-| Dataset listing | `cognee_cloud.datasets()` (`cognee_cloud.py:153`) | One call away from a "your brains" list |
-| Dataset deletion | `wf_smoke.py:165 delete_scratch()` — a raw `requests.delete`, written as test cleanup | Exists, but as a test helper, not an API |
-| Data-item deletion | `DELETE /api/v1/datasets/{id}/data/{data_id}` — used once, documented in `OVERVIEW.md:88` | A one-off repair, **not committed as a function** |
-| Document listing / raw retrieval | `GET /api/v1/datasets/{id}/data` and `.../raw` | Used during the junk-node repair; not exposed in the app |
+| **File upload → brain creation** | `POST /api/brains` (`app.py`) | Multipart: a name plus up to 20 files |
+| **Document parsing** | `documents.py` | PDF (pypdf), DOCX (python-docx), TXT, MD, CSV, JSON. Verified **25/25** in `test_documents.py` |
+| **Per-request dataset** | `?dataset=` on `/api/ask`, `/api/graph`, `/api/stats` | Was a process-start env var. This is the refactor that makes multi-brain work at all |
+| **Brain listing** | `GET /api/brains` → `cognee_cloud.datasets()` | The dashboard shows per-brain node/edge counts |
+| **Brain deletion** | `DELETE /api/brains/{name}` → `cognee_cloud.delete_dataset()` | Refuses the demo dataset **in code**, not in a comment |
+| **Ingestion progress in the UI** | `GET /api/brains/{name}/events` | Streams real pipeline states: `DATASET_PROCESSING_STARTED` → `DATASET_PROCESSING_COMPLETED` |
+| Per-brain isolation | `ingest.py --dataset X`; the upload path | Demonstrated across 3 ephemeral containers |
+| Guards | `app.py` | Name normalisation + validation; reserved names rejected; existing brain refused (409) rather than silently merged into; 5 MB/file, 20 files, 500k chars |
+| Data-item deletion | `DELETE /api/v1/datasets/{id}/data/{data_id}` | Used for the junk-node repair; still not exposed in the app |
 | A committed corpus | `corpus/` — 10 documents | Ingested by CLI **before** the app starts |
 
-### 6.3 What we DO NOT have
+### 6.3 What we still DO NOT have
 
 | Missing | Evidence |
 |---|---|
-| **Any upload endpoint** | No POST/PUT route exists. `grep` for `UploadFile`, `multipart`, `FormData` across the repo returns **only** the outbound comment in `cognee_cloud.py:16` and two `FileResponse` uses for serving HTML. |
-| **Any file input in the UI** | `static/index.html` contains exactly one `<input>` (`id="q"`, a text field) and one `<button>` (`id="go"`). No `<input type="file">`, no drag-and-drop, no `<select>`. |
-| **Any document parser** | No `pypdf`, no `python-docx`, no `openpyxl`, no CSV handling anywhere. `requirements.txt` has none. |
-| **A "create a brain" flow** | No route, no form, no concept of a user-owned brain in the UI. |
-| **A brain switcher** | `COGNEE_DATASET` is read at **process start** (`app.py:66`, `app.py:138`). The running web app is bound to **one** dataset and cannot serve two brains simultaneously. |
-| **Ingestion progress in the UI** | Ingestion is CLI-only and happens before the app launches. |
-| **User-triggered workflows** | Render Workflows is invoked via `render workflows start` from the CLI — the web tier cannot trigger it. |
-| **Any auth, account, or session** | None. Every route is anonymous. |
-| **Retention / deletion UI** | The API supports both; the app exposes neither. |
+| **Any auth, account, or session** | None. Every route is anonymous — including `POST` and `DELETE`. Anyone with the URL can create or delete a brain. Fine for a hackathon; not for a product. |
+| **Per-user isolation** | Brains are global to the tenant. There is no notion of "my brains" versus "yours". |
+| **Connectors** | No Slack, Drive, Jira or Notion. Ingestion is manual upload only. |
+| **Web-triggered workflows** | The upload path ingests **directly** via `memory_layer.remember`, not through the Render Workflow tier. Deliberate: the web tier already holds the tenant credential, so routing through a workflow would add latency and a second credential path for no gain. The workflow tier remains demonstrated by `ingest.py`, `pipeline.py` and `wf_smoke.py`. |
+| **Billing / plans** | None. |
+| **Retention policy** | You can delete a brain, but there is no policy, TTL, or audit trail. |
+| **Code in the demo corpus** | The PS-2 Challenge paragraph mentions code. The upload path accepts it as plain text, but `corpus/` has none. See `REQUIREMENTS.md` §5. |
+| **OCR** | A scanned PDF is detected and refused with a clear message rather than silently ingesting nothing. That is honest, but it is not reading the scan. |
 
 ### 6.4 The precise distinction to hold in your head
 
-> **Per-brain isolation exists as a CLI/workflow parameter. It does not exist as a user-facing
-> feature.**
+> **Per-brain isolation is now a user-facing feature. What remains missing is the multi-user
+> layer around it: accounts, auth and per-user scoping.**
 
-The multi-tenant *capability* is real — `--dataset X` scopes ingestion and query, and it was
-demonstrated across three isolated containers. What is missing is the *product surface*: no
-upload, no parser, no brain list, no switcher, no accounts.
+The distinction moved. Previously the honest statement was "you can claim the architecture, you
+cannot claim the workflow." Today you can claim both — a person can upload documents and query
+the resulting brain in the same dashboard as the demo brain. What you still cannot claim is that
+two *different* people using it would be isolated from each other, because there are no accounts.
 
-This distinction is why the platform reframe is defensible in a pitch and why the upload
-feature is correctly deferred. You can claim the architecture. You cannot claim the workflow.
+That is a much stronger position, and a much easier gap to defend: "no auth" is a scope decision,
+whereas "no upload" would have been a missing feature.
 
 ---
 
@@ -232,22 +240,30 @@ feature is correctly deferred. You can claim the architecture. You cannot claim 
 
 If asked "so can I upload my company's documents?":
 
-> "The ingestion path is real and runs through a durable workflow — we demonstrated it fanning
-> out across three containers into isolated datasets. What we deliberately did not build in a
-> three-hour window is the upload surface around it: the parser, the job queue, and the
-> per-tenant accounts. We chose a working, verified pipeline over a half-finished signup form."
+> "Yes — try it. Drop your files on the upload page and you have a queryable brain in about a
+> minute. We verified it end to end: four documents in, 40 nodes and 64 edges out, answering
+> from the content with citations. What we did not build is the multi-user layer around it —
+> accounts, per-user scoping, connectors, billing. We chose a working ingestion path over a
+> half-finished signup form."
 
 That answer scores. A broken upload button does not.
 
 ---
 
-## 8. Recommendation
+## 8. Recommendation — updated after the upload path was built
 
-**Build Tier 1.1 (Contradiction Report) and Tier 1.3 (latency indicator) if you build anything.**
+Tier 1.1 (Contradiction Report) is still the highest-value **unbuilt** item: it is the one thing
+a vector-search competitor structurally cannot do, and it costs well under an hour.
 
-Together they cost well under an hour, they are additive rather than invasive, and they move
-four scored lines. They also both make a claim you have *already proven* visible to a judge who
-has not read your code.
+But the priority order has changed now that the upload path exists. **The upload demo is now the
+riskiest thing you own**, because it is the only part of the system whose happy path depends on a
+live LLM extraction completing, on a tenant you do not control, in front of an audience.
 
-Then stop, and spend the remaining time on the thing that actually decides the score:
-**running `warmup.py` until all four questions are green, twice in a row.**
+So the order is:
+
+1. **Rehearse the upload against the real tenant and time it.** Measured at ~34s end to end for
+   3 files. Know the number before you promise it out loud.
+2. **Run `warmup.py` until all four demo questions are green twice in a row.**
+3. Only then consider the Contradiction Report.
+
+Do not add a fourth moving part on the day.

@@ -97,15 +97,15 @@ rather than a search box.
 > And that same property hands you the platform for free. **A brain is a dataset** — separate
 > graph, separate index, separate storage. Adding a customer adds containers, not architecture.
 >
-> What we deliberately did *not* build is the part that isn't engineering: signup, billing,
-> SSO. **The platform is the shape of the system, not a feature we ran out of time for.**"
+> So we went further: **anyone can upload their own documents and get their own queryable
+> brain.** What we didn't build is the accounts layer — signup, SSO, billing."
 
 ### 4:00 — Scope & Prioritisation (45s)
 
 > "And here is what we deliberately did **not** build.
 >
-> No Slack, GitHub or Linear connectors. No auth, no multi-tenancy, no admin panel. No
-> live ingestion on stage. No fine-tuning, no custom embeddings, no agent swarms.
+> No Slack, GitHub or Linear connectors. No accounts, no SSO, no per-user isolation. No
+> fine-tuning, no custom embeddings, no agent swarms, no admin panel.
 >
 > Every one of those is a real feature. We chose not to have them so the ones we did
 > build would work. Three hours, one builder — the kill list *is* the deliverable."
@@ -181,22 +181,27 @@ either way, and both render correctly. So do not promise a table on stage. Point
 > The application code does not change.
 
 **"Isn't this just a single-tenant demo? Where's the multi-tenancy?"**
-> It is already multi-tenant; it just has no signup form. A brain is a dataset — separate graph,
-> separate vector index, separate storage, nothing shared. We proved it: three documents, three
-> ephemeral containers, three isolated datasets, one shared graph, six seconds. What is missing
-> is billing and SSO, which is product work rather than architecture — and deliberately out of
-> scope for a three-hour build.
+> It is multi-tenant, and you can watch it happen. A brain is a dataset — separate graph,
+> separate vector index, separate storage, nothing shared. We proved it twice: three documents
+> fanned out across three ephemeral containers into three isolated datasets; and there is a
+> live upload page — drop your own files in, get your own brain, query it in the same
+> dashboard. What's missing is the accounts layer: signup, SSO, per-user isolation. That is
+> product work rather than architecture, and it was the deliberate cut.
 
 **"What happens if the network dies?"**
 > `/health` reports `upstream: unreachable`. And the memory layer falls back to the mock
 > provider, which serves committed fixtures offline. One environment variable.
 
 **"How do you know this will actually work on stage?"**
-> Three layers. The graph is pre-built, so nothing is generated live. `warmup.py` rehearses
-> all four demo questions and times them — anything slow or ungrounded surfaces before we
-> walk on. And `/health` runs an *authenticated* probe, because we found the tenant's own
-> health endpoint is unauthenticated: it reported everything healthy while every query
-> returned 401. A check that cannot fail is not a check.
+> Three layers. The four demo questions run against a pre-built graph, so nothing is generated
+> live. `warmup.py` rehearses all four demo questions and times them — anything slow or
+> ungrounded surfaces before we walk on. And `/health` runs an *authenticated* probe, because
+> we found the tenant's own health endpoint is unauthenticated: it reported everything healthy
+> while every query returned 401. A check that cannot fail is not a check.
+>
+> The one live step is the upload, if we demo it. That one does depend on a real extraction
+> completing, which is why we measured it — about 34 seconds for three files — instead of
+> assuming it.
 
 **"Did you build the graph view?"**
 > We render it ourselves from `/api/graph` — force-directed, coloured by node type. The

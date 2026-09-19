@@ -108,8 +108,10 @@ Say these out loud once so they are not invented on stage.
 > audit, compliance.
 
 **"How long did this take?"**
-> Three hours, one builder. And the list of what we deliberately did *not* build is the
-> deliverable — no connectors, no auth, no multi-tenancy, no live ingestion, no fine-tuning.
+> Three hours, one builder. And the list of what we deliberately did *not* build is part of the
+> deliverable — no connectors, no accounts, no per-user isolation, no billing, no fine-tuning.
+> What we *did* build beyond the core is the upload path, so you can create your own brain
+> rather than only query ours.
 
 ---
 
