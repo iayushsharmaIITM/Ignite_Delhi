@@ -119,6 +119,26 @@ python app.py             # http://127.0.0.1:8000
 | `/api/ask?q=` | NDJSON event stream: `chunk`, `references`, `stage` |
 | `/api/graph` · `/api/stats` | Graph data and node/edge counts |
 
+### Verifying it
+
+Three scripts, in increasing scope. All are safe to run at any time — the workflow probe
+uses a throwaway scratch dataset and provably never touches the demo graph.
+
+```bash
+python smoke.py        # web tier: health, graph, streamed answer with citations
+python wf_smoke.py     # workflow tier: fan-out + chained ctx.run
+python warmup.py       # pre-demo rehearsal: every component, all 4 questions timed
+```
+
+`smoke.py` and `warmup.py` accept `--base` to target a deployed URL.
+`wf_smoke.py` needs `render workflows dev -- python pipeline.py` running in another terminal.
+
+`wf_smoke.py` exists for a specific reason: the workflow tier previously had no script, so
+verifying it meant hand-typed `render workflows start` commands — and one of those silently
+wrote junk into the demo graph. It now always targets a unique scratch dataset, refuses to run
+if that name could collide with `COGNEE_DATASET`, and deletes the scratch dataset in a
+`finally` block even when a probe fails.
+
 ### Finding your tenant URL
 
 ```bash
@@ -196,6 +216,10 @@ cognee_cloud.py    The only file that talks to Cognee Cloud (dependency-light)
 memory_layer.py    mock | cloud adapter — the demo safety net
 pipeline.py        Render Workflow tasks (ingest fan-out, retrieve, answer)
 ingest.py          Builds the graph from corpus/ — run once, ahead of time
+smoke.py           Web-tier check: health, graph, streamed answer with citations
+wf_smoke.py        Workflow-tier check: fan-out + chained ctx.run (scratch dataset only)
+warmup.py          Pre-demo rehearsal — every component, all 4 questions timed
+fixtures/          Offline answers + a graph snapshot for the no-network path
 corpus/            10 synthetic company documents
 static/            UI (index.html) and graph view (graph.html)
 ```
@@ -209,6 +233,14 @@ Each of these cost real debugging time and is commented at the point it matters:
    `"completed"` never fires and the poll loops until it times out.
 3. Querying mid-ingest returns a confident wrong answer, not an error.
 4. Reading config at import time breaks any caller that loads `.env` afterwards.
+5. The tenant's `/health` is **unauthenticated** — it reports healthy with a dead key. Probe an
+   authenticated endpoint as well, or the check cannot fail.
+6. `/api/graph` and `/api/stats` bypassed the provider adapter, so a dead network broke the
+   graph view and the footer count while the ask path kept working — a confusing half-failure.
+7. `render workflows start` spreads a **bare** JSON object as keyword arguments. Wrap it in an
+   array and it arrives as the first positional argument — so a `list` parameter silently
+   becomes a dict, and `for x in it` iterates the **keys**. This ingested the literal strings
+   `"dataset"` and `"documents"` and reported success. `pipeline.py` now type-guards the input.
 
 ---
 
