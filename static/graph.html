@@ -37,6 +37,15 @@
          justify-content:center; color:#f27a7a; font-size:15px; text-align:center;
          padding:40px; }
 </style>
+<link rel="stylesheet" href="/static/shell.css">
+<style>
+  /* The graph is full-bleed, so it makes room for the shared sidebar itself. */
+  @media (min-width: 821px) {
+    canvas { width: calc(100vw - var(--sb-w)); margin-left: var(--sb-w); }
+    .hud, .panel { left: calc(var(--sb-w) + 22px); }
+    .err { left: var(--sb-w); }
+  }
+</style>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -238,5 +247,6 @@ fetch(GRAPH_URL).then(r => r.json()).then(g => {
     `<div class="err">Could not load the graph: ${err.message}</div>`);
 });
 </script>
+<script src="/static/shell.js"></script>
 </body>
 </html>

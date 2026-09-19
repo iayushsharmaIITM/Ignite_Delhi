@@ -270,18 +270,29 @@ def delete_dataset(name: str) -> bool:
 # --------------------------------------------------------------------------
 
 def remember(text: str, name: Optional[str] = None, node_set: Optional[list] = None,
-             run_in_background: bool = True) -> dict:
+             run_in_background: bool = True, filename: Optional[str] = None) -> dict:
     """Ingest one document. Returns the pipeline status payload.
 
     `run_in_background=True` is what lets us fan ingestion out across parallel
     Render task runs — each container fires and forgets, and the graph lands in
     the tenant instance where the next container can see it.
+
+    `filename` is stored as the data item's name. Without it Cognee invents
+    `text_<hash>`, and evidence then cites a document nobody can identify —
+    citations.py can still match by content, but only against files it already
+    knows. Sending the real name is what lets a genuinely new upload cite itself.
     """
     data: dict[str, Any] = {"datasetName": name or dataset()}
     if run_in_background:
         data["run_in_background"] = "true"
     if node_set:
         data["node_set"] = node_set
+    # Sent as its own field, NOT as the multipart filename. The tenant validates
+    # `raw_data` as a plain string and rejects a (filename, content) tuple with
+    # `422 string_type` — which fails the whole ingest, so this must stay a
+    # separate field even though the filename belongs to the same document.
+    if filename:
+        data["filename"] = filename
 
     resp = requests.post(
         f"{_base()}/api/v1/remember",

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kestrel Company Brain</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>◆</text></svg>">
+<link rel="stylesheet" href="/static/shell.css">
 <style>
   :root {
     --bg:#0f1115; --panel:#171a21; --panel-2:#1c2029; --line:#262b36;
@@ -143,7 +144,8 @@
 </style>
 </head>
 <body>
-<main>
+<div class="app-main">
+<div class="wrap">
   <header>
     <h1><span class="mark">◆</span>Kestrel Company Brain</h1>
     <p class="sub">Company knowledge is scattered across contracts, tickets, meetings and
@@ -194,14 +196,11 @@
   </section>
 
   <footer>
-    <span class="pill"><span class="led" id="led"></span><span id="prov">connecting…</span></span>
-    <span class="pill" id="stats">graph: —</span>
-    <span class="pill"><a id="graphlink" href="/graph">graph view</a></span>
-    <span class="pill"><a href="/brains">brains</a></span>
-    <span class="pill"><a href="/upload">new brain</a></span>
+    <span class="pill"><a id="graphlink" href="/graph">Open the graph view →</a></span>
     <span class="pill"><a href="/health">/health</a></span>
   </footer>
-</main>
+</div>
+</div>
 
 <script>
 // ---------------------------------------------------------------------------
@@ -263,32 +262,8 @@ if (BRAIN) {
   });
 }
 
-fetch('/health').then(r => r.json()).then(d => {
-  // "healthy" alone is not enough: the tenant's /health is unauthenticated, so
-  // it reports healthy even with a wrong key. Only claim ok when the
-  // authenticated probe also passed.
-  const ok = d.provider === 'mock' ||
-             (d.upstream === 'healthy' && d.auth !== 'failed');
-  document.getElementById('led').className = 'led ' + (ok ? 'ok' : 'bad');
-
-  let label = d.provider;
-  if (d.auth === 'failed') label += ' · key rejected';
-  else if (d.upstream) label += ' · ' + d.upstream;
-  document.getElementById('prov').textContent = label;
-  document.getElementById('prov').title = d.auth_error || d.upstream_error || '';
-}).catch(() => {
-  document.getElementById('led').className = 'led bad';
-  document.getElementById('prov').textContent = 'unreachable';
-});
-
-fetch('/api/stats' + qs()).then(r => r.json()).then(d => {
-  const el = document.getElementById('stats');
-  // An uploaded brain can legitimately have no graph yet — ingestion runs in
-  // the background — so say that instead of leaving a dash that reads as a
-  // failure. The demo brain never hits this because of the fixture fallback.
-  if (!d.ok) { el.textContent = 'graph: not ready'; return; }
-  el.textContent = 'graph: ' + d.nodes + ' nodes · ' + d.edges + ' edges';
-}).catch(() => {});
+// Health and graph counts now live in the shared sidebar (static/shell.js), so
+// there is one implementation of that logic instead of one per page.
 
 document.getElementById('f').addEventListener('submit', e => {
   e.preventDefault();
@@ -601,5 +576,6 @@ document.getElementById('mailbtn').addEventListener('click', () => {
                          '&body=' + encodeURIComponent(body);
 });
 </script>
+<script src="/static/shell.js"></script>
 </body>
 </html>

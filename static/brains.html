@@ -65,9 +65,11 @@
   code { background:var(--panel-2); padding:2px 6px; border-radius:5px; font-size:12px;
          font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
 </style>
+<link rel="stylesheet" href="/static/shell.css">
 </head>
 <body>
-<main>
+<div class="app-main">
+<div class="wrap">
   <header>
     <h1><span class="mark">◆</span>Brains</h1>
     <p class="sub">Every knowledge graph on this tenant. The demo brain is pre-built;
@@ -86,7 +88,8 @@
     <a href="/upload">new brain</a>
     <a href="/health">/health</a>
   </footer>
-</main>
+</div>
+</div>
 
 <script>
 const listEl = document.getElementById('list');
@@ -203,5 +206,6 @@ async function loadStats(name, el, isDemo) {
   }
 })();
 </script>
+<script src="/static/shell.js"></script>
 </body>
 </html>

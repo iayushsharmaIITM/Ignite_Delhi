@@ -86,9 +86,11 @@
   code { background:var(--panel-2); padding:2px 6px; border-radius:5px; font-size:12px;
          font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
 </style>
+<link rel="stylesheet" href="/static/shell.css">
 </head>
 <body>
-<main>
+<div class="app-main">
+<div class="wrap">
   <header>
     <h1><span class="mark">◆</span>Build a company brain</h1>
     <p class="sub">Upload your own documents. Each file is read, chunked and turned into a
@@ -128,7 +130,8 @@
     <a href="/brains">all brains</a>
     <a href="/health">/health</a>
   </footer>
-</main>
+</div>
+</div>
 
 <script>
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -336,5 +339,6 @@ async function follow(name) {
 
 refresh();
 </script>
+<script src="/static/shell.js"></script>
 </body>
 </html>

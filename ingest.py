@@ -88,7 +88,7 @@ async def ingest_sequential(docs, name):
     for i, (filename, text) in enumerate(docs, 1):
         t0 = time.time()
         try:
-            await asyncio.to_thread(cc.remember, text, name)
+            await asyncio.to_thread(cc.remember, text, name, None, True, filename)
             print(f"  [{i}/{len(docs)}] {filename} -> queued ({time.time() - t0:.1f}s)",
                   flush=True)
         except Exception as exc:  # noqa: BLE001
@@ -106,7 +106,7 @@ async def ingest_parallel(docs, name, workers):
         async with sem:
             t0 = time.time()
             try:
-                await asyncio.to_thread(cc.remember, text, name)
+                await asyncio.to_thread(cc.remember, text, name, None, True, filename)
                 async with lock:
                     done += 1
                     print(f"  [{done}/{len(docs)}] {filename} -> queued "

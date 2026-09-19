@@ -46,17 +46,21 @@ def _cloud_configured() -> bool:
 PROVIDER = os.getenv("PROVIDER") or ("cloud" if _cloud_configured() else "mock")
 
 
-async def remember(text: str, dataset: str | None = None) -> None:
+async def remember(text: str, dataset: str | None = None,
+                   filename: str | None = None) -> None:
     """Store text as memory. Builds the knowledge graph under the hood.
 
     `dataset=None` targets COGNEE_DATASET. Pass an explicit name to exercise a
     scratch dataset without touching the demo graph.
+
+    `filename` becomes the stored document's name, so later evidence can cite
+    the file the user actually uploaded instead of `text_<hash>`.
     """
     if PROVIDER == "mock":
         return
     import cognee_cloud
 
-    await asyncio.to_thread(cognee_cloud.remember, text, dataset)
+    await asyncio.to_thread(cognee_cloud.remember, text, dataset, None, True, filename)
 
 
 def default_dataset() -> str:

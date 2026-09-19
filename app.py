@@ -37,12 +37,17 @@ except ImportError:  # dotenv is optional; env vars still work
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile  # noqa: E402
 from fastapi.responses import FileResponse, StreamingResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 import documents  # noqa: E402
 import memory_layer  # noqa: E402
 from memory_layer import recall  # noqa: E402
 
 app = FastAPI(title="Kestrel Company Brain")
+
+# One shared stylesheet and sidebar for every page. Serving them from /static
+# means the shell is written once instead of pasted into four HTML files.
+app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
 
 GRAPH_FIXTURE = os.path.join(HERE, "fixtures", "graph.json")
 
@@ -363,7 +368,9 @@ async def create_brain(
 
     async def ingest(doc: dict) -> dict:
         try:
-            await memory_layer.remember(doc["text"], safe)
+            # Pass the real filename so this brain's citations can name the file
+            # the user uploaded, rather than a generated text_<hash>.
+            await memory_layer.remember(doc["text"], safe, doc["name"])
             return {"name": doc["name"], "ok": True, "chars": doc["chars"]}
         except Exception as exc:  # noqa: BLE001 - report, never abort the batch
             return {"name": doc["name"], "ok": False, "error": str(exc)[:200]}
@@ -385,6 +392,17 @@ async def create_brain(
             status_code=502,
             detail=f"None of the documents could be ingested. {reasons}",
         )
+
+    # Record which filenames went into this brain so its answers can cite the
+    # files the user actually chose. The tenant will not store document names
+    # for us — `remember` accepts a `filename` field and silently ignores it —
+    # so this local manifest is the only way an uploaded brain can cite itself.
+    try:
+        import citations
+
+        await asyncio.to_thread(citations.record_upload, safe, docs)
+    except Exception:  # noqa: BLE001 - never fail a successful upload over this
+        pass
 
     return {
         "ok": not failed,
