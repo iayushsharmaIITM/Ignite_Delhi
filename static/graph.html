@@ -123,6 +123,8 @@
   <button id="z-in"  type="button" title="Zoom in">+</button>
   <button id="z-out" type="button" title="Zoom out">−</button>
   <button id="z-fit" type="button" title="Reset view">⤢</button>
+  <button id="x-all" type="button" title="Expand everything">⊕</button>
+  <button id="x-none" type="button" title="Collapse to core nodes">⊖</button>
 </div>
 
 <script>
@@ -154,6 +156,43 @@ let cam = { x: 0, y: 0, k: 1 };
 // Declared here, not next to the click handlers: draw() reads it on the very
 // first frame, which can run before the interaction block is reached.
 let selected = null;
+
+// --- progressive disclosure ------------------------------------------------
+// The graph opens as a handful of CORE nodes rather than all 219 at once.
+// Clicking a core node reveals its sub-nodes; clicking again hides them. A wall
+// of 219 nodes and 500 edges is impressive for a second and unreadable after
+// that - this makes the structure explorable instead.
+let ROOTS = [];                      // the core nodes shown at rest
+const expanded = new Set();          // ids whose sub-nodes are currently shown
+let visibleIds = new Set();          // computed each frame
+
+function visibleNodes() {
+  const out = new Set(ROOTS);
+  for (const id of expanded) {
+    out.add(id);
+    for (const nb of neighboursOf(id)) out.add(nb);
+  }
+  return out;
+}
+
+function hiddenChildren(id) {
+  const shown = visibleIds;
+  let count = 0;
+  for (const nb of neighboursOf(id)) if (!shown.has(nb)) count++;
+  return count;
+}
+
+function expandAll() {
+  for (const nd of nodes) expanded.add(nd.id);
+  render();
+}
+
+function collapseAll() {
+  expanded.clear();
+  selected = null;
+  document.getElementById('detail').classList.remove('open');
+  render();
+}
 
 // --- force simulation (small, dependency-free) ---------------------------
 function simulate(alpha) {
@@ -203,10 +242,13 @@ function draw() {
   // else fades back. On a 500-edge graph this is the difference between "a ball
   // of string" and "here is what this thing is connected to".
   const near = selected ? neighboursOf(selected) : null;
+  visibleIds = visibleNodes();
 
   for (const e of edges) {
     const a = byId[e.source], b = byId[e.target];
     if (!a || !b) continue;
+    // An edge only draws when both ends are on screen.
+    if (!visibleIds.has(e.source) || !visibleIds.has(e.target)) continue;
     const touches = near && (e.source === selected || e.target === selected);
     ctx.strokeStyle = touches ? 'rgba(255,255,255,.62)'
                     : (near ? 'rgba(150,155,165,.05)' : 'rgba(150,155,165,.16)');
@@ -215,6 +257,7 @@ function draw() {
   }
 
   for (const n of nodes) {
+    if (!visibleIds.has(n.id)) continue;
     const isSel = n.id === selected;
     const isNear = near && near.has(n.id);
     ctx.globalAlpha = (!near || isSel || isNear) ? 1 : 0.18;
@@ -235,6 +278,7 @@ function draw() {
   ctx.font = '11px -apple-system,sans-serif';
   ctx.textAlign = 'center';
   for (const n of nodes) {
+    if (!visibleIds.has(n.id)) continue;
     const isSel = n.id === selected;
     const isNear = near && near.has(n.id);
     if (!isSel && !isNear && cam.k <= 0.85) continue;
@@ -342,6 +386,12 @@ function pick(e) {
 }
 
 function select(id) {
+  // Clicking a visible node toggles its sub-nodes. That is the primary
+  // interaction now; the inspector follows it.
+  if (id && visibleIds.has(id)) {
+    if (expanded.has(id)) expanded.delete(id);
+    else expanded.add(id);
+  }
   selected = id;
   const panel = document.getElementById('detail');
   if (id && byId[id]) {
@@ -437,6 +487,8 @@ document.getElementById('z-in').addEventListener('click', () =>
   zoomAt(W / 2, H / 2, 1.25));
 document.getElementById('z-out').addEventListener('click', () =>
   zoomAt(W / 2, H / 2, 0.8));
+document.getElementById('x-all').addEventListener('click', expandAll);
+document.getElementById('x-none').addEventListener('click', collapseAll);
 document.getElementById('z-fit').addEventListener('click', () => {
   cam = { x: 0, y: 0, k: 1 };
   alpha = 1;                       // re-run the layout from the start
@@ -508,10 +560,18 @@ fetch(GRAPH_URL).then(r => r.json()).then(g => {
       `<div><span class="swatch" style="background:${colorFor(t)}"></span>${t} <b>${c}</b></div>`)
     .join('');
 
+  // Core nodes = the most connected ones. They are what the graph opens with;
+  // everything else is one click away.
+  ROOTS = [...nodes]
+    .map(nd => ({ id: nd.id, deg: neighboursOf(nd.id).size - 1 }))
+    .sort((a, b) => b.deg - a.deg)
+    .slice(0, 12)
+    .map(x => x.id);
+
   document.getElementById('panel').innerHTML =
     `<span><b>${nodes.length}</b> nodes</span>` +
     `<span><b>${edges.length}</b> edges</span>` +
-    `<span>click a node to inspect it</span>` +
+    `<span>click a node to open its sub-nodes</span>` +
     `<span>scroll to zoom · drag to pan</span>`;
 
   wake();
