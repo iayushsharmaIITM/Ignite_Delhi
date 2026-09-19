@@ -572,7 +572,21 @@ def delete_brain(name: str):
 # --------------------------------------------------------------------------
 
 def _page(filename: str) -> FileResponse:
-    return FileResponse(os.path.join(HERE, "static", filename))
+    """Serve a page with revalidation forced.
+
+    These are hand-edited files with no build step and no content hash, so a
+    browser that caches them will happily keep serving a version from before the
+    last change — which looks exactly like "the feature was never built". Making
+    the browser revalidate costs one conditional request and removes that whole
+    class of confusion.
+    """
+    return FileResponse(
+        os.path.join(HERE, "static", filename),
+        headers={
+            "Cache-Control": "no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/")

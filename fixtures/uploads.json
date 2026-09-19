@@ -1,4 +1,7 @@
 {
+ "100_people": {
+  "index,user id,first name,last name,sex,email,phone,date of birth,job title 1,88f7b33d2bcf9f5,shelby,terrell,male,elijah5": "people-100.csv"
+ },
  "appendtest1": {
   "# alpha marker aaa-111 for append testing.": "alpha.md",
   "# beta marker bbb-222 must be findable.": "beta.md",

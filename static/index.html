@@ -30,7 +30,15 @@
            font-size:12.5px; }
   .brainbar a { margin-left:auto; }
 
-  form { display:flex; gap:10px; margin-top:26px; }
+  /* The composer is pinned to the bottom. A follow-up must be typeable without
+     scrolling back up past the conversation — that is what makes this read as a
+     chat rather than a form with a history. */
+  form { display:flex; gap:10px; position:fixed; left:var(--sb-w); right:0; bottom:0;
+         z-index:35; margin:0; padding:14px 44px 18px;
+         background:linear-gradient(180deg, rgba(8,9,11,0), var(--bg) 34%);
+         backdrop-filter:blur(8px); }
+  form .field { flex:1; max-width:792px; margin:0 auto; display:flex; gap:10px; }
+  body { padding-bottom:104px; }
   input { flex:1; padding:15px 18px; border-radius:var(--radius); border:1px solid var(--line-2);
           background:var(--panel); color:var(--fg); font-size:15px; outline:none;
           box-shadow:0 1px 0 rgba(255,255,255,.02) inset;
@@ -184,9 +192,11 @@
   </header>
 
   <form id="f">
-    <input id="q" placeholder="Ask across every document the company has written…"
-           autocomplete="off" autofocus>
-    <button id="go" type="submit">Ask</button>
+    <div class="field">
+      <input id="q" placeholder="Ask across every document the company has written…"
+             autocomplete="off" autofocus>
+      <button id="go" type="submit">Ask</button>
+    </div>
   </form>
 
   <div class="chips" id="chips"></div>
@@ -264,6 +274,10 @@ const turnCount = document.getElementById('turncount');
 // The whole conversation, kept so follow-ups can be resolved against it and so
 // the transcript can be exported at the end.
 const TURNS = [];
+// Filenames from the most recent answer, used by the action generators. This
+// was lost when the standalone evidence panel was removed, which silently broke
+// every "Do something with this" button.
+let SOURCES = [];
 const bar      = document.getElementById('bar');
 const go       = document.getElementById('go');
 const input    = document.getElementById('q');
@@ -376,6 +390,14 @@ function renderMarkdown(src) {
   return out.join('');
 }
 
+function scrollThread() {
+  // Keep the composer's subject in view: without this the new turn lands below
+  // the fold and the page looks like nothing happened.
+  requestAnimationFrame(() => window.scrollTo({
+    top: document.body.scrollHeight, behavior: 'smooth',
+  }));
+}
+
 function addTurn(role, text) {
   document.getElementById('empty')?.remove();
   const turn = document.createElement('div');
@@ -388,7 +410,7 @@ function addTurn(role, text) {
   bubble.textContent = text;
   turn.appendChild(bubble);
   threadEl.appendChild(turn);
-  bubble.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  scrollThread();
   return { turn, bubble };
 }
 
@@ -465,6 +487,7 @@ async function ask(q) {
     } else {
       TURNS.push({ role: 'bot', text, sources });
       renderSources(bubble.parentElement, sources);
+      SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
       LAST = { q, text };
       buildActions();
       document.getElementById('actions').style.display = 'block';
@@ -476,6 +499,7 @@ async function ask(q) {
     bubble.textContent = 'Could not reach the server: ' + err.message;
   } finally {
     bar.hidden = true; go.disabled = false;
+    input.focus();          // ready for the follow-up
   }
 }
 
