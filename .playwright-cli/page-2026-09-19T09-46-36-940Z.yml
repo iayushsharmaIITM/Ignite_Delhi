@@ -1,0 +1,40 @@
+- generic [ref=e1]:
+  - complementary [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: ◆
+      - generic [ref=e5]:
+        - generic [ref=e6]: Kestrel
+        - generic [ref=e7]: Company Brain
+    - navigation [ref=e8]:
+      - generic [ref=e9]: Workspace
+      - link "Ask" [ref=e10] [cursor=pointer]:
+        - /url: /
+      - link "New brain" [ref=e14] [cursor=pointer]:
+        - /url: /upload
+      - link "Brains" [ref=e19] [cursor=pointer]:
+        - /url: /brains
+      - link "Graph" [ref=e26] [cursor=pointer]:
+        - /url: /graph
+    - generic [ref=e33]:
+      - generic [ref=e34]: connecting…
+      - generic [ref=e37]: "graph: —"
+  - generic [ref=e40]:
+    - banner [ref=e41]:
+      - heading "◆Kestrel Company Brain" [level=1] [ref=e42]
+      - paragraph [ref=e43]: Company knowledge is scattered across contracts, tickets, meetings and chat. Ask one question and get an answer grounded in all of it — with the evidence it came from.
+    - generic [ref=e44]:
+      - textbox "Ask across every document the company has written…" [active] [ref=e45]
+      - button "Ask" [ref=e46] [cursor=pointer]
+    - generic [ref=e47]:
+      - button "Why is the Bluepeak renewal at risk, and what have we promised them?" [ref=e48] [cursor=pointer]
+      - button "What service credit do we owe Bluepeak, and who approved it?" [ref=e49] [cursor=pointer]
+      - button "Who owns the Bluepeak renewal, and who owns the root cause analysis?" [ref=e50] [cursor=pointer]
+      - button "Is the Bluepeak renewal date consistent across our documents?" [ref=e51] [cursor=pointer]
+    - generic [ref=e52]:
+      - generic [ref=e53]: Answer
+      - generic [ref=e54]: Nothing asked yet.
+    - contentinfo [ref=e55]:
+      - link "Open the graph view →" [ref=e57]:
+        - /url: /graph
+      - link "/health" [ref=e59]:
+        - /url: /health
