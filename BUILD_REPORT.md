@@ -644,7 +644,7 @@ thing that must change**, and I would not describe this as production-ready.
 
 1. **GitHub repo URL** — the only true blocker. `gh` is not installed, so either the
    repo must be created manually or `gh` installed and authenticated by device flow.
-   **19 commits are ready to push and have no remote.**
+   **All 20 commits are ready to push and have no remote.**
 2. **`RENDER_API_KEY`** — needed to deploy. Possibly unnecessary: `render login` is an
    interactive device flow the operator can complete directly.
 
@@ -722,7 +722,7 @@ anything.** That is why `smoke.py` asserts `auth: ok`.
 | Demo-path smoke checks | **4 / 4** |
 | Guard probes | **8 / 8** behaving correctly |
 | Cross-contamination | **None**, verified in both directions |
-| Commits | **19** in **1 h 47 m** against a 3-hour budget |
+| Build commits | **19** in **1 h 47 m** against a 3-hour budget |
 | Deployed | **No** — the one material gap |
 
 **The honest headline:** a complete, tested, failure-aware implementation of PS-2
