@@ -119,13 +119,31 @@
   .turn .srcs span { font-size:11px; color:var(--muted); background:var(--panel-2);
                border:1px solid var(--line); padding:3px 9px; border-radius:999px;
                font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
-  #threadbar { display:none; align-items:center; gap:9px; margin-bottom:14px; }
-  #threadbar button.mini { padding:7px 14px; border-radius:999px; border:1px solid var(--line-2);
-               background:var(--panel); color:var(--fg); font-size:12.5px; cursor:pointer;
-               transition:all .16s ease; }
-  #threadbar button.mini:hover { border-color:var(--line-3); background:var(--panel-2); }
-  #threadbar .count { font-size:11.5px; color:var(--muted-2); margin-left:auto;
-               font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  /* Export controls pinned to the top-right of the conversation, so they are
+     reachable from anywhere in a long chat rather than only above the first
+     answer. Sits clear of the sidebar and stays put while the thread scrolls. */
+  #threadbar {
+    display:none; position:fixed; top:16px; right:24px; z-index:36;
+    align-items:center; gap:7px;
+    padding:7px 9px; border-radius:999px;
+    background:rgba(16,17,20,.86); border:1px solid var(--line-2);
+    backdrop-filter:blur(10px); box-shadow:var(--shadow);
+  }
+  #threadbar button.mini {
+    padding:7px 13px; border-radius:999px; border:1px solid var(--line-2);
+    background:transparent; color:var(--fg-2); font-size:12.5px; cursor:pointer;
+    transition:all .16s ease; white-space:nowrap;
+  }
+  #threadbar button.mini:hover { border-color:var(--line-3); background:var(--panel-2); color:var(--fg); }
+  #threadbar .count {
+    font-size:11.5px; color:var(--muted-2); padding:0 6px 0 4px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (max-width: 900px) {
+    /* Not enough room beside the content on a narrow screen. */
+    #threadbar { position:static; margin-bottom:14px; justify-content:flex-start;
+                 background:none; border:0; box-shadow:none; padding:0; backdrop-filter:none; }
+  }
 
   /* Actions ride with the FIRST answer rather than trailing the page, so the
      thread reads top-down: answer, what you can do with it, then follow-ups. */
