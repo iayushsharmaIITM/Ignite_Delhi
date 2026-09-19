@@ -426,3 +426,34 @@ def graph(name: Optional[str] = None, full: bool = True, limit: int = 500) -> di
     )
     _check(resp, "graph")
     return resp.json()
+
+
+# --------------------------------------------------------------------------
+# data items — used to resolve citations back to real source documents
+# --------------------------------------------------------------------------
+
+def data_items(dataset_id: str) -> list:
+    """List the stored data items of a dataset.
+
+    Each item carries the id that appears in Cognee's evidence strings, which is
+    what lets citations.py map a citation back to a source document.
+    """
+    resp = requests.get(
+        f"{_base()}/api/v1/datasets/{dataset_id}/data",
+        headers=_headers(),
+        timeout=60,
+    )
+    _check(resp, "data_items")
+    payload = resp.json()
+    return payload if isinstance(payload, list) else []
+
+
+def data_raw(dataset_id: str, data_id: str) -> str:
+    """The exact text that was ingested for one data item."""
+    resp = requests.get(
+        f"{_base()}/api/v1/datasets/{dataset_id}/data/{data_id}/raw",
+        headers=_headers(),
+        timeout=60,
+    )
+    _check(resp, "data_raw")
+    return resp.text

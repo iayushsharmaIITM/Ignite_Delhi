@@ -139,4 +139,14 @@ async def _cloud(query: str, dataset: str | None = None):
 
     items = cognee_cloud.references(results) or evidence
     if items:
-        yield {"type": "references", "items": items}
+        # Resolve each opaque "chunk 1 of document text_<uuid>" into a real
+        # filename plus a verbatim excerpt. Without this the Evidence panel
+        # proved a chunk existed but not which document it came from — so
+        # "grounded in retrieved knowledge" was an assertion, not something a
+        # reader could check. Runs in a thread because it makes HTTP calls.
+        import citations
+
+        enriched = await asyncio.to_thread(
+            citations.enrich, items, dataset or default_dataset()
+        )
+        yield {"type": "references", "items": enriched}
