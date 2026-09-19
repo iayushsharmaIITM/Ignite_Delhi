@@ -708,11 +708,22 @@ function exportWord() {
 }
 
 // PDF: the browser's own print-to-PDF, which is lossless and needs no library.
+//
+// Uses a hidden IFRAME, not window.open(). A popup is BLOCKED inside an embedded
+// preview or webview, where window.open returns null and the export silently
+// does nothing - the same failure mode as the native confirm() dialog. An iframe
+// is allowed everywhere.
 function exportPdf() {
-  const w = window.open('', '_blank');
-  if (!w) { alert('Allow pop-ups to export as PDF.'); return; }
   const md = transcript('md');
-  w.document.write(
+
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(frame);
+
+  const doc = frame.contentWindow.document;
+  doc.open();
+  doc.write(
     '<!doctype html><meta charset="utf-8"><title>Kestrel conversation</title>' +
     '<style>body{font:12pt/1.6 -apple-system,Segoe UI,sans-serif;max-width:46em;' +
     'margin:32px auto;padding:0 16px;color:#111}' +
@@ -721,9 +732,26 @@ function exportPdf() {
     'background:#f6f6f7;padding:12px;border-radius:6px}</style>' +
     '<h1>Kestrel Company Brain &mdash; conversation</h1>' +
     '<pre>' + escapeHtml(md) + '</pre>');
-  w.document.close();
-  w.focus();
-  setTimeout(() => w.print(), 350);
+  doc.close();
+
+  // Give the frame a moment to lay out, then print. Removed afterwards so the
+  // DOM does not accumulate a hidden frame per export.
+  setTimeout(() => {
+    try {
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+    } catch (err) {
+      const bar = document.getElementById('threadbar');
+      if (bar) {
+        const note = document.createElement('span');
+        note.className = 'count';
+        note.textContent = 'PDF blocked here - use Word or Markdown instead';
+        bar.appendChild(note);
+        setTimeout(() => note.remove(), 4000);
+      }
+    }
+    setTimeout(() => frame.remove(), 2000);
+  }, 400);
 }
 
 document.getElementById('export-docx')?.addEventListener('click', exportWord);

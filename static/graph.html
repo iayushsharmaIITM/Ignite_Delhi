@@ -12,10 +12,6 @@
   /* Focus layer: transparent, on top, ignores the pointer so clicks still reach
      the graph underneath. */
   #c2 { position:absolute; inset:0; pointer-events:none; z-index:2; }
-  /* Background blurs and darkens while something is focused. */
-  #c.blurred { filter:blur(3.5px) brightness(.62) saturate(.7);
-               transition:filter .25s ease; }
-  #c { transition:filter .25s ease; }
   canvas:active { cursor:grabbing; }
 
   .hud { position:fixed; top:20px; left:22px; pointer-events:none; }
@@ -318,25 +314,37 @@ function draw() {
   const blurring = !!(focus && focus.size > 1);
   const isFocused = id => !focus || focus.has(id);
 
-  // The background layer is blurred by a CSS filter on the element, because
-  // ctx.filter is not universally supported. The focus is drawn on a second,
-  // crisp canvas above it.
-  canvas.classList.toggle('blurred', blurring);
+  // Focused: the background nodes are removed entirely and replaced by a black
+  // gradient that falls off from the focused node. Blurring them still left them
+  // competing for attention; hiding them makes the sub-nodes the only thing on
+  // screen. The gradient keeps it from being a flat black rectangle.
+  if (blurring) {
+    const sel = byId[selected];
+    const cx = cam.x + sel.x * cam.k;
+    const cy = cam.y + sel.y * cam.k;
+    const radius = Math.max(W, H) * 0.66;
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+    grad.addColorStop(0, '#15171d');     // faint lift behind the subject
+    grad.addColorStop(0.5, '#0a0b0e');
+    grad.addColorStop(1, '#000000');     // fades to true black at the edges
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
 
-  // Everything goes on the background layer when nothing is focused.
-  drawLayer(ctx, blurring ? id => !isFocused(id) : () => true, blurring);
-  if (blurring) drawLayer(ctx2, id => isFocused(id), false);
+    drawLayer(ctx2, id => isFocused(id));
+  } else {
+    drawLayer(ctx, () => true);
+  }
 }
 
 // Draws the visible subset matching `wanted` onto the given context.
-function drawLayer(target, wanted, dimmed) {
+function drawLayer(target, wanted) {
   target.save();
   target.translate(cam.x, cam.y);
   target.scale(cam.k, cam.k);
 
-  target.globalAlpha = dimmed ? 0.55 : 1;
-  target.strokeStyle = dimmed ? 'rgba(150,155,165,.5)' : 'rgba(255,255,255,.6)';
-  target.lineWidth = (dimmed ? 1 : 1.7) / cam.k;
+  target.globalAlpha = 1;
+  target.strokeStyle = 'rgba(255,255,255,.6)';
+  target.lineWidth = 1.7 / cam.k;
   for (const e of edges) {
     if (!visibleIds.has(e.source) || !visibleIds.has(e.target)) continue;
     if (!(wanted(e.source) || wanted(e.target))) continue;
@@ -364,7 +372,7 @@ function drawLayer(target, wanted, dimmed) {
   for (const nd of nodes) {
     if (!visibleIds.has(nd.id) || !wanted(nd.id)) continue;
     const isSel = nd.id === selected;
-    if (!isSel && !dimmed && cam.k <= 0.85) continue;
+    if (!isSel && cam.k <= 0.85) continue;
     if (nd.label.length > 34) continue;
     target.fillStyle = isSel ? '#ffffff' : '#c9ccd3';
     target.fillText(nd.label, nd.x, nd.y - nd.r - 5);
