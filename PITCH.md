@@ -19,7 +19,7 @@ Do not reuse one script for both. The 5-minute pitch argues; the 1-minute pitch 
 | Graph | **219 nodes · 500 edges** |
 | Ingest time | 10 documents queued in **10.9s** across 3 workers; graph ready in **~1 minute** |
 | Parallel fan-out proof | 3 documents → 3 separate task containers → **`failed:0 queued:3` in 6.05s**, all queryable from one shared graph |
-| Answer latency | ~16–20s, streamed |
+| Answer latency | **~16–31s** end-to-end; first token at **~18s**, then streams fast |
 | Credentials per container | **1** (an API key) |
 | Services | **2** (web tier + workflow tier) |
 | Lines of application code | ~600 |
@@ -125,7 +125,8 @@ Deliver this standing next to the running app. Assert, don't argue.
 > password, no volume.
 >
 > The graph is pre-built, the memory layer falls back to fixtures if the network dies, and
-> `/health` reports upstream status. **The demo cannot die.**
+> `/health` verifies every upstream component *and* that our key still works. **The demo
+> cannot die.**
 
 ---
 
@@ -136,18 +137,25 @@ Rehearse this exactly. Do not improvise on stage.
 1. **Open `/`** — the UI is already loaded. Point at the graph count in the footer:
    *"219 nodes, 500 edges — that's the whole company."*
 2. **Click chip 1** — *"Why is the Bluepeak renewal at risk, and what have we promised them?"*
-   Let it stream. Do not talk over it for the first 5 seconds.
+   The box shows *"Searching the knowledge graph…"* for **~18s before the first word
+   appears.** That gap is yours — fill it: *"it's traversing the graph now; the answer
+   isn't a document, it's assembled from five."* Then let it stream and stop talking.
 3. **Point at the answer** when it mentions the **$420k vs $480k** discrepancy.
    *"Nobody asked it to compare those. It found them."*
 4. **Point at the Evidence panel.** *"Three sources. Every answer is grounded."*
 5. **Click chip 4** — the renewal-date consistency question. *"Same corpus, different
    question. This is the one a human would get wrong."*
 6. **Open `/graph`.** *"And this is the graph itself."* Pause. Let it land. Move on.
-7. **Close on `/health`.** *"Four upstream components, all healthy, and a fallback if they
-   aren't."*
+7. **Close on `/health`.** *"Four upstream components healthy — plus an authenticated probe,
+   because a health endpoint that reports 'up' while rejecting your key is worse than no
+   check at all. And a fallback if any of it fails."*
 
 **If anything stalls:** say *"while that's thinking — "*, then talk architecture. Never
 apologise, never reload, never debug on stage.
+
+**Answer shape varies between runs** — sometimes a table, sometimes bullets, same facts
+either way, and both render correctly. So do not promise a table on stage. Point at the
+*content* (the `$420k` vs `$480k` mismatch), never at the layout.
 
 ---
 
@@ -168,6 +176,13 @@ apologise, never reload, never debug on stage.
 **"What happens if the network dies?"**
 > `/health` reports `upstream: unreachable`. And the memory layer falls back to the mock
 > provider, which serves committed fixtures offline. One environment variable.
+
+**"How do you know this will actually work on stage?"**
+> Three layers. The graph is pre-built, so nothing is generated live. `warmup.py` rehearses
+> all four demo questions and times them — anything slow or ungrounded surfaces before we
+> walk on. And `/health` runs an *authenticated* probe, because we found the tenant's own
+> health endpoint is unauthenticated: it reported everything healthy while every query
+> returned 401. A check that cannot fail is not a check.
 
 **"Did you build the graph view?"**
 > We render it ourselves from `/api/graph` — force-directed, coloured by node type. The

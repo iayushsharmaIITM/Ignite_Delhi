@@ -158,10 +158,18 @@ QUESTIONS.forEach(q => {
 });
 
 fetch('/health').then(r => r.json()).then(d => {
-  const ok = d.upstream === 'healthy' || d.provider === 'mock';
+  // "healthy" alone is not enough: the tenant's /health is unauthenticated, so
+  // it reports healthy even with a wrong key. Only claim ok when the
+  // authenticated probe also passed.
+  const ok = d.provider === 'mock' ||
+             (d.upstream === 'healthy' && d.auth !== 'failed');
   document.getElementById('led').className = 'led ' + (ok ? 'ok' : 'bad');
-  document.getElementById('prov').textContent =
-    d.provider + (d.upstream ? ' · ' + d.upstream : '');
+
+  let label = d.provider;
+  if (d.auth === 'failed') label += ' · key rejected';
+  else if (d.upstream) label += ' · ' + d.upstream;
+  document.getElementById('prov').textContent = label;
+  document.getElementById('prov').title = d.auth_error || d.upstream_error || '';
 }).catch(() => {
   document.getElementById('led').className = 'led bad';
   document.getElementById('prov').textContent = 'unreachable';
@@ -256,11 +264,17 @@ function renderMarkdown(src) {
 }
 
 async function ask(q) {
-  answerEl.className = ''; answerEl.textContent = '';
+  // The answer does not begin arriving for ~18s — recall runs server-side before
+  // the first chunk is emitted (measured: first chunk at 17.8s, then 226 chunks
+  // over 3s). Without this line the judge watches an empty box and a spinner for
+  // that entire window, which reads as broken. Say what is actually happening.
+  answerEl.className = 'placeholder';
+  answerEl.textContent = 'Searching the knowledge graph…';
   evSec.style.display = 'none'; evList.innerHTML = '';
   bar.hidden = false; go.disabled = true;
 
   let text = '';
+  let streaming = false;
   try {
     const res = await fetch('/api/ask?q=' + encodeURIComponent(q));
     if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
@@ -281,6 +295,7 @@ async function ask(q) {
         let ev; try { ev = JSON.parse(line); } catch { continue; }
 
         if (ev.type === 'chunk' || ev.chunk) {
+          if (!streaming) { streaming = true; answerEl.className = ''; }
           text += (ev.text ?? ev.chunk);
           answerEl.textContent = text;          // raw while streaming
         } else if (ev.type === 'references' && ev.items?.length) {

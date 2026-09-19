@@ -6,6 +6,7 @@ streams -> citations arrive. It is the only safety net a solo builder gets.
     python smoke.py
 """
 
+import argparse
 import json
 import sys
 import urllib.parse
@@ -37,7 +38,11 @@ def health():
     assert data.get("ok") is True, "ok is not true"
     if data.get("provider") == "cloud":
         assert data.get("upstream") == "healthy", f"upstream={data.get('upstream')}"
-    print(f"        provider={data.get('provider')} upstream={data.get('upstream')}")
+        # The tenant /health endpoint is unauthenticated, so upstream=healthy
+        # does NOT prove our key works. Check the authenticated probe too.
+        assert data.get("auth") != "failed", f"key rejected: {data.get('auth_error')}"
+    print(f"        provider={data.get('provider')} upstream={data.get('upstream')} "
+          f"auth={data.get('auth', 'n/a')}")
 
 
 def graph_has_nodes():
@@ -70,7 +75,13 @@ def answer_streams_with_citations():
 
 
 if __name__ == "__main__":
-    print("Smoke test — demo path\n")
+    # --base so the same check can verify a deliberately broken local server
+    # (does it actually fail?) and the deployed Render URL (does it work there?).
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--base", default=BASE)
+    BASE = ap.parse_args().base.rstrip("/")
+
+    print(f"Smoke test — demo path against {BASE}\n")
     check("GET /health returns 200 and upstream is healthy", health)
     check("graph has nodes", graph_has_nodes)
     check("GET /graph returns 200", graph_page)

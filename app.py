@@ -49,6 +49,18 @@ def health():
             payload["components"] = {
                 k: v.get("status") for k, v in (upstream.get("components") or {}).items()
             }
+
+            # The tenant's /health endpoint is UNAUTHENTICATED. It therefore
+            # reports "healthy" even when our API key is wrong — we verified
+            # this by pointing the app at a bad key and watching /health claim
+            # everything was fine while every query returned 401. So probe an
+            # authenticated endpoint too, or this check is worse than useless.
+            try:
+                cognee_cloud.datasets()
+                payload["auth"] = "ok"
+            except Exception as exc:  # noqa: BLE001
+                payload["auth"] = "failed"
+                payload["auth_error"] = str(exc)[:160]
         except Exception as exc:  # noqa: BLE001 - health must never raise
             payload["upstream"] = "unreachable"
             payload["upstream_error"] = str(exc)[:200]

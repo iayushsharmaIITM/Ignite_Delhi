@@ -75,12 +75,15 @@ def main():
     try:
         _, body = get("/health", timeout=30)
         h = json.loads(body)
-        print(f"      provider={h.get('provider')}  upstream={h.get('upstream', 'n/a')}")
+        print(f"      provider={h.get('provider')}  upstream={h.get('upstream', 'n/a')}  "
+              f"auth={h.get('auth', 'n/a')}")
         for name, state in (h.get("components") or {}).items():
             flag = "ok " if state == "healthy" else "!! "
             print(f"      {flag}{name}: {state}")
             if state != "healthy":
                 problems.append(f"upstream component {name} is {state}")
+        if h.get("auth") == "failed":
+            problems.append("API key rejected: " + str(h.get("auth_error"))[:120])
         if h.get("upstream") == "unreachable":
             problems.append("tenant instance unreachable: " + str(h.get("upstream_error"))[:120])
     except Exception as exc:  # noqa: BLE001
@@ -115,7 +118,11 @@ def main():
                 print(f"      Q{i}  ERROR  {dt:.1f}s  {errored[:80]}")
                 continue
             slow = "  (SLOW)" if dt > SLOW else ""
-            ok = len(text) > 80 and refs
+            # Citations are the real proof of grounding; the length floor only
+            # catches an empty answer. Q3 asks "who owns X" and legitimately
+            # returns ~80 chars — a higher floor would raise a FALSE alarm
+            # minutes before judging, which is worse than no alarm at all.
+            ok = len(text) > 20 and refs
             if not ok:
                 problems.append(f"Q{i} weak answer: {len(text)} chars, {len(refs)} citations")
             print(f"      Q{i}  {'ok ' if ok else '!! '} {dt:5.1f}s  "

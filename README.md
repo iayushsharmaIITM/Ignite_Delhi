@@ -33,10 +33,19 @@ citations attached** — and can flag where the documents disagree.
 
 ![Asking a cross-document question](screenshots/02-answer.png)
 
-The answer arrives as a table, because the underlying facts are a table. Note the
-**ARR mismatch** row: the system found that the contract says `$420k` while the sales
+The answer arrives formatted — headings, bold, bullet lists, and often a table, because the
+underlying facts are tabular. The exact shape varies between runs; the renderer handles
+tables, lists and headings either way, so the UI never shows raw `**markdown**` or `|---|`.
+Note the **ARR mismatch** entry: the system found the contract says `$420k` while the sales
 quote said `$480k` — nobody asked it to compare those two numbers. It also caught that a
 promised 25% credit exceeds the 10% policy baseline and needs CFO sign-off.
+
+![The loading state](screenshots/04-loading.png)
+
+Recall runs server-side before the first token is emitted, so there is a **~18 second gap**
+before the answer starts streaming. Rather than leave a blank box and a spinner — which
+reads as broken — the UI says what it is doing. This was measured, not assumed: first chunk
+at 17.8s, then 226 chunks over 3s.
 
 ![The knowledge graph](screenshots/03-graph.png)
 
@@ -106,7 +115,7 @@ python app.py             # http://127.0.0.1:8000
 |---|---|
 | `/` | Ask questions, streamed answers, citations |
 | `/graph` | The knowledge graph, force-directed, coloured by node type |
-| `/health` | Liveness **and** upstream tenant health |
+| `/health` | Liveness, upstream tenant health, **and an authenticated key probe** |
 | `/api/ask?q=` | NDJSON event stream: `chunk`, `references`, `stage` |
 | `/api/graph` · `/api/stats` | Graph data and node/edge counts |
 
@@ -123,7 +132,8 @@ curl -H "X-Api-Key: $COGNEE_API_KEY" https://api.aws.cognee.ai/api/tenants/curre
 | Failure | What happens |
 |---|---|
 | Tenant unreachable | `/health` reports `upstream: unreachable`; the UI shows it |
-| Wrong or missing key | `PROVIDER` auto-falls back to `mock`, which serves committed fixtures offline |
+| **Key wrong or revoked** | `/health` reports `auth: failed` with the 401. This row exists because the tenant's own `/health` is **unauthenticated** — it claimed `healthy` while every query returned 401, so we added a probe that can actually fail |
+| No credentials configured (fresh clone) | `PROVIDER` resolves to `mock`; committed fixtures serve the whole demo offline, with zero setup |
 | Graph empty | `/graph` renders an explicit "run ingest.py first" state |
 | Mid-ingest query | `wait_ready()` blocks first — see below |
 | Any unhandled error | `/api/ask` emits a `stage: error` event; the UI never white-screens |
