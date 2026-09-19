@@ -13,6 +13,27 @@
 
 ---
 
+## STATUS — updated after the audit
+
+| Item | State |
+|---|---|
+| §0 claim corrections (Chain A overstatement, `smoke.py`, `service_credit_cap`) | **DONE** — corrected in `BUILD_REPORT.md` and `REQUIREMENTS.md`, each marked as an explicit correction. A new **Chain C** (§5.2 breach) replaces Chain A as the strongest claim. |
+| 2.1 failed ingestion reported as success | **DONE** — `terminal_kind()`, stream emits `failed`, UI reports it. `test_pipeline_states.py` covers it. |
+| 2.2 all-failed batch returned `ok: true` | **DONE** — 502 when nothing lands; `ok`/`partial` honest; chars counted from stored documents only. |
+| 2.3 `DELETE default_dataset` | **DONE** — guarded in the route (after normalising) and in `cognee_cloud.delete_dataset`. |
+| 2.4 unbounded read + blocked event loop | **DONE** — chunked read aborting at the cap (413), file count capped before reading, extraction moved to a worker thread. |
+| 2.6 `is_terminal` substring match | **DONE** — matches the `status` field against exact enums; both traps have tests. |
+| 2.7 `HOST` missing from `render.yaml` | **DONE** — `HOST=0.0.0.0` added to the web service. |
+| Code artefact gap (`.py`/`.yaml` refused) | **DONE** — `CODE_EXTS` (22 extensions); corpus expanded to 12 files; `kestrel_full` ingested at 233/543 and verified queryable. |
+| **2.5 workflow-path claim** | **OPEN** — still describes a path the product does not use. Option A (correct the docs) is the cheap fix. |
+| **Tier 2 (3.1–3.3) — citations, traversal, honest multi-hop** | **OPEN** — this is the differentiator and the highest-value remaining work. |
+| Tier 3 polish (4.2–4.6) | **OPEN** — except 4.1, which is covered by the §5.1 correction and Task 5 below. |
+| Tier 4 (auth, connectors, OCR) | **OPEN** — post-hackathon. |
+
+**So the remaining high-value work is §3 (Tier 2) and §2.5.** The order in §6 still holds: Task 5 (`smoke.py`) first, then the differentiator.
+
+---
+
 ## 0. The headline: one claim is overstated, and a judge can disprove it in 60 seconds
 
 `BUILD_REPORT.md` §2.4 and `REQUIREMENTS.md` §4 both claim the flagship multi-hop answer derives a conclusion that *"appears in none of the three documents individually"* and is *"unprovable by vector search."*
