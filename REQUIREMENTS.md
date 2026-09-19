@@ -91,10 +91,15 @@ threshold.
 > non-compliant until the required higher-level approvals are obtained.
 > Required sign-off: **Nadia Osei** (any credit > 10 %), then the **CFO** (> 20 %).
 
-This is the strongest single piece of evidence in the project: it **joins three
-separate documents** and derives a conclusion — *the promised credit breaches our
-own policy* — that appears in **none** of them individually. A vector-search system
-cannot produce this; it can only return the passage nearest to the question.
+**Correction — this was overstated.** An earlier version of this document claimed the
+breach conclusion *"appears in none of them individually"* and that *"a vector-search
+system cannot produce this."* **That is false.** `04_chat_bluepeak-renewal.md:18-20`
+states the breach outright (*"25% is well outside that"*), and `:26-29` / `:31-34` state
+the CFO sign-off requirement. One document yields both halves.
+
+Chain A is still a genuine **multi-document join** across three types, and the graph does
+carry the typed edges (`requires_approval: credit value above 20% → cfo`). But the
+derivation claim belongs to **Chain C** below, which survives scrutiny.
 
 ### Chain B — incident → owner → escalation path
 
@@ -110,34 +115,76 @@ matrix) → the named escalation target.
 
 Two hops across a ticket and a handbook. Also reproducible.
 
+### Chain C — the derivation that genuinely needs two documents
+
+> **Q:** Has the credit approval paperwork been closed out, and does that breach our
+> own policy?
+
+Traverse the **two most recent documents**:
+
+| Source | What it says on its own |
+|---|---|
+| `06_meeting_2026-08-28_qbr.md:25-26` | The credit was *"finalised at 25%"* and procurement *"has been told to expect it in writing"* |
+| `06_meeting_2026-08-28_qbr.md:52-53` | Action still open: *"Close out credit approval paperwork — Nadia Osei — 2026-09-12"* |
+| `05_policy_SLA-credit-01.md:47-48` | **§5.2** — no credit may be confirmed in writing before approvals are recorded |
+
+> **A:** A credit was represented to the customer's procurement as **finalised** while
+> the approval paperwork was still **open** — a breach of **§5.2**.
+
+`06` gives the representation without the rule; `05` gives the rule without the
+representation. **Neither states the breach.** This is the strongest evidence in the
+project, and it is about the *current* state of the account rather than an August
+proposal.
+
+**Known gap:** `fixtures/answers.json` cites `05 / 04 / 03` for the credit question and
+omits `06`, so Chain C is not currently reachable offline. Tracked as Task 3.3 in
+`IMPROVEMENTS.md`.
+
 ---
 
-## 5. The one honest gap, and it is small
+## 5. The one honest gap — partially closed
 
 The **Challenge** paragraph lists five artefact types: *documents, conversations,
-tickets, code, and decisions.* We cover four. **We have no code documents.**
+tickets, code, and decisions.* The original 10-file corpus covered four. **`corpus/`
+now carries 12 files**, adding two code artefacts:
 
-Two reasons this is not a problem, and one reason to care:
+| # | File | Type |
+|---|---|---|
+| 11 | `11_config_pulse-api_prod.yaml` | **Code / config** — the deploy config whose removed connection-pool ceiling caused INC-4412 |
+| 12 | `12_test_connection_pool.py` | **Code / test** — the regression test that pins the ceiling, as handbook §5 now requires |
+
+Both are wired to entities that already exist in the graph (Tomás Ferrer's guardrail
+action, the connection pool ceiling, handbook §5, INC-4412), so code is load-bearing
+rather than decoration — the same argument that makes the other types worth having.
+
+**Status: the expanded corpus is not yet ingested into the demo brain**, which still
+holds the original 10 documents at 219/500. Ingesting it costs credits and changes the
+graph, so it is a deliberate decision rather than a default.
+
+Why the gap mattered less than it looks:
 
 - The **Core Requirements** box — the actual requirement list — asks for "at least 2
   different types" and gives *documents + tickets + meeting notes* as its examples.
-  Code is not in the requirement list; it appears only in the descriptive challenge
-  paragraph.
-- We have **six** types against a required minimum of two. The margin is wide.
+  Code appears only in the descriptive Challenge paragraph, not the requirement list.
+- Even before these two files we had **six** types against a required minimum of two.
 
-But if a judge reads the Challenge paragraph literally and asks "where is the code?",
-here is the answer, and it is now a **live demo rather than a caveat**:
+### 5.1 Correction — the stated mitigation did not work
 
-> The upload path accepts source files as plain text — `.py`, `.json`, `.yaml`, `.sql`
-> all extract natively. So rather than claim we ingest code, we can demonstrate it:
-> upload a config file or a script and query the brain that results.
+An earlier version of this document claimed *"the upload path accepts source files as
+plain text — `.py`, `.json`, `.yaml`, `.sql` all extract natively."* **Verified false by
+direct test.** `documents.py`'s allow-list accepted `.json` and refused the rest:
 
-If you would prefer code to be present in the **pre-built** demo brain as well, that
-means adding 1–2 files to `corpus/` and re-ingesting. Be aware of the cost: LLM entity
-extraction is **non-deterministic**, so the graph would come back at a different
-node/edge count and every documented number (219/500 in the README, PITCH, OVERVIEW
-and RUNBOOK) would need updating. It is a ~15 minute change with a real blast radius.
-**Recommendation: skip it unless a mentor raises it.**
+```
+deploy.py    REFUSED -> .py is not supported
+config.yaml  REFUSED -> .yaml is not supported
+q.sql        REFUSED -> .sql is not supported
+```
+
+That claim *was* the mitigation for the code gap, so the gap was open. **Fixed:**
+`documents.py` now defines a `CODE_EXTS` set covering 22 source and config extensions
+(`.py .js .ts .go .rs .java .rb .sh .yaml .yml .toml .ini .sql .tf .hcl …`).
+`test_documents.py` remains **25/25**, and every refusal path still behaves correctly
+(`photo.png` → *"images are not read - this build has no OCR"*).
 
 ---
 

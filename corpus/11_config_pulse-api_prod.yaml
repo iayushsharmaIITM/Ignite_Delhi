@@ -1,0 +1,41 @@
+# pulse-api production deploy configuration
+# Repo: kestrel/pulse-api   File: deploy/prod/pulse-api.yaml
+# Owner: Tomás Ferrer (SRE)   Last reviewed: 2026-07-14
+
+service:
+  name: pulse-api
+  image: registry.kestrel.internal/pulse-api:4.19.0
+  replicas: 6
+  region: eu-west-1
+
+database:
+  host: pulse-prod.cluster.internal
+  name: pulse
+  # ---------------------------------------------------------------------
+  # INC-4412 GUARDRAIL - DO NOT REMOVE OR RAISE WITHOUT AN APPROVED RFC.
+  #
+  # v4.18.2 removed this ceiling as part of an unrelated performance change.
+  # Under Back-to-School promotion traffic the pool then grew unbounded,
+  # exhausted available connections, and starved the ingestion workers.
+  # Result: 47 minutes of full unavailability for all Bluepeak tenants on
+  # 2026-07-09, and a measured July uptime of 99.89% against a 99.9%
+  # commitment in MSA-2025-0114 §4.1.
+  #
+  # Configuration changes require peer review and a regression test that
+  # pins the previous value - see On-Call Handbook v6.2 §5.
+  # ---------------------------------------------------------------------
+  connection_pool_ceiling: 50      # pinned by tests/test_connection_pool.py
+  connection_timeout_ms: 5000
+  idle_timeout_ms: 30000
+
+ingestion:
+  worker_count: 12
+  queue_high_watermark: 250000
+  # Backpressure added in 4.19.0 so a saturated pool degrades ingestion
+  # rather than taking the dashboard down with it.
+  backpressure_enabled: true
+
+observability:
+  error_rate_alert_threshold: 0.40
+  paging_policy: oncall-primary
+  notify: [sre-oncall, support-lead]

@@ -32,8 +32,10 @@ $PY test_documents.py   # 25 passed, 0 failed
 $PY smoke.py            # 4/4 PASS against the live cloud tenant
 ```
 
-`smoke.py` is the honest check: it asserts `auth: ok`, not merely that a server
-answered. §9.2 explains why that distinction cost real debugging time.
+`smoke.py` is the honest check: it fails when the tenant rejects our key, rather than
+merely confirming that an HTTP server answered. §9.2 explains why that distinction cost
+real debugging time — and §5.1 records that this assertion was weaker than an earlier
+draft of this report claimed.
 
 ---
 
@@ -177,16 +179,57 @@ the live graph.
 > 10–20 % to finance approval, and **any credit > 20 % requires CFO sign-off**.
 > Required sign-off: **Nadia Osei** (> 10 %), then the **CFO** (> 20 %).
 
-This derives a conclusion — *the promise breaches our own policy* — that appears in
-**none** of the three documents individually. A vector search cannot produce it; it
-can only return the passage nearest the question. **That is the entire argument for a
-graph over a search index, and it is the strongest 30 seconds in the demo.**
+**Correction — this chain was previously overstated.** An earlier version of this
+report claimed the breach conclusion *"appears in none of the three documents
+individually"* and is *"unprovable by vector search."* **That is false**, and the
+corpus disproves it in one file:
+
+> `corpus/04_chat_bluepeak-renewal.md:18-20` — **Priya:** *"Our policy caps a
+> straightforward P1 credit at 10% for a sub-120-minute event. **25% is well outside
+> that.**"*
+> `:26-29` — **Elena:** *"Anything over 20% needs CFO sign-off."*
+> `:31-34` — **Nadia:** *">20% needs CFO approval, no exceptions."*
+
+A single document yields **both** the breach **and** the sign-off chain. Chain A is
+therefore a genuine **multi-document join** — it does traverse meeting notes → policy →
+approval matrix → CFO, and the graph really does carry those typed edges — but it is
+**not** a derivation that no single document supports. Claiming otherwise was the one
+overstatement in this project's documentation, and a reviewer who opened the corpus
+would have found it. **Chain C below is the claim that survives scrutiny.**
 
 **Chain B — two hops: ticket → handbook → escalation target**
 
 > **Q:** Who owns the root cause analysis for the outage, and who do they escalate to?
 > **A:** RCA owner **Priya Raghavan** (Support Lead), escalating under the severity
 > policy to the **CTO, Elena Sokolov**.
+
+**Chain C — the conclusion that genuinely requires joining two documents** *(this
+replaces Chain A as the strongest evidence in the project)*
+
+> **Q:** Has the credit approval paperwork been closed out, and does that breach
+> our own policy?
+
+The graph must join the **two most recent documents**, and neither states the
+conclusion alone:
+
+| Document | What it establishes on its own |
+|---|---|
+| `corpus/06_meeting_2026-08-28_qbr.md:25-26` | *"the July goodwill credit was **finalised at 25%** … Bluepeak's procurement team **has been told to expect it in writing**"* |
+| `corpus/06_meeting_2026-08-28_qbr.md:52-53` | Action open: *"Close out credit approval paperwork — Nadia Osei — **2026-09-12**"* |
+| `corpus/05_policy_SLA-credit-01.md:47-48` | **§5.2** *"No credit may be confirmed to a customer in writing until the approvals in §4 have been obtained and recorded."* |
+
+> **A:** A credit was represented to the customer's procurement as **finalised** while
+> the approval paperwork was still **open** — a breach of policy **§5.2**.
+
+`06` states the representation but not the rule. `05` states the rule but not the
+representation. **Neither document states the breach.** That is a real multi-hop
+derivation, it concerns the *current* state of the account rather than an August
+proposal, and no single passage retrieved by vector similarity contains it.
+
+**Note on what the fixtures cite.** `fixtures/answers.json` cites `05 / 04 / 03` for
+the credit question and **omits `06`** — the most recent and most contradictory
+source. Chain C is not currently reachable from the offline fixtures. See
+`IMPROVEMENTS.md` Task 3.3.
 
 ---
 
@@ -417,8 +460,13 @@ $ python smoke.py                   4/4 PASS
 ```
 
 `test_documents.py` generates a **genuine PDF** via `/usr/sbin/cupsfilter` rather than
-renaming a text file, and asserts every refusal path. `smoke.py` asserts
-`auth: ok` — not merely that an HTTP server answered.
+renaming a text file, and asserts every refusal path.
+
+**Correction:** an earlier version of this report said `smoke.py` *"asserts `auth: ok`."*
+It does not. `smoke.py:43` asserts `auth != "failed"`, which **passes when the field is
+absent or `None`** — a weaker check than advertised. It still catches a rejected key
+(the field is present and `"failed"` in that case), but it would not catch a regression
+that dropped the field entirely. `IMPROVEMENTS.md` Task 5 tightens it to `== "ok"`.
 
 ### 5.2 Isolation proof — the strongest single result
 
@@ -479,12 +527,24 @@ total — 107 of them domain-specific**: `requires_approval` (9), `escalates_to`
 **The counts reconcile exactly:** node types sum to 219, edge labels sum to 500 —
 neither is a sample or an estimate.
 
-**This is the mechanism behind §2.4, not a coincidence.** Chain A works *because*
-the graph contains an edge type literally named `service_credit_cap` connecting the
-policy to its threshold, and `requires_approval` connecting it to the approval chain.
-The multi-hop traversal walks typed domain edges — which is precisely what a vector
-index cannot do. The 141 `Entity` nodes are the companies, people and roles the
-answers are about.
+**This is the mechanism behind §2.4, and the edge endpoints were verified directly
+against `fixtures/graph.json`:**
+
+```
+requires_approval   credit value above 20%   -> cfo            ← carries Chain A
+requires_approval   credit value 10% to 20%  -> finance
+escalates_to        finance                  -> cfo
+service_credit_cap  msa-2025-0114            -> 30% annual service credit cap
+```
+
+**Correction:** an earlier version of this report said `service_credit_cap` connects
+*"the policy to its threshold."* It does not — it connects the **contract** to the
+**30% annual cap**, which is a different fact (MSA §4.3, not the SLA-CREDIT-01 approval
+matrix). The `>20% → CFO` chain is carried by `requires_approval`. Both edges exist and
+both are load-bearing; they were simply described wrongly.
+
+The multi-hop traversal walks typed domain edges — which is what a vector index cannot
+do. The 141 `Entity` nodes are the companies, people and roles the answers are about.
 
 ### 5.5 Latency
 
@@ -599,12 +659,22 @@ one a reviewer should read first.
 - **No connectors** (Drive, Slack, Notion, Jira).
 - **No billing, no quotas, no rate limiting.**
 - **No OCR** — image-only PDFs and images are refused, not extracted.
-- **No code documents in the pre-built corpus.** The Challenge paragraph lists five
-  artefact types (*documents, conversations, tickets, code, decisions*); we cover four.
-  Code is **not** in the Core Requirements list, which asks for "at least 2 types", and
-  we have six. Mitigation: the upload path extracts `.py`, `.json`, `.yaml`, `.sql`
-  natively, so this is answerable as a **live demo rather than a caveat** — upload a
-  script and query it.
+- **Code documents — was a gap, now closed in the corpus (not yet in the demo brain).**
+  The Challenge paragraph lists five artefact types (*documents, conversations, tickets,
+  code, decisions*). The original 10-file corpus covered four. `corpus/` now carries
+  **12 files**, adding `11_config_pulse-api_prod.yaml` (the deploy config whose removal
+  caused INC-4412) and `12_test_connection_pool.py` (the regression test that pins it).
+  Both are wired to existing entities — Tomás Ferrer's guardrail action, the connection
+  pool ceiling, handbook §5 — so code is load-bearing rather than decorative.
+  **Status: the expanded corpus is not yet ingested into the demo brain**, which still
+  holds the original 10 documents at 219/500.
+
+- **Correction — the stated mitigation did not work.** An earlier version of this report
+  (and `REQUIREMENTS.md` §5) claimed *"the upload path extracts `.py`, `.json`, `.yaml`,
+  `.sql` natively."* **Only `.json` was supported.** `.py`, `.yaml`, `.sql` and `.tf` were
+  all refused by `documents.py`'s extension allow-list. The claim was verified false by
+  direct test, and the allow-list has since been extended with a `CODE_EXTS` set covering
+  22 source and config extensions. `test_documents.py` remains 25/25.
 
 ### 9.2 Security posture — the honest version
 
@@ -707,7 +777,9 @@ $PY smoke.py --base http://127.0.0.1:8097      # expect 3 FAILED, exit 1
 **Step 2 is the evidence.** Before the fix, `/health` reported `upstream: healthy` on
 that same dead key and the smoke test passed anyway — because the tenant's health
 endpoint is unauthenticated. **A check you have never watched fail is not evidence of
-anything.** That is why `smoke.py` asserts `auth: ok`.
+anything.** That is why `smoke.py` fails on a rejected key — though note the caveat in
+§5.1: it currently checks `auth != "failed"`, which is weaker than `auth == "ok"`.
+Tightening it is Task 5 in `IMPROVEMENTS.md`.
 
 ---
 
@@ -730,7 +802,8 @@ that has never left localhost. The engineering is real and the evidence is
 reproducible; the deployment is not done, and §9 says so rather than implying
 otherwise.
 
-**The strongest single result:** a three-hop traversal across a meeting note, a policy
-and an approval chain, concluding that a promise made to a customer **breaches the
-company's own approval policy** — a fact present in none of the three documents
-individually, and unprovable by vector search.
+**The strongest single result:** joining the QBR notes to the credit policy to conclude
+that a credit was represented to a customer's procurement as **finalised while its
+approval paperwork was still open** — a breach of policy §5.2 that appears in
+**neither** document on its own. (An earlier version of this report claimed a stronger
+result than the corpus supports; see the correction in §2.4.)

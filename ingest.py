@@ -25,6 +25,7 @@ HERE = Path(__file__).parent
 # Importing cognee_cloud loads .env as a side effect, so configuration is
 # correct no matter which entry point runs first.
 import cognee_cloud as cc  # noqa: E402
+import documents  # noqa: E402
 
 CORPUS = HERE / "corpus"
 GRAPH_FIXTURE = HERE / "fixtures" / "graph.json"
@@ -53,12 +54,34 @@ def save_graph_fixture(g: dict) -> None:
 
 
 def load_documents() -> list:
+    """Load every ingestible file in corpus/.
+
+    Uses documents.SUPPORTED_EXTS rather than a hard-coded "*.md" glob, so the
+    corpus and the upload path agree on what counts as a document. The old glob
+    silently ignored the two code artefacts (11_*.yaml, 12_*.py) — a 12-file
+    corpus quietly ingested as 10, and nothing said so.
+    """
     if not CORPUS.exists():
         sys.exit(f"No corpus directory at {CORPUS}")
-    files = sorted(CORPUS.glob("*.md"))
+
+    files = sorted(
+        f for f in CORPUS.iterdir()
+        if f.is_file() and f.suffix.lower() in documents.SUPPORTED_EXTS
+    )
     if not files:
-        sys.exit(f"No .md documents in {CORPUS}")
-    return [(f.name, f.read_text()) for f in files]
+        sys.exit(f"No ingestible documents in {CORPUS}")
+
+    out = []
+    for f in files:
+        try:
+            out.append((f.name, documents.extract(f.name, f.read_bytes())))
+        except documents.ExtractError as exc:
+            # Report and continue: one unreadable corpus file must not block the
+            # rest, for the same reason extract_many never raises per file.
+            print(f"  skipping {f.name}: {exc}")
+    if not out:
+        sys.exit("Every corpus file failed to extract.")
+    return out
 
 
 async def ingest_sequential(docs, name):
@@ -139,7 +162,21 @@ def main():
     try:
         g = cc.graph(name)
         print(f"\nGraph: {len(g.get('nodes', []))} nodes, {len(g.get('edges', []))} edges")
-        save_graph_fixture(g)
+
+        # ONLY snapshot the demo brain. The fixture is a copy of the DEMO graph and
+        # app.py serves it as the demo's offline fallback, so writing it while
+        # ingesting any other dataset replaces the demo's snapshot with a graph
+        # that has nothing to do with the demo.
+        #
+        # This is not hypothetical: ingesting the scratch dataset `kestrel_full`
+        # overwrote fixtures/graph.json with 213 nodes / 469 edges, and the demo
+        # brain's committed snapshot had to be restored from git. A wrong fallback
+        # is worse than no fallback, because it looks authoritative.
+        if name == cc.dataset():
+            save_graph_fixture(g)
+        else:
+            print(f"Not saving the offline fixture: {name!r} is not the demo "
+                  f"dataset ({cc.dataset()!r}).")
     except Exception as exc:  # noqa: BLE001
         print(f"Graph unavailable: {exc}")
 

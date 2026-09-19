@@ -37,7 +37,18 @@ MAX_TOTAL_CHARS = 500_000
 MAX_FILE_CHARS = 200_000
 
 TEXT_EXTS = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".log", ".rst"}
-SUPPORTED_EXTS = TEXT_EXTS | {".pdf", ".docx"}
+
+# Source and config files. These are plain text, and PS-2's Challenge paragraph
+# names "code" as one of the five artefact types a company brain should connect.
+# Without these the only honest answer to "where is the code?" was "we cannot
+# read it" - which is exactly the gap the upload path was supposed to close.
+CODE_EXTS = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".rb", ".sh",
+    ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".env.example",
+    ".sql", ".tf", ".hcl", ".dockerfile", ".makefile", ".gradle",
+}
+
+SUPPORTED_EXTS = TEXT_EXTS | CODE_EXTS | {".pdf", ".docx"}
 
 # Formats people will try that we deliberately do not support, with the reason.
 # A specific message is worth more than a generic "unsupported".
