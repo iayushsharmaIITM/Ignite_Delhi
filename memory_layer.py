@@ -21,6 +21,20 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = os.path.join(HERE, "fixtures", "answers.json")
 
+# Load .env BEFORE reading any config below.
+#
+# This module resolves PROVIDER at import time, so whichever module imports it
+# first wins. A Render Workflow task imports memory_layer lazily inside the task
+# body — i.e. potentially before anything has loaded .env — which would silently
+# resolve PROVIDER to "mock" and quietly serve fixtures from a deployed
+# workflow. Loading here removes that entire class of bug.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(HERE, ".env"))
+except ImportError:
+    pass
+
 
 def _cloud_configured() -> bool:
     """Cheap check that avoids importing requests on the mock path."""
