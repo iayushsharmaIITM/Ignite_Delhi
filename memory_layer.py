@@ -1,0 +1,97 @@
+"""Memory layer: one interface, two implementations.
+
+This is the single most valuable file in the skeleton. It exists so that a
+broken API, a dead network, or a rate limit can never kill your demo.
+
+    PROVIDER=mock    -> no network, no API key, instant. Your demo safety net.
+    PROVIDER=cloud   -> real remember/recall against the Cognee Cloud tenant.
+
+Never call Cognee directly from the UI. Go through this file.
+
+The event contract (so the UI can render citations, not just text):
+
+    {"type": "chunk",      "text": "..."}
+    {"type": "references", "items": [...]}
+"""
+
+import asyncio
+import json
+import os
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+FIXTURES = os.path.join(HERE, "fixtures", "answers.json")
+
+
+def _cloud_configured() -> bool:
+    """Cheap check that avoids importing requests on the mock path."""
+    return bool(os.getenv("COGNEE_SERVICE_URL") and os.getenv("COGNEE_API_KEY"))
+
+
+# Explicit PROVIDER wins. Otherwise prefer cloud when it is fully configured,
+# and fall back to the offline fixtures so a missing key is never fatal.
+PROVIDER = os.getenv("PROVIDER") or ("cloud" if _cloud_configured() else "mock")
+
+
+async def remember(text: str) -> None:
+    """Store text as memory. Builds the knowledge graph under the hood."""
+    if PROVIDER == "mock":
+        return
+    import cognee_cloud
+
+    await asyncio.to_thread(cognee_cloud.remember, text)
+
+
+async def recall(query: str):
+    """Yield events. Async generator so the UI can stream."""
+    if PROVIDER == "mock":
+        async for event in _mock(query):
+            yield event
+        return
+    async for event in _cloud(query):
+        yield event
+
+
+async def _mock(query: str):
+    """Offline path. Reads a committed fixture, so it works with zero network."""
+    try:
+        with open(FIXTURES) as handle:
+            fixtures = json.load(handle)
+    except FileNotFoundError:
+        yield {"type": "chunk", "text": "No fixtures/answers.json found."}
+        return
+
+    entry = fixtures.get(query) or fixtures.get("default") or {}
+    if isinstance(entry, str):
+        entry = {"answer": entry}
+
+    for word in (entry.get("answer") or "No fixture for that query.").split(" "):
+        yield {"type": "chunk", "text": word + " "}
+        await asyncio.sleep(0.02)  # makes streaming visible in the demo
+
+    if entry.get("references"):
+        yield {"type": "references", "items": entry["references"]}
+
+
+async def _cloud(query: str):
+    """Real path: the Cognee Cloud tenant does the graph work.
+
+    `asyncio.to_thread` keeps the FastAPI event loop free while the blocking
+    HTTP call runs — the answer arrives, then we stream it word by word so the
+    UI feels alive even though the model answered in one shot.
+    """
+    import cognee_cloud
+
+    results = await asyncio.to_thread(cognee_cloud.recall, query)
+
+    # Cognee returns the evidence block inline in the answer text, so split it
+    # out and stream only the prose. The citations get their own panel.
+    raw = cognee_cloud.answer_text(results)
+    answer, evidence = cognee_cloud.split_evidence(raw)
+
+    for word in answer.split(" "):
+        yield {"type": "chunk", "text": word + " "}
+        await asyncio.sleep(0.012)
+
+    items = cognee_cloud.references(results) or evidence
+    if items:
+        yield {"type": "references", "items": items}

@@ -1,0 +1,44 @@
+{
+  "_comment": "Offline fixture answers for PROVIDER=mock. These are the REAL answers the live graph returned, so the fallback path produces a credible demo rather than a placeholder. Keys must match the suggested questions in static/index.html exactly.",
+
+  "Why is the Bluepeak renewal at risk, and what have we promised them?": {
+    "answer": "Why the renewal is at risk\n\n- The July 9 P1 outage created commercial friction. Bluepeak's procurement now needs concrete justification to keep Kestrel as its sole analytics vendor.\n- Account health was rated Amber, and the renewal became a paper renewal that must pass a procurement review instead of the automatic rollover used before.\n- Finance policy limits a P1-related goodwill credit to 10%, or 20% with CFO sign-off. We have offered 25%, which exceeds the policy and therefore requires CFO approval. Without that approval the credit may be denied and procurement could reject the renewal terms.\n- There is also a discrepancy in the account value: the MSA shows $420k, not the $480k we quoted.\n\nWhat we have promised Bluepeak\n\n1. A 25% goodwill credit on the July invoice, to be confirmed in writing once approved.\n2. A customer-facing root cause analysis pack.\n3. A written remediation plan covering the entire class of configuration-related failures.\n4. The renewal paperwork prepared for Bluepeak's procurement.\n5. An expansion pricing model for two new ingestion regions if the renewal closes cleanly.",
+    "references": [
+      "chunk 1 of 01_contract_MSA-2025-0114_bluepeak.md — §4.2 service credit, §3.1 annual fee USD 420,000",
+      "chunk 1 of 06_meeting_2026-08-28_qbr.md — account health Amber, renewal target 15 December 2026",
+      "chunk 1 of 05_policy_SLA-credit-01.md — approval matrix: above 20% requires CFO"
+    ]
+  },
+
+  "What service credit do we owe Bluepeak, and who approved it?": {
+    "answer": "Service credit: a goodwill credit equal to 25% of the July 2026 invoice.\n\nApproved by: the credit is being processed under the SLA-CREDIT-01 approval matrix and has been assigned to Finance lead Nadia Osei, who must obtain the required CFO sign-off for a credit above 20%. It is not yet approved — a verbal figure is explicitly not a commitment under §5.1 of the policy.",
+    "references": [
+      "chunk 1 of 05_policy_SLA-credit-01.md — approval matrix and §5 verbal commitments",
+      "chunk 1 of 04_chat_bluepeak-renewal.md — Nadia Osei: >20% needs CFO approval, no exceptions",
+      "chunk 1 of 03_meeting_2026-08-14_bluepeak_renewal.md — Marcus Lee proposes 25%"
+    ]
+  },
+
+  "Who owns the Bluepeak renewal, and who owns the root cause analysis?": {
+    "answer": "Renewal owner: Marcus Lee (Account Executive).\n\nRoot cause analysis owner: Priya Raghavan (Support Lead).\n\nElena Sokolov set this split explicitly: ownership for the renewal stays with Marcus, Priya owns the RCA and the remediation, and Nadia Osei owns the credit approval.",
+    "references": [
+      "chunk 1 of 04_chat_bluepeak-renewal.md — Elena Sokolov: keep those separate",
+      "chunk 1 of 03_meeting_2026-08-14_bluepeak_renewal.md — action table",
+      "chunk 1 of 02_ticket_4412_p1_outage.md — owner: Priya Raghavan"
+    ]
+  },
+
+  "Is the Bluepeak renewal date consistent across our documents?": {
+    "answer": "No — the renewal date is not the same in every document.\n\n- Master Services Agreement (MSA-2025-0114): the initial term expires 30 November 2026, so automatic renewal would take effect 1 December 2026.\n- QBR notes (28 August 2026): records a renewal target date of 15 December 2026.\n- Internal paperwork: the renewal paper is due to procurement on 1 September 2026 and issued 15 October 2026 — internal deadlines, not the contract-effective date.\n\nSo the contract and the QBR disagree by about two weeks. Marcus Lee, as renewal owner, should reconcile the dates and confirm the official renewal-effective date with the client and with legal and finance.",
+    "references": [
+      "chunk 1 of 01_contract_MSA-2025-0114_bluepeak.md — §2.1 term and expiry",
+      "chunk 1 of 06_meeting_2026-08-28_qbr.md — renewal target 15 December 2026",
+      "chunk 1 of 03_meeting_2026-08-14_bluepeak_renewal.md — action 3, renewal paper due 2026-09-01"
+    ]
+  },
+
+  "default": {
+    "answer": "The live graph is not reachable, so this is the offline fallback answer. Try one of the suggested questions — each has a committed fixture answer that mirrors what the live graph returns.",
+    "references": []
+  }
+}

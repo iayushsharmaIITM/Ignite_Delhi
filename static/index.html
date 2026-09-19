@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kestrel Company Brain</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>◆</text></svg>">
+<style>
+  :root {
+    --bg:#0f1115; --panel:#171a21; --panel-2:#1c2029; --line:#262b36;
+    --fg:#e8ebf2; --muted:#98a2b3; --accent:#5b9cf8; --accent-dim:#2b4a7d;
+    --good:#4ade80; --bad:#f27a7a; --warn:#fbbf24;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         -webkit-font-smoothing:antialiased; }
+  main { max-width:820px; margin:0 auto; padding:48px 24px 64px; }
+
+  header { margin-bottom:28px; }
+  h1 { font-size:24px; font-weight:650; margin:0 0 6px; letter-spacing:-.01em; }
+  h1 .mark { color:var(--accent); margin-right:8px; }
+  p.sub { color:var(--muted); margin:0; font-size:14.5px; max-width:62ch; }
+
+  form { display:flex; gap:10px; margin-top:26px; }
+  input { flex:1; padding:14px 16px; border-radius:10px; border:1px solid var(--line);
+          background:var(--panel); color:var(--fg); font-size:15px; outline:none;
+          transition:border-color .15s; }
+  input:focus { border-color:var(--accent); }
+  input::placeholder { color:#6b7484; }
+  button { padding:14px 24px; border-radius:10px; border:0; background:var(--accent);
+           color:#08111f; font-weight:640; font-size:15px; cursor:pointer;
+           transition:opacity .15s; white-space:nowrap; }
+  button:hover:not(:disabled) { opacity:.9; }
+  button:disabled { opacity:.45; cursor:default; }
+
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+  .chip { padding:7px 13px; border-radius:999px; border:1px solid var(--line);
+          background:var(--panel); color:var(--muted); font-size:13px; cursor:pointer;
+          transition:all .15s; }
+  .chip:hover { border-color:var(--accent-dim); color:var(--fg); }
+
+  section { margin-top:26px; }
+  .label { font-size:11px; font-weight:700; letter-spacing:.09em; text-transform:uppercase;
+           color:var(--muted); margin-bottom:9px; }
+
+  #answer { padding:20px; border-radius:12px; border:1px solid var(--line);
+            background:var(--panel); min-height:104px; white-space:pre-wrap;
+            font-size:15.5px; line-height:1.7; }
+  .placeholder { color:var(--muted); }
+  .err { color:var(--bad); }
+
+  #evidence { display:none; }
+  #evidence ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:7px; }
+  #evidence li { padding:10px 13px; border-radius:8px; background:var(--panel-2);
+                 border:1px solid var(--line); font-size:13px; color:var(--muted);
+                 font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+                 word-break:break-all; line-height:1.5; }
+
+  .bar { display:flex; gap:5px; align-items:center; height:16px; margin-top:12px; }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--accent);
+         animation:p 1s infinite; }
+  .dot:nth-child(2){ animation-delay:.15s } .dot:nth-child(3){ animation-delay:.3s }
+  @keyframes p { 0%,100%{opacity:.25} 50%{opacity:1} }
+
+  footer { margin-top:38px; padding-top:18px; border-top:1px solid var(--line);
+           color:var(--muted); font-size:12.5px; display:flex; flex-wrap:wrap;
+           gap:16px; align-items:center; }
+  .pill { display:inline-flex; align-items:center; gap:6px; }
+  .led { width:7px; height:7px; border-radius:50%; background:var(--muted); }
+  .led.ok { background:var(--good); } .led.bad { background:var(--bad); }
+  code { background:var(--panel-2); padding:2px 6px; border-radius:5px;
+         font-size:12px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><span class="mark">◆</span>Kestrel Company Brain</h1>
+    <p class="sub">Company knowledge is scattered across contracts, tickets, meetings and
+      chat. Ask one question and get an answer grounded in all of it — with the evidence
+      it came from.</p>
+  </header>
+
+  <form id="f">
+    <input id="q" placeholder="Ask across every document the company has written…"
+           autocomplete="off" autofocus>
+    <button id="go" type="submit">Ask</button>
+  </form>
+
+  <div class="chips" id="chips"></div>
+
+  <section>
+    <div class="label">Answer</div>
+    <div id="answer" class="placeholder">Nothing asked yet.</div>
+    <div class="bar" id="bar" hidden><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+  </section>
+
+  <section id="evidence">
+    <div class="label">Evidence</div>
+    <ul id="evlist"></ul>
+  </section>
+
+  <footer>
+    <span class="pill"><span class="led" id="led"></span><span id="prov">connecting…</span></span>
+    <span class="pill" id="stats">graph: —</span>
+    <span class="pill"><a href="/graph">graph view</a></span>
+    <span class="pill"><a href="/health">/health</a></span>
+  </footer>
+</main>
+
+<script>
+const QUESTIONS = [
+  "Why is the Bluepeak renewal at risk, and what have we promised them?",
+  "What service credit do we owe Bluepeak, and who approved it?",
+  "Who owns the Bluepeak renewal, and who owns the root cause analysis?",
+  "Is the Bluepeak renewal date consistent across our documents?"
+];
+
+const answerEl = document.getElementById('answer');
+const evSec    = document.getElementById('evidence');
+const evList   = document.getElementById('evlist');
+const bar      = document.getElementById('bar');
+const go       = document.getElementById('go');
+const input    = document.getElementById('q');
+
+// Suggested questions double as a demo safety net: every one of these is
+// known to return a good answer from the pre-built graph.
+const chips = document.getElementById('chips');
+QUESTIONS.forEach(q => {
+  const c = document.createElement('button');
+  c.type = 'button'; c.className = 'chip'; c.textContent = q;
+  c.addEventListener('click', () => { input.value = q; ask(q); });
+  chips.appendChild(c);
+});
+
+fetch('/health').then(r => r.json()).then(d => {
+  const ok = d.upstream === 'healthy' || d.provider === 'mock';
+  document.getElementById('led').className = 'led ' + (ok ? 'ok' : 'bad');
+  document.getElementById('prov').textContent =
+    d.provider + (d.upstream ? ' · ' + d.upstream : '');
+}).catch(() => {
+  document.getElementById('led').className = 'led bad';
+  document.getElementById('prov').textContent = 'unreachable';
+});
+
+fetch('/api/stats').then(r => r.json()).then(d => {
+  if (!d.ok) return;
+  document.getElementById('stats').textContent =
+    'graph: ' + d.nodes + ' nodes · ' + d.edges + ' edges';
+}).catch(() => {});
+
+document.getElementById('f').addEventListener('submit', e => {
+  e.preventDefault();
+  const q = input.value.trim();
+  if (q) ask(q);
+});
+
+async function ask(q) {
+  answerEl.className = ''; answerEl.textContent = '';
+  evSec.style.display = 'none'; evList.innerHTML = '';
+  bar.hidden = false; go.disabled = true;
+
+  let text = '';
+  try {
+    const res = await fetch('/api/ask?q=' + encodeURIComponent(q));
+    if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let ev; try { ev = JSON.parse(line); } catch { continue; }
+
+        if (ev.type === 'chunk' || ev.chunk) {
+          text += (ev.text ?? ev.chunk);
+          answerEl.textContent = text;
+        } else if (ev.type === 'references' && ev.items?.length) {
+          renderEvidence(ev.items);
+        } else if (ev.stage === 'error') {
+          answerEl.className = 'err';
+          answerEl.textContent = 'Something went wrong: ' + ev.message;
+        }
+      }
+    }
+    if (!text) {
+      answerEl.className = 'placeholder';
+      answerEl.textContent = 'No answer returned for that question.';
+    }
+  } catch (err) {
+    answerEl.className = 'err';
+    answerEl.textContent = 'Could not reach the server: ' + err.message;
+  } finally {
+    bar.hidden = true; go.disabled = false;
+  }
+}
+
+function renderEvidence(items) {
+  evList.innerHTML = '';
+  items.forEach(it => {
+    const li = document.createElement('li');
+    li.textContent = typeof it === 'string' ? it : JSON.stringify(it);
+    evList.appendChild(li);
+  });
+  evSec.style.display = 'block';
+}
+</script>
+</body>
+</html>

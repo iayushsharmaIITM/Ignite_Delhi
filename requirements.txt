@@ -1,0 +1,16 @@
+# Web tier + workflow tier.
+#
+# NOTE: cognee is deliberately absent. This project talks to the Cognee Cloud
+# tenant instance over HTTP, so the local SDK — a very large dependency tree
+# that drags in the full LLM/embedding stack — is not needed in the container.
+# Smaller image, faster build, fewer failure modes. (It is still installed in
+# the local dev venv, but only because the offline `cognee-cli demo` was used
+# to verify the stack early on.)
+fastapi==0.141.1
+uvicorn==0.53.0
+requests==2.34.2
+python-dotenv==1.2.3
+
+# Render Workflows SDK — used by pipeline.py (workflow tier only).
+# app.py does not import it, so the web tier boots even if this is missing.
+render==1.1.0

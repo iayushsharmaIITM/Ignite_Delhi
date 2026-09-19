@@ -1,0 +1,57 @@
+# Render Blueprint — deploys BOTH services in one command: `render blueprint launch`
+#
+# Why two services: Render task runs cannot accept inbound connections (no ports),
+# so the workflow can never serve the UI. The web tier serves HTTP and triggers runs.
+#
+# Why there is no LLM key and no database password below: the Cognee Cloud tenant
+# instance owns the model, the embeddings, the vector store and the graph. Every
+# ephemeral task container needs exactly one credential — the API key.
+#
+# `sync: false` means Render prompts for the value instead of storing it in git.
+
+services:
+  - type: web
+    name: ignite-web
+    runtime: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    healthCheckPath: /health
+    envVars:
+      - key: PROVIDER
+        value: cloud
+      - key: COGNEE_SERVICE_URL
+        sync: false
+      - key: COGNEE_API_KEY
+        sync: false
+      - key: COGNEE_DATASET
+        value: company_brain
+
+  - type: workflow
+    name: ignite-wf
+    runtime: python
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: python pipeline.py
+    envVars:
+      - key: PROVIDER
+        value: cloud
+      - key: COGNEE_SERVICE_URL
+        sync: false
+      - key: COGNEE_API_KEY
+        sync: false
+      - key: COGNEE_DATASET
+        value: company_brain
+      # If a self-hosted Cognee is ever preferred over the cloud tenant, the
+      # graph store must outlive the container. A file-based backend such as
+      # "ladybug" does NOT survive a task run — that is the whole reason the
+      # cloud path exists.
+      # - key: GRAPH_DATABASE_PROVIDER
+      #   value: neo4j
+      # - key: GRAPH_DATABASE_URL
+      #   sync: false
+      # - key: GRAPH_DATABASE_USERNAME
+      #   sync: false
+      # - key: GRAPH_DATABASE_PASSWORD
+      #   sync: false
