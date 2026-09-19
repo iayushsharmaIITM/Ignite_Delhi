@@ -81,21 +81,44 @@
   .placeholder { color:var(--muted); }
   .err { color:var(--bad); }
 
-  #evidence { display:none; }
-  #evidence ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:7px; }
-  #evidence li { padding:13px 16px; border-radius:var(--radius-sm); background:var(--panel-2);
-                 border:1px solid var(--line); font-size:13px; color:var(--muted);
-                 line-height:1.55; }
   /* A resolved citation: real filename + verbatim quote. */
-  #evidence .src { display:block; color:var(--fg); font-weight:640;
-                   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-                   font-size:12px; margin-bottom:4px; word-break:break-all; }
-  #evidence .quote { display:block; color:var(--fg-2); font-size:12.5px;
-                     border-left:2px solid var(--line-3); padding-left:11px; }
-  #evidence .unresolved { font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-                          font-size:11.5px; word-break:break-all; }
 
   /* Actionable layer: next steps + a mail draft the user can actually send. */
+  /* Conversation thread: turns stack, so a follow-up continues the exchange
+     instead of replacing the previous answer. */
+  #thread { display:flex; flex-direction:column; gap:18px; }
+  .turn { display:flex; flex-direction:column; gap:7px; }
+  .turn .who { font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+               font-weight:700; color:var(--muted-2); }
+  .turn.user .bubble { align-self:flex-start; padding:11px 16px; border-radius:var(--radius);
+               background:var(--panel-2); border:1px solid var(--line-2);
+               font-size:14.5px; color:var(--fg); max-width:78%; }
+  .turn.bot .bubble { padding:22px 24px; border-radius:var(--radius);
+               border:1px solid var(--line); box-shadow:var(--shadow);
+               background:linear-gradient(180deg,var(--panel),#0d0e11);
+               font-size:15.5px; line-height:1.75; }
+  .turn.bot .bubble h3, .turn.bot .bubble h4 { margin:14px 0 6px; font-size:14.5px;
+               font-weight:650; color:var(--fg); }
+  .turn.bot .bubble p { margin:0 0 9px; }
+  .turn.bot .bubble ul, .turn.bot .bubble ol { margin:0 0 10px; padding-left:21px; }
+  .turn.bot .bubble strong { color:#fff; font-weight:640; }
+  .turn.bot .bubble table { width:100%; border-collapse:collapse; margin:8px 0 13px; font-size:13.5px; }
+  .turn.bot .bubble th, .turn.bot .bubble td { border:1px solid var(--line); padding:7px 10px;
+               text-align:left; vertical-align:top; }
+  .turn.bot .bubble th { background:var(--panel-2); font-weight:640; }
+  .turn.bot .bubble td { color:var(--muted); }
+  .turn .srcs { display:flex; flex-wrap:wrap; gap:6px; }
+  .turn .srcs span { font-size:11px; color:var(--muted); background:var(--panel-2);
+               border:1px solid var(--line); padding:3px 9px; border-radius:999px;
+               font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  #threadbar { display:none; align-items:center; gap:9px; margin-bottom:14px; }
+  #threadbar button.mini { padding:7px 14px; border-radius:999px; border:1px solid var(--line-2);
+               background:var(--panel); color:var(--fg); font-size:12.5px; cursor:pointer;
+               transition:all .16s ease; }
+  #threadbar button.mini:hover { border-color:var(--line-3); background:var(--panel-2); }
+  #threadbar .count { font-size:11.5px; color:var(--muted-2); margin-left:auto;
+               font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+
   #actions { display:none; margin-top:14px; }
   .acts { display:flex; flex-wrap:wrap; gap:8px; margin-top:9px; }
   .act { padding:11px 15px; border-radius:var(--radius-sm); border:1px solid var(--line-2);
@@ -169,14 +192,15 @@
   <div class="chips" id="chips"></div>
 
   <section>
-    <div class="label">Answer</div>
-    <div id="answer" class="placeholder">Nothing asked yet.</div>
+    <div id="threadbar">
+      <button class="mini" id="export-md" type="button">Export as Markdown</button>
+      <button class="mini" id="export-txt" type="button">Plain text</button>
+      <button class="mini" id="clear-chat" type="button">Clear</button>
+      <span class="count" id="turncount"></span>
+    </div>
+    <div class="label">Conversation</div>
+    <div id="thread"><div class="placeholder" id="empty">Ask a question to start. Follow-ups keep the thread.</div></div>
     <div class="bar" id="bar" hidden><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-  </section>
-
-  <section id="evidence">
-    <div class="label">Sources</div>
-    <ul id="evlist"></ul>
   </section>
 
   <section id="actions">
@@ -234,9 +258,12 @@ const QUESTIONS = [
   "Is the Bluepeak renewal date consistent across our documents?"
 ];
 
-const answerEl = document.getElementById('answer');
-const evSec    = document.getElementById('evidence');
-const evList   = document.getElementById('evlist');
+const threadEl = document.getElementById('thread');
+const threadBar = document.getElementById('threadbar');
+const turnCount = document.getElementById('turncount');
+// The whole conversation, kept so follow-ups can be resolved against it and so
+// the transcript can be exported at the end.
+const TURNS = [];
 const bar      = document.getElementById('bar');
 const go       = document.getElementById('go');
 const input    = document.getElementById('q');
@@ -349,22 +376,57 @@ function renderMarkdown(src) {
   return out.join('');
 }
 
-async function ask(q) {
-  // The answer does not begin arriving for ~18s — recall runs server-side before
-  // the first chunk is emitted (measured: first chunk at 17.8s, then 226 chunks
-  // over 3s). Without this line the judge watches an empty box and a spinner for
-  // that entire window, which reads as broken. Say what is actually happening.
-  answerEl.className = 'placeholder';
-  answerEl.textContent = 'Searching the knowledge graph…';
-  evSec.style.display = 'none'; evList.innerHTML = '';
-  document.getElementById('actions').style.display = 'none';
-  document.getElementById('draft').style.display = 'none';
-  bar.hidden = false; go.disabled = true;
+function addTurn(role, text) {
+  document.getElementById('empty')?.remove();
+  const turn = document.createElement('div');
+  turn.className = 'turn ' + role;
+  const who = document.createElement('div');
+  who.className = 'who'; who.textContent = role === 'user' ? 'You' : 'Kestrel';
+  turn.appendChild(who);
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.textContent = text;
+  turn.appendChild(bubble);
+  threadEl.appendChild(turn);
+  bubble.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  return { turn, bubble };
+}
 
-  let text = '';
-  let streaming = false;
+function renderSources(turn, items) {
+  const named = items.filter(i => i && i.source);
+  if (!named.length) return;
+  const row = document.createElement('div');
+  row.className = 'srcs';
+  named.forEach(i => {
+    const chip = document.createElement('span');
+    chip.textContent = i.source;
+    chip.title = i.excerpt || '';
+    row.appendChild(chip);
+  });
+  turn.appendChild(row);
+}
+
+async function ask(q) {
+  // A follow-up is resolved against the last few turns; without that every
+  // question is a cold start and "and who signs it off?" has no referent.
+  const history = TURNS.slice(-3)
+    .map(t => (t.role === 'user' ? 'Earlier question: ' : 'Earlier answer: ') + t.text.slice(0, 700))
+    .join('\n');
+  TURNS.push({ role: 'user', text: q });
+
+  addTurn('user', q);
+  const { bubble } = addTurn('bot', 'Searching the knowledge graph…');
+  bubble.className = 'bubble placeholder';
+
+  bar.hidden = false; go.disabled = true;
+  let text = '', sources = [], streaming = false;
+
   try {
-    const res = await fetch('/api/ask' + qs({ q }));
+    const params = new URLSearchParams({ q });
+    if (BRAIN) params.set('dataset', BRAIN);
+    if (history) params.set('context', history);
+
+    const res = await fetch('/api/ask?' + params.toString());
     if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
 
     const reader = res.body.getReader();
@@ -383,63 +445,75 @@ async function ask(q) {
         let ev; try { ev = JSON.parse(line); } catch { continue; }
 
         if (ev.type === 'chunk' || ev.chunk) {
-          if (!streaming) { streaming = true; answerEl.className = ''; }
+          if (!streaming) { streaming = true; bubble.className = 'bubble'; }
           text += (ev.text ?? ev.chunk);
-          answerEl.textContent = text;          // raw while streaming
+          bubble.textContent = text;
         } else if (ev.type === 'references' && ev.items?.length) {
-          renderEvidence(ev.items);
+          sources = ev.items;
         } else if (ev.stage === 'error') {
-          answerEl.className = 'err';
-          answerEl.textContent = 'Something went wrong: ' + ev.message;
+          bubble.className = 'bubble err';
+          bubble.textContent = 'Something went wrong: ' + ev.message;
         } else if (ev.stage === 'done' && text) {
-          answerEl.innerHTML = renderMarkdown(text);   // formatted when complete
-          answerEl.className = 'rendered';
-          // Hand the finished answer to the actionable layer: the user can now
-          // generate a mail, next steps, or a chat update from it.
-          LAST = { q: q, text: text };
-          buildActions();
-          document.getElementById('actions').style.display = 'block';
+          bubble.innerHTML = renderMarkdown(text);
         }
       }
     }
+
     if (!text) {
-      answerEl.className = 'placeholder';
-      answerEl.textContent = 'No answer returned for that question.';
+      bubble.className = 'bubble placeholder';
+      bubble.textContent = 'No answer returned for that question.';
+    } else {
+      TURNS.push({ role: 'bot', text, sources });
+      renderSources(bubble.parentElement, sources);
+      LAST = { q, text };
+      buildActions();
+      document.getElementById('actions').style.display = 'block';
+      threadBar.style.display = 'flex';
+      turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
     }
   } catch (err) {
-    answerEl.className = 'err';
-    answerEl.textContent = 'Could not reach the server: ' + err.message;
+    bubble.className = 'bubble err';
+    bubble.textContent = 'Could not reach the server: ' + err.message;
   } finally {
     bar.hidden = true; go.disabled = false;
   }
 }
 
-// --- evidence: real filenames + verbatim quotes, not UUIDs ---------------
-let SOURCES = [];
-
-function renderEvidence(items) {
-  evList.innerHTML = '';
-  SOURCES = [];
-  items.forEach(it => {
-    const li = document.createElement('li');
-    if (it && typeof it === 'object' && it.source) {
-      const s = document.createElement('span');
-      s.className = 'src'; s.textContent = it.source;
-      const q = document.createElement('span');
-      q.className = 'quote'; q.textContent = it.excerpt || '';
-      li.append(s, q);
-      SOURCES.push(it.source);
-    } else {
-      // Unresolved: show it, but never dress it up as a source.
-      const s = document.createElement('span');
-      s.className = 'unresolved';
-      s.textContent = (it && it.raw) ? it.raw : String(it);
-      li.appendChild(s);
+// --- export the conversation ------------------------------------------------
+function transcript(format) {
+  const lines = ['# Kestrel Company Brain — conversation', ''];
+  TURNS.forEach(t => {
+    if (t.role === 'user') { lines.push('## You', '', t.text, ''); return; }
+    lines.push('## Kestrel', '', format === 'txt' ? clean(t.text) : t.text, '');
+    if (t.sources?.length) {
+      const names = t.sources.filter(s => s && s.source).map(s => s.source);
+      if (names.length) lines.push('Sources: ' + names.join(', '), '');
     }
-    evList.appendChild(li);
   });
-  evSec.style.display = 'block';
+  return lines.join('\n');
 }
+
+function download(name, body) {
+  const blob = new Blob([body], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+document.getElementById('export-md')?.addEventListener('click', () =>
+  download('kestrel-conversation.md', transcript('md')));
+document.getElementById('export-txt')?.addEventListener('click', () =>
+  download('kestrel-conversation.txt', transcript('txt')));
+document.getElementById('clear-chat')?.addEventListener('click', () => {
+  TURNS.length = 0;
+  threadEl.innerHTML = '<div class="placeholder" id="empty">Ask a question to start. Follow-ups keep the thread.</div>';
+  threadBar.style.display = 'none';
+  document.getElementById('actions').style.display = 'none';
+  document.getElementById('draft').style.display = 'none';
+});
+
 
 // --- actionable layer ----------------------------------------------------
 // The answer alone is read-only. These turn it into something the user can act

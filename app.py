@@ -212,13 +212,20 @@ def health():
 # --------------------------------------------------------------------------
 
 @app.get("/api/ask")
-async def ask(q: str, dataset: str | None = None):
-    """Stream the answer as newline-delimited JSON so the UI never sits blank."""
+async def ask(q: str, dataset: str | None = None, context: str | None = None):
+    """Stream the answer as newline-delimited JSON so the UI never sits blank.
+
+    `context` carries the preceding turns of the conversation. It is prepended
+    to the question so a follow-up ("and who signs it off?") is resolved against
+    what was already asked — without it, every turn is a cold start and a
+    follow-up question has no referent.
+    """
+    question = q if not context else f"{context.strip()}\n\nFollow-up question: {q}"
 
     async def gen():
         yield json.dumps({"stage": "start", "dataset": dataset or DEMO_DATASET}) + "\n"
         try:
-            async for event in recall(q, dataset):
+            async for event in recall(question, dataset):
                 yield json.dumps(event) + "\n"
         except Exception as exc:  # noqa: BLE001 - demo must never white-screen
             yield json.dumps({"stage": "error", "message": str(exc)}) + "\n"
