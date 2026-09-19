@@ -129,6 +129,19 @@
 
   /* Actions ride with the FIRST answer rather than trailing the page, so the
      thread reads top-down: answer, what you can do with it, then follow-ups. */
+  /* Actions attached to EVERY answer, so a follow-up can be acted on without
+     scrolling back up to the first one. */
+  .answer-acts { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px;
+                 padding-top:11px; border-top:1px solid var(--line); }
+  .answer-acts button {
+    padding:6px 12px; border-radius:999px; border:1px solid var(--line-2);
+    background:transparent; color:var(--muted); font-size:12px; cursor:pointer;
+    transition:all .15s ease;
+  }
+  .answer-acts button:hover { color:var(--fg); border-color:var(--line-3);
+                              background:var(--panel-2); }
+  .answer-acts button.copied { color:var(--good); border-color:var(--good); }
+
   #actions { display:none; margin-top:16px; padding-top:14px;
              border-top:1px solid var(--line); }
   #actions .acts { display:flex; flex-wrap:wrap; gap:8px; margin-top:9px; }
@@ -219,6 +232,8 @@
     <div id="threadbar">
       <button class="mini" id="export-md" type="button">Export as Markdown</button>
       <button class="mini" id="export-txt" type="button">Plain text</button>
+      <button class="mini" id="export-docx" type="button">Word</button>
+      <button class="mini" id="export-pdf" type="button">PDF</button>
       <button class="mini" id="clear-chat" type="button">Clear</button>
       <span class="count" id="turncount"></span>
     </div>
@@ -498,6 +513,33 @@ function addTurn(role, text) {
   return { turn, bubble };
 }
 
+// A compact action row under one answer. Each button acts on THAT answer's text,
+// not on whichever answer happened to be last.
+function renderAnswerActions(turn, q, text) {
+  const row = document.createElement('div');
+  row.className = 'answer-acts';
+
+  const mk = (label, fn) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = label;
+    b.addEventListener('click', () => fn(b));
+    row.appendChild(b);
+    return b;
+  };
+
+  mk('Copy', async b => {
+    await copyText(clean(text) + (SOURCES.length ? '\n\nSources: ' + SOURCES.join(', ') : ''));
+    b.classList.add('copied'); b.textContent = 'Copied';
+    setTimeout(() => { b.classList.remove('copied'); b.textContent = 'Copy'; }, 1300);
+  });
+  mk('Email draft', () => showDraft('email', 'Email draft', q, text));
+  mk('Next steps',  () => showDraft('steps', 'Next steps',  q, text));
+  mk('Chat update', () => showDraft('chat',  'Chat update', q, text));
+
+  turn.appendChild(row);
+  return row;
+}
+
 function renderSources(turn, items) {
   const named = items.filter(i => i && i.source);
   if (!named.length) return;
@@ -580,6 +622,8 @@ async function ask(q) {
     } else {
       TURNS.push({ role: 'bot', text, sources });
       renderSources(bubble.parentElement, sources);
+      // Actions on THIS answer, so a follow-up is actionable in place.
+      renderAnswerActions(bubble.parentElement, q, text);
       SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
       LAST = { q, text };
 
@@ -635,8 +679,8 @@ function transcript(format) {
   return lines.join('\n');
 }
 
-function download(name, body) {
-  const blob = new Blob([body], { type: 'text/plain;charset=utf-8' });
+function download(name, body, mime) {
+  const blob = new Blob([body], { type: (mime || 'text/plain') + ';charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = name;
@@ -648,6 +692,43 @@ document.getElementById('export-md')?.addEventListener('click', () =>
   download('kestrel-conversation.md', transcript('md')));
 document.getElementById('export-txt')?.addEventListener('click', () =>
   download('kestrel-conversation.txt', transcript('txt')));
+// --- Word and PDF export ---------------------------------------------------
+// Word: Word-compatible HTML saved as .doc. Word, Pages and Google Docs all open
+// it. (A true .docx is a ZIP archive - building one by hand is not worth the
+// risk, and this is honest about what it is.)
+function exportWord() {
+  const md = transcript('md');
+  const html = '<html xmlns:w="urn:schemas-microsoft-com:office:word"><head>' +
+    '<meta charset="utf-8"><title>Kestrel conversation</title>' +
+    '<style>body{font:11pt Calibri,sans-serif;line-height:1.5}' +
+    'h1{font-size:16pt}h2{font-size:12pt;margin-top:16pt}' +
+    'pre{font-family:Consolas,monospace;font-size:10pt;white-space:pre-wrap}</style>' +
+    '</head><body>' + escapeHtml(md).replace(/\n/g, '<br>') + '</body></html>';
+  download('kestrel-conversation.doc', html, 'application/msword');
+}
+
+// PDF: the browser's own print-to-PDF, which is lossless and needs no library.
+function exportPdf() {
+  const w = window.open('', '_blank');
+  if (!w) { alert('Allow pop-ups to export as PDF.'); return; }
+  const md = transcript('md');
+  w.document.write(
+    '<!doctype html><meta charset="utf-8"><title>Kestrel conversation</title>' +
+    '<style>body{font:12pt/1.6 -apple-system,Segoe UI,sans-serif;max-width:46em;' +
+    'margin:32px auto;padding:0 16px;color:#111}' +
+    'h1{font-size:20pt}h2{font-size:13pt;margin-top:20pt;color:#333}' +
+    'pre{white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;font-size:10pt;' +
+    'background:#f6f6f7;padding:12px;border-radius:6px}</style>' +
+    '<h1>Kestrel Company Brain &mdash; conversation</h1>' +
+    '<pre>' + escapeHtml(md) + '</pre>');
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 350);
+}
+
+document.getElementById('export-docx')?.addEventListener('click', exportWord);
+document.getElementById('export-pdf')?.addEventListener('click', exportPdf);
+
 document.getElementById('clear-chat')?.addEventListener('click', () => {
   TURNS.length = 0;
   try {
@@ -792,8 +873,11 @@ const draftSec = document.getElementById('draft');
 const draftBody = document.getElementById('draftbody');
 const draftTitle = document.getElementById('drafttitle');
 
-function showDraft(kind, label) {
-  draftBody.value = buildDraft(kind, LAST.q, LAST.text, SOURCES);
+function showDraft(kind, label, q, text) {
+  // Draft from the answer that was clicked; fall back to the most recent one.
+  const question = q ?? LAST.q;
+  const body = text ?? LAST.text;
+  draftBody.value = buildDraft(kind, question, body, SOURCES);
   draftTitle.textContent = label;
   draftSec.style.display = 'block';
   draftBody.scrollTop = 0;
