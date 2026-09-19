@@ -29,6 +29,33 @@ from memory_layer import recall  # noqa: E402
 
 app = FastAPI(title="Kestrel Company Brain")
 
+GRAPH_FIXTURE = os.path.join(HERE, "fixtures", "graph.json")
+
+
+def _load_graph():
+    """Return (graph, source) — live from the tenant, else the committed snapshot.
+
+    The graph is pre-built and static, so a committed copy is exactly as
+    truthful as a live fetch. Falling back to it means the graph view still
+    renders with PROVIDER=mock or when the tenant is unreachable; without it,
+    the footer count and /graph would be the only parts of the UI that break
+    when the network does — which is precisely the scenario the mock provider
+    exists to cover.
+    """
+    cloud_error = None
+    try:
+        import cognee_cloud
+
+        return cognee_cloud.graph(), "cloud"
+    except Exception as exc:  # noqa: BLE001
+        cloud_error = str(exc)[:160]
+
+    try:
+        with open(GRAPH_FIXTURE, encoding="utf-8") as fh:
+            return json.load(fh), "fixture"
+    except Exception as exc:  # noqa: BLE001
+        return None, f"cloud: {cloud_error}; fixture: {exc}"[:300]
+
 
 @app.get("/health")
 def health():
@@ -86,12 +113,11 @@ async def ask(q: str):
 @app.get("/api/graph")
 def graph():
     """The knowledge graph, for the graph view."""
-    try:
-        import cognee_cloud
-
-        return cognee_cloud.graph()
-    except Exception as exc:  # noqa: BLE001
-        return {"error": str(exc)[:300]}
+    g, source = _load_graph()
+    if g is None:
+        return {"error": source}
+    g["source"] = source
+    return g
 
 
 @app.get("/api/stats")
@@ -102,18 +128,16 @@ def stats():
     numNodes 0 until a summary run has been computed, which would render as
     a confidently empty graph.
     """
-    try:
-        import cognee_cloud
-
-        g = cognee_cloud.graph()
-        return {
-            "ok": True,
-            "nodes": len(g.get("nodes", [])),
-            "edges": len(g.get("edges", [])),
-            "dataset": os.getenv("COGNEE_DATASET", "company_brain"),
-        }
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": str(exc)[:300]}
+    g, source = _load_graph()
+    if g is None:
+        return {"ok": False, "error": source}
+    return {
+        "ok": True,
+        "nodes": len(g.get("nodes", [])),
+        "edges": len(g.get("edges", [])),
+        "dataset": os.getenv("COGNEE_DATASET", "company_brain"),
+        "source": source,
+    }
 
 
 @app.get("/")

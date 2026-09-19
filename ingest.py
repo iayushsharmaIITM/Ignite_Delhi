@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 import time
 from pathlib import Path
@@ -26,6 +27,29 @@ HERE = Path(__file__).parent
 import cognee_cloud as cc  # noqa: E402
 
 CORPUS = HERE / "corpus"
+GRAPH_FIXTURE = HERE / "fixtures" / "graph.json"
+
+
+def save_graph_fixture(g: dict) -> None:
+    """Snapshot the graph so the UI still works with no network.
+
+    /api/graph and /api/stats fall back to this file when the tenant is
+    unreachable, so PROVIDER=mock — or a genuinely dead network — still renders
+    the graph view instead of an error. Node `properties` are dropped because
+    the view only draws label and type; that takes the payload from ~190KB to
+    ~77KB, which is small enough to commit.
+    """
+    lean = {
+        "nodes": [
+            {"id": n["id"], "label": n.get("label", ""), "type": n.get("type", "")}
+            for n in g.get("nodes", [])
+        ],
+        "edges": g.get("edges", []),
+    }
+    GRAPH_FIXTURE.parent.mkdir(parents=True, exist_ok=True)
+    GRAPH_FIXTURE.write_text(json.dumps(lean, separators=(",", ":")), encoding="utf-8")
+    kb = GRAPH_FIXTURE.stat().st_size // 1024
+    print(f"Saved offline graph fixture: fixtures/{GRAPH_FIXTURE.name} ({kb} KB)")
 
 
 def load_documents() -> list:
@@ -115,6 +139,7 @@ def main():
     try:
         g = cc.graph(name)
         print(f"\nGraph: {len(g.get('nodes', []))} nodes, {len(g.get('edges', []))} edges")
+        save_graph_fixture(g)
     except Exception as exc:  # noqa: BLE001
         print(f"Graph unavailable: {exc}")
 

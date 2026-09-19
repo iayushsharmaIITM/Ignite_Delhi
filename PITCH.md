@@ -86,7 +86,17 @@ rather than a search box.
 > the graph they all write to.
 >
 > A hundred documents is a hundred containers and no architectural change. That is what
-> 'scales 100×' has to mean — not a bigger box, but no change to the design."
+> 'scales 100×' has to mean — not a bigger box, but no change to the design.
+>
+> And the same property hands you the platform for free. **A brain is a dataset.** Ingest to
+> `--dataset acme`, ingest to `--dataset globex` — separate graphs, separate vector indexes,
+> separate storage, nothing shared. Adding a customer adds containers, not architecture. We
+> proved the shape: three documents, three ephemeral containers, three isolated datasets
+> writing into one shared graph, six seconds.
+>
+> What we deliberately did *not* build is the part that isn't engineering — signup, billing,
+> SSO. Three hours, one builder. **The platform is the shape of the system, not a feature we
+> ran out of time for.**"
 
 ### 4:00 — Scope & Prioritisation (45s)
 
@@ -172,6 +182,13 @@ either way, and both render correctly. So do not promise a table on stage. Point
 > call. The honest limit is the tenant instance — at real volume you'd move the graph to
 > a dedicated Neo4j cluster and point Cognee at it with `GRAPH_DATABASE_PROVIDER=neo4j`.
 > The application code does not change.
+
+**"Isn't this just a single-tenant demo? Where's the multi-tenancy?"**
+> It is already multi-tenant; it just has no signup form. A brain is a dataset — separate graph,
+> separate vector index, separate storage, nothing shared. We proved it: three documents, three
+> ephemeral containers, three isolated datasets, one shared graph, six seconds. What is missing
+> is billing and SSO, which is product work rather than architecture — and deliberately out of
+> scope for a three-hour build.
 
 **"What happens if the network dies?"**
 > `/health` reports `upstream: unreachable`. And the memory layer falls back to the mock
