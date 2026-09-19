@@ -77,6 +77,18 @@ half-failure. Both now fall back to a committed 77KB graph snapshot and report
 reads `219 nodes · 500 edges`, the graph renders 602k painted pixels, the LED honestly says
 `cloud · unreachable`, and there are **zero console errors**. Functional *and* truthful.
 
+**8. A task that silently ingested garbage and reported success.**
+`render workflows start` spreads a *bare* JSON object as keyword arguments; wrap it in an array
+and it arrives as the first positional argument instead. That made `documents` a **dict**, so
+`for doc in documents` iterated its **keys** — and `ingest_corpus` ingested the literal strings
+`"dataset"` and `"documents"`, then returned `{"queued":2,"failed":0}`. A confident success over
+garbage, and because the subtasks received an empty dataset name, the junk landed in the **demo
+graph** (219/500 → 225/504). Fixed with a type guard in `pipeline.py` that now fails in 0.57s
+with an explanatory message. The graph was repaired **surgically** via
+`DELETE /api/v1/datasets/{id}/data/{data_id}` — deleting only the two junk items (identified by
+reading their raw content: 9 and 7 chars against 1353–2592 for the real documents) and restoring
+exactly **219 nodes / 500 edges**, rather than re-ingesting and risking a different count.
+
 ---
 
 ## Files delivered
