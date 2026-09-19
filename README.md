@@ -29,34 +29,37 @@ citations attached** — and can flag where the documents disagree.
 
 ---
 
-## What it looks like
+## What it looks like — The Complete Experience
 
-![Asking a cross-document question](screenshots/02-answer.png)
+### 1. Unified App Shell & Streamed Grounded Answers
+![App shell and question answering](screenshots/shell-ask.png)
 
-The answer arrives formatted — headings, bold, bullet lists, and often a table, because the
-underlying facts are tabular. The exact shape varies between runs; the renderer handles
-tables, lists and headings either way, so the UI never shows raw `**markdown**` or `|---|`.
-Note the **ARR mismatch** entry: the system found the contract says `$420k` while the sales
-quote said `$480k` — nobody asked it to compare those two numbers. It also caught that a
-promised 25% credit exceeds the 10% policy baseline and needs CFO sign-off.
+The app features a unified monochrome sidebar shell across all four pages (`/`, `/graph`, `/brains`, `/upload`). Answers stream with real-time pipeline status, clear source chips resolved to human-readable filenames (e.g. `01_contract_MSA-2025-0114_bluepeak.md`), and verbatim excerpts via [`citations.py`](citations.py).
 
-![The loading state](screenshots/04-loading.png)
+### 2. Actionable Layer: "Do something with this"
+![Actionable drafts](screenshots/actions-draft.png)
 
-Recall runs server-side before the first token is emitted, so there is a **~18 second gap**
-before the answer starts streaming. Rather than leave a blank box and a spinner — which
-reads as broken — the UI says what it is doing. This was measured, not assumed: first chunk
-at 17.8s, then 226 chunks over 3s.
+An answer is no longer a dead end. Every turn includes an actionable layer that generates instant outputs right in the browser:
+- **Email Draft**: Formats a professional memo or customer email citing the exact contract and meeting facts, with 1-click clipboard copy and an `Open in mail app` (`mailto:`) shortcut.
+- **Next Steps**: Converts cross-document findings into a structured, numbered action checklist.
+- **Chat Update**: Creates a concise Slack/Teams announcement ready to paste.
+- **Copy Answer**: Instant clipboard copy with non-secure context fallback.
 
-![The knowledge graph](screenshots/03-graph.png)
+### 3. Conversational Threading & Per-Brain History
+![Conversational thread with follow-ups](screenshots/chat-thread.png)
 
-219 nodes and 500 edges extracted from ten documents, rendered from our own `/api/graph`.
-Both `$420,000` and `$480,000 arr` appear as separate nodes — the contradiction is visible
-in the graph itself.
+Ask follow-up questions in a continuous thread (e.g. *"who owns the renewal?"* after asking about renewal dates).
+- **Persistent History**: Chat threads persist across reloads in `localStorage`, strictly scoped per brain so demo answers never bleed into uploaded datasets.
+- **Thread Export**: Export the entire conversational history with sources as Markdown or plain text.
+- **Re-Entry Protection**: Input controls automatically disable while requests stream to prevent interleaved turns.
 
-![The landing state](screenshots/01-landing.png)
+### 4. Interactive Knowledge Graph & Node Inspector
+![Interactive graph and node inspector](screenshots/brain-graph-inspector.png)
 
-Every suggested question is one the pre-built graph is known to answer well. They double as
-a demo safety net: the presenter never has to improvise a query on stage.
+Rendered with zero frontend dependencies on an HTML5 canvas:
+- **Clickable Nodes**: Clicking any entity opens the **Node Inspector**, revealing its type, internal properties, and all connected incoming and outgoing typed edges (e.g., `requires_approval`, `escalates_to`, `breaches_sla`).
+- **Monochrome Design System**: High-contrast, clean visual design matching the rest of the application.
+- **Visible Contradictions**: Opposing facts like `$420,000` (contract) and `$480,000 arr` (meeting notes) are visible as distinct, conflicting nodes in the graph structure itself.
 
 ---
 
@@ -69,34 +72,21 @@ you get your own knowledge graph, queried through **the same dashboard**.
 
 ![Uploading documents](screenshots/brain-upload.png)
 
-Drag in up to 20 files — PDF, DOCX, TXT, MD, CSV or JSON, 5 MB each. Ingestion streams real
-pipeline states (`DATASET_PROCESSING_STARTED` → `DATASET_PROCESSING_COMPLETED`), so a slow
-extraction looks like work rather than a hang. Measured at **~34 seconds** for three files.
+Drag in up to **40 files** — PDF, DOCX, TXT, MD, CSV, JSON, or code files (`.py`, `.yaml`, etc.), 5 MB each. Ingestion streams real pipeline states (`DATASET_PROCESSING_STARTED` → `DATASET_PROCESSING_COMPLETED`), so extraction and graph building provide transparent progress feedback.
 
 ![Querying an uploaded brain](screenshots/brain-uploaded-dashboard.png)
 
-The uploaded brain answers from the content it was given, with the same evidence panel. The
-test corpus planted the same kind of contradiction as the demo — `750,000 USD` in the
-agreement, `890,000 USD` in the meeting notes — and asking whether the value was consistent
-surfaced both.
+The uploaded brain answers from the content it was given, with the same evidence panel. The test corpus planted the same kind of contradiction as the demo — `750,000 USD` in the agreement, `890,000 USD` in the meeting notes — and asking whether the value was consistent surfaced both.
 
-**Why this is more than a demo.** It runs the same code path the demo does, so it exercises the
-system rather than pretending to:
+**Why this is more than a demo.** It runs the same code path the demo does, so it exercises the system rather than pretending to:
 
-- Errors are returned **per file**, never raised — one bad file cannot lose a batch. An `.xlsx`
-  is skipped with *"export the sheet to .csv first"* while every other file still ingests.
-- A **scanned PDF extracts to an empty string with no exception**. That case is detected and
-  reported, because silently ingesting nothing while telling the user it worked is the worst
-  possible outcome.
-- **The demo brain is protected in code.** Names are normalised and validated, the reserved
-  demo and system datasets are refused for both creation and deletion, and an existing brain
-  is rejected with a 409 rather than silently merged into.
-- The offline graph snapshot is scoped to the demo brain only. Serving it under someone else's
-  brain would fabricate a result, so an uploaded brain gets an honest empty state instead.
+- **Add to Existing Brains**: Need to add more documents later? The upload flow supports appending into an existing brain with explicit confirmation (409 guard on accidental duplicate creation).
+- **Errors are returned per file**, never raised — one bad file cannot lose a batch. An `.xlsx` is skipped with *"export the sheet to .csv first"* while every other file still ingests.
+- **A scanned PDF extracts to an empty string with no exception**. That case is detected and reported, because silently ingesting nothing while telling the user it worked is the worst possible outcome.
+- **The demo brain is protected in code.** Names are normalised and validated, the reserved demo and system datasets are refused for both creation and deletion, and an existing brain is guarded against silent unintended merges.
+- **Per-Brain Offline Snapshots**: Real graph snapshots for every brain (`company_brain`, `kestrel_full`, `acme_industrial`, `default_dataset`) are committed to `fixtures/brains/`, so deployments function offline or in serverless environments (e.g. Vercel) with no tenant required.
 
-**What is still missing: accounts.** Brains are global to the tenant — there is no "my brains"
-versus "yours". That is the deliberate cut, and it is a product decision rather than a
-technical one.
+**What is still missing: accounts.** Brains are global to the tenant — there is no "my brains" versus "yours". That is the deliberate cut, and it is a product decision rather than a technical one.
 
 ---
 
@@ -270,19 +260,39 @@ the ones we did build would actually work.
 
 ```
 app.py             Web tier — UI, streamed answers, /health, brain create/list/delete
-documents.py       Document text extraction (PDF, DOCX, TXT, MD, CSV, JSON)
+documents.py       Document text extraction (PDF, DOCX, TXT, MD, CSV, JSON, code)
+citations.py       Citations resolver: maps opaque tenant chunks to real files & quotes
 cognee_cloud.py    The only file that talks to Cognee Cloud (dependency-light)
 memory_layer.py    mock | cloud adapter — the demo safety net
 pipeline.py        Render Workflow tasks (ingest fan-out, retrieve, answer)
 ingest.py          Builds the graph from corpus/ — run once, ahead of time
+snapshot.py        Exports per-brain snapshots into fixtures/ for offline runs
 test_documents.py  Extraction tests: 25 cases, including every refusal path
+test_pipeline_states.py Pytest coverage for pipeline terminal state machines
 smoke.py           Web-tier check: health, graph, streamed answer with citations
+check_ui.py        Automated headless UI smoke test verifying 16/16 interactive controls
 wf_smoke.py        Workflow-tier check: fan-out + chained ctx.run (scratch dataset only)
 warmup.py          Pre-demo rehearsal — every component, all 4 questions timed
-fixtures/          Offline answers + a graph snapshot for the no-network path
-corpus/            10 synthetic company documents
+fixtures/          Offline answers + per-brain graph snapshots for no-network path
+corpus/            12 synthetic company documents & code assets
 static/            UI: index.html (ask), graph.html, brains.html, upload.html
+api/index.py       Vercel serverless ASGI entrypoint
+vercel.json        Vercel deployment configuration & routing
 ```
+
+---
+
+## Automated Verification & Test Suites
+
+The project enforces quality at multiple levels:
+
+| Suite | Runner | Checks | Result |
+|---|---|---|---|
+| **Document Processing** | `python3 test_documents.py` | 25 tests covering PDF, DOCX, TXT, CSV, JSON, and all refusal paths | **25/25 PASS** |
+| **State Machine Guard** | `pytest test_pipeline_states.py` | Terminal status transitions, failure vs success classification | **2/2 PASS** |
+| **Live Smoke Probe** | `python3 smoke.py` | Upstream `/health` check (`auth=ok`), graph node count, streaming citations | **4/4 PASS** |
+| **Interactive UI Smoke** | `python3 check_ui.py` | Drives real browser through all 4 pages, clicks every control, zero JS errors | **16/16 PASS** |
+
 
 ### Traps documented in the code
 

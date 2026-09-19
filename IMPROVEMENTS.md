@@ -25,12 +25,12 @@
 | 2.6 `is_terminal` substring match | **DONE** — matches the `status` field against exact enums; both traps have tests. |
 | 2.7 `HOST` missing from `render.yaml` | **DONE** — `HOST=0.0.0.0` added to the web service. |
 | Code artefact gap (`.py`/`.yaml` refused) | **DONE** — `CODE_EXTS` (22 extensions); corpus expanded to 12 files; `kestrel_full` ingested at 233/543 and verified queryable. |
-| **2.5 workflow-path claim** | **OPEN** — still describes a path the product does not use. Option A (correct the docs) is the cheap fix. |
-| **Tier 2 (3.1–3.3) — citations, traversal, honest multi-hop** | **OPEN** — this is the differentiator and the highest-value remaining work. |
-| Tier 3 polish (4.2–4.6) | **OPEN** — except 4.1, which is covered by the §5.1 correction and Task 5 below. |
+| 2.5 workflow-path claim | **DONE** — documents accurately reflect the two-tier Render web + workflow task architecture. |
+| **Tier 2 (3.1–3.3) — citations, traversal, honest multi-hop** | **DONE** — `citations.py` matches fingerprints to source files & quotes; actionable layer generates email drafts, next steps, and chat updates; interactive graph with node inspector and typed edges. |
+| Tier 3 polish (4.2–4.7) | **DONE** — app shell sidebar on all pages, conversational thread with follow-ups & Markdown export, per-brain offline snapshots (`fixtures/brains/`), multi-file upload append (up to 40 files), per-brain `localStorage` chat history with re-entry guard, and `check_ui.py` browser smoke test (16/16 controls PASS). |
 | Tier 4 (auth, connectors, OCR) | **OPEN** — post-hackathon. |
 
-**So the remaining high-value work is §3 (Tier 2) and §2.5.** The order in §6 still holds: Task 5 (`smoke.py`) first, then the differentiator.
+**All high-value Tier 1, Tier 2, and Tier 3 items are complete and verified across both backend and UI.**
 
 ---
 
