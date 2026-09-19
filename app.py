@@ -341,7 +341,18 @@ def list_brains():
         brains.sort(key=lambda b: (not b["is_demo"], b["name"] or ""))
         return {"ok": True, "provider": "cloud", "brains": brains, "demo": DEMO_DATASET}
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": str(exc)[:300], "brains": []}
+        # The tenant is unreachable. Fall back to the brains we hold snapshots
+        # for rather than showing an empty list - the graphs for those brains
+        # still work, so an empty list is both wrong and alarming.
+        offline = _offline_brains()
+        return {
+            "ok": bool(offline),
+            "provider": "cloud (unreachable)",
+            "error": str(exc)[:200],
+            "brains": offline,
+            "demo": DEMO_DATASET,
+            "note": "Tenant unreachable - showing committed snapshots.",
+        }
 
 
 @app.post("/api/brains")

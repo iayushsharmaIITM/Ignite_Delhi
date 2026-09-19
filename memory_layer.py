@@ -78,7 +78,27 @@ async def recall(query: str, dataset: str | None = None):
         async for event in _mock(query, dataset):
             yield event
         return
-    async for event in _cloud(query, dataset):
+
+    # Cloud first. If the tenant is unreachable, fall back to the committed
+    # answers rather than leaving the user with an error - a dead tenant must
+    # not make the demo look broken. The mock refuses for an uploaded brain,
+    # which is the honest outcome there: we have no answers for documents the
+    # fixtures never saw.
+    try:
+        produced = False
+        async for event in _cloud(query, dataset):
+            produced = True
+            yield event
+        if produced:
+            return
+    except Exception as exc:  # noqa: BLE001
+        yield {
+            "type": "chunk",
+            "text": f"(The knowledge graph is unreachable - {str(exc)[:80]}. "
+                    "Falling back to the committed answers.)\n\n",
+        }
+
+    async for event in _mock(query, dataset):
         yield event
 
 
