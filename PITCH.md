@@ -9,6 +9,16 @@ Two different rounds, two different jobs.
 
 Do not reuse one script for both. The 5-minute pitch argues; the 1-minute pitch asserts.
 
+Both scripts are word-counted against a 140 wpm speaking rate:
+
+| Round | Words | At 140 wpm | Budget | Buffer |
+|---|---|---|---|---|
+| Round 1 (5 min) | 550 | **236s** | 300s | 64s for pauses and emphasis |
+| Round 2 (1 min) | 133 | **57s** | 60s | 3s — it fits at 150–160 wpm with room |
+
+Every Round 1 segment is individually inside its own budget, so you can check your pace at each
+timestamp rather than discovering at 4:30 that you are behind.
+
 ---
 
 ## Numbers to know cold
@@ -78,25 +88,17 @@ rather than a search box.
 > "Here's the part I think is actually interesting.
 >
 > Because the graph lives outside the container, **every container needs exactly one
-> credential** — an API key. No model key. No database password. No mounted volume. No
-> shared filesystem.
+> credential** — an API key. No model key, no database password, no mounted volume.
 >
-> So scaling is adding containers. We proved the shape: ten documents fanned out across
-> three parallel workers, queued in eleven seconds. Ten containers share nothing except
-> the graph they all write to.
+> So scaling is adding containers. We proved it: three documents fanned out across three
+> ephemeral containers into one shared graph, in six seconds. A hundred documents is a
+> hundred containers and no change to the design.
 >
-> A hundred documents is a hundred containers and no architectural change. That is what
-> 'scales 100×' has to mean — not a bigger box, but no change to the design.
+> And that same property hands you the platform for free. **A brain is a dataset** — separate
+> graph, separate index, separate storage. Adding a customer adds containers, not architecture.
 >
-> And the same property hands you the platform for free. **A brain is a dataset.** Ingest to
-> `--dataset acme`, ingest to `--dataset globex` — separate graphs, separate vector indexes,
-> separate storage, nothing shared. Adding a customer adds containers, not architecture. We
-> proved the shape: three documents, three ephemeral containers, three isolated datasets
-> writing into one shared graph, six seconds.
->
-> What we deliberately did *not* build is the part that isn't engineering — signup, billing,
-> SSO. Three hours, one builder. **The platform is the shape of the system, not a feature we
-> ran out of time for.**"
+> What we deliberately did *not* build is the part that isn't engineering: signup, billing,
+> SSO. **The platform is the shape of the system, not a feature we ran out of time for.**"
 
 ### 4:00 — Scope & Prioritisation (45s)
 
@@ -119,24 +121,19 @@ rather than a search box.
 
 Deliver this standing next to the running app. Assert, don't argue.
 
-> "Company knowledge is scattered, so a question that spans a contract, an incident, a
-> meeting and a policy is unanswerable. We built the Kestrel Company Brain: ten documents
-> in, one knowledge graph out — 219 nodes, 500 edges.
+> "Company knowledge is scattered, so a question spanning a contract, an incident, a meeting
+> and a policy is unanswerable. We built the Kestrel Company Brain: ten documents in, one
+> knowledge graph out — 219 nodes, 500 edges.
 >
-> Ask it why the Bluepeak renewal is at risk and it answers from five sources at once,
-> cites all five, and **flags that our contract and our meeting notes disagree on the
-> account value**.
+> Ask why the Bluepeak renewal is at risk and it answers from five sources at once, cites all
+> five, and **flags that our contract and our meeting notes disagree on the account value**.
 >
-> The architecture is two services. A FastAPI web tier streams answers. A Render Workflow
-> fans ingestion across ephemeral containers. The graph lives in a Cognee Cloud tenant —
-> outside the containers, because a container that dies takes its filesystem with it.
->
-> That means every container needs one credential: an API key. No model key, no database
-> password, no volume.
+> Two services: a web tier that streams answers, and a Render Workflow that fans ingestion
+> across ephemeral containers. The graph lives outside them, in a Cognee Cloud tenant — so
+> the containers cannot kill it.
 >
 > The graph is pre-built, the memory layer falls back to fixtures if the network dies, and
-> `/health` verifies every upstream component *and* that our key still works. **The demo
-> cannot die.**
+> `/health` checks every component *and* that our key still works. **The demo cannot die.**"
 
 ---
 
