@@ -27,3 +27,9 @@ screenshots/*.tmp
 
 # agent working data — not project source
 .workbuddy-ai/
+
+# playwright CLI
+.playwright-cli/
+
+# playwright CLI
+.playwright-cli/
