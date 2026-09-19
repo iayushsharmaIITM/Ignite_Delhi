@@ -32,7 +32,7 @@ import os
 # Per-file and per-upload ceilings. These exist to protect the demo: an
 # unbounded upload would sit in the ingestion pipeline while a judge waits.
 MAX_FILE_BYTES = 5 * 1024 * 1024
-MAX_FILES = 20
+MAX_FILES = 40
 MAX_TOTAL_CHARS = 500_000
 MAX_FILE_CHARS = 200_000
 

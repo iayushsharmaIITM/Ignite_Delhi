@@ -80,6 +80,12 @@
   a:hover { text-decoration:underline; }
   code { background:var(--panel-2); padding:2px 6px; border-radius:5px; font-size:12px;
          font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  button.mini { padding:9px 16px; border-radius:999px; border:1px solid var(--line-2);
+                background:var(--panel-2); color:var(--fg); font-size:13px; cursor:pointer;
+                transition:all .16s ease; display:inline-block; }
+  button.mini:hover:not(:disabled) { border-color:var(--line-3); }
+  button.mini:disabled { opacity:.55; cursor:default; }
+
 </style>
 <link rel="stylesheet" href="/static/shell.css">
 </head>
@@ -130,7 +136,7 @@
 
 <script>
 const MAX_BYTES = 5 * 1024 * 1024;
-const MAX_FILES = 20;
+const MAX_FILES = 40;   // raised from 20; the backend cap is documents.MAX_FILES
 
 const nameEl  = document.getElementById('name');
 const dropEl  = document.getElementById('drop');
@@ -216,14 +222,52 @@ buildEl.addEventListener('click', async () => {
   logEl.innerHTML = '';
   note('Uploading ' + picked.length + ' file(s)…');
 
-  const form = new FormData();
-  form.append('name', name);
-  for (const f of picked) form.append('files', f, f.name);
+  // One submit path for both modes. `append` is what turns "create" into
+  // "add to the brain that already exists".
+  async function submit(appendMode) {
+    const form = new FormData();
+    form.append('name', name);
+    if (appendMode) form.append('append', 'true');
+    for (const f of picked) form.append('files', f, f.name);
+    const res = await fetch('/api/brains', { method: 'POST', body: form });
+    const body = await res.json().catch(() => ({}));
+    return { res, body };
+  }
 
   let created;
   try {
-    const res = await fetch('/api/brains', { method: 'POST', body: form });
-    const body = await res.json().catch(() => ({}));
+    const { res, body } = await submit(false);
+
+    if (res.status === 409) {
+      // The brain exists. Do not dead-end the user: offer to add to it, which
+      // is usually what they meant. Nothing is written until they click.
+      note('"' + name + '" already exists. Add these files to it, or change the name.', 'warn');
+      const offer = document.createElement('button');
+      offer.type = 'button';
+      offer.className = 'mini';
+      offer.style.marginTop = '10px';
+      offer.textContent = 'Add to "' + name + '"';
+      offer.addEventListener('click', async () => {
+        offer.disabled = true;
+        offer.textContent = 'Adding…';
+        try {
+          const r2 = await submit(true);
+          if (!r2.res.ok) throw new Error(r2.body.detail || ('HTTP ' + r2.res.status));
+          note('Added ' + r2.body.documents + ' document(s) to "' + name + '".', 'ok');
+          for (const sk of r2.body.skipped || []) note('skipped ' + sk.name + ' — ' + sk.error, 'bad');
+          await follow(name);
+        } catch (e) {
+          note('Could not add to the brain: ' + e.message, 'bad');
+          offer.disabled = false;
+          offer.textContent = 'Add to "' + name + '"';
+        }
+      });
+      logEl.appendChild(offer);
+      offer.scrollIntoView({ block: 'nearest' });
+      buildEl.disabled = false;
+      return;
+    }
+
     if (!res.ok) throw new Error(body.detail || ('HTTP ' + res.status));
     created = body;
   } catch (err) {

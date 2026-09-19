@@ -348,12 +348,17 @@ def list_brains():
 async def create_brain(
     name: str = Form(...),
     files: list[UploadFile] = File(...),
+    append: bool = Form(False),
 ):
-    """Create a brain from uploaded documents.
+    """Create a brain from uploaded documents, or add to an existing one.
+
+    `append=False` (the default) refuses an existing name with 409: silently
+    merging into a brain the user believes is new would produce answers from
+    documents they never saw. `append=True` is the explicit opt-in — the user
+    has been told the brain exists and chose to add to it.
 
     Order matters: validate the name BEFORE touching the tenant, and never
-    write to the demo dataset. This project has already polluted the demo graph
-    once via an unvalidated input, and the demo is the thing that must survive.
+    write to the demo dataset.
     """
     if memory_layer.PROVIDER != "cloud":
         raise HTTPException(
@@ -382,12 +387,18 @@ async def create_brain(
 
     import cognee_cloud
 
-    # Refuse to merge into an existing brain: silently appending to a brain the
-    # user thinks is new would produce answers from documents they never saw.
-    if cognee_cloud.exists(safe):
+    # Refuse to merge into an existing brain UNLESS the caller explicitly asked
+    # to. Silently appending to a brain the user thinks is new would produce
+    # answers from documents they never saw — so the 409 is the default, and
+    # `append=True` is the opt-in the UI offers once the user has been told.
+    already_exists = cognee_cloud.exists(safe)
+    if already_exists and not append:
         raise HTTPException(
             status_code=409,
-            detail=f"A brain called '{safe}' already exists. Pick another name.",
+            detail=(
+                f"A brain called '{safe}' already exists. Add to it instead, "
+                "or pick another name."
+            ),
         )
 
     # Cap the count before reading anything, then cap each file WHILE reading it.
@@ -458,6 +469,9 @@ async def create_brain(
         "ok": not failed,
         "partial": bool(failed),
         "name": safe,
+        # Lets the UI say "added to" rather than "created" — the two read very
+        # differently when the user has just extended an existing brain.
+        "appended": already_exists,
         "documents": len(succeeded),
         # Count only what was actually stored, not what was merely uploaded.
         "chars": sum(r["chars"] for r in succeeded),
