@@ -1,0 +1,31 @@
+- generic [active] [ref=f1e1]:
+  - complementary [ref=f1e2]:
+    - generic [ref=f1e3]:
+      - generic [ref=f1e4]: ◆
+      - generic [ref=f1e5]:
+        - generic [ref=f1e6]: Kestrel
+        - generic [ref=f1e7]: Company Brain
+    - navigation [ref=f1e8]:
+      - generic [ref=f1e9]: Workspace
+      - link "Ask" [ref=f1e10] [cursor=pointer]:
+        - /url: /
+      - link "New brain" [ref=f1e14] [cursor=pointer]:
+        - /url: /upload
+      - link "Brains" [ref=f1e19] [cursor=pointer]:
+        - /url: /brains
+      - link "Graph" [ref=f1e26] [cursor=pointer]:
+        - /url: /graph
+    - generic [ref=f1e33]:
+      - generic [ref=f1e34]: connecting…
+      - generic [ref=f1e37]: "graph: —"
+  - generic:
+    - heading "Knowledge graph" [level=1]
+    - paragraph: Every entity and relationship extracted from the company corpus.
+  - generic [ref=f1e40]: loading…
+  - complementary [ref=f1e42]:
+    - button "Close" [ref=f1e43] [cursor=pointer]: ×
+    - heading [level=2]
+  - generic [ref=f1e44]:
+    - button "+" [ref=f1e45] [cursor=pointer]
+    - button "−" [ref=f1e46] [cursor=pointer]
+    - button "⤢" [ref=f1e47] [cursor=pointer]

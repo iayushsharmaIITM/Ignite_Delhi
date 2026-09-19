@@ -453,25 +453,77 @@ function clean(text) {
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/^\s*[-*]\s+/gm, '• ')
     .replace(/^#{1,4}\s+/gm, '')
-    .replace(/^\s*\|.*\|\s*$/gm, m => m.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim())
+    // Drop table separator rows (|---|---|) entirely. Flattening them to text
+    // leaves a stray "--- ---" line that reads as a typo in an email.
+    // [ \t] rather than \s at the line ends: \s also matches the newline, which
+    // silently glued the header row to the first data row.
+    .replace(/^[ \t]*\|[\s:|-]+\|[ \t]*$/gm, '')
+    .replace(/^[ \t]*\|.*\|[ \t]*$/gm, m => m.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim())
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
 function sentences(text) {
-  return clean(text).split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
+  // Collapse newlines first. The model hard-wraps its output, so splitting the
+  // raw text produced fragments ("Bluepeak's procurement now") that duplicated
+  // the properly-merged bullet they came from.
+  return clean(text).replace(/\n+/g, ' ').split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
 }
 
 function nextSteps(text) {
-  // Prefer sentences that read like an action: an owner, a deadline, or a
-  // directive. Falls back to the strongest statements if none match.
-  const ACT = /\b(must|need|should|require|approv|sign|escalat|notify|confirm|close|correct|review|draft|prepare|send|flag|remediat|follow up)\b/i;
-  const DATE = /\b(\d{1,2}\s+\w+\s+\d{4}|\d{4}-\d{2}-\d{2}|by \w+day|within \d+)\b/i;
-  const scored = sentences(text)
-    .filter(s => s.length > 30 && s.length < 300)
-    .map(s => ({ s, score: (ACT.test(s) ? 2 : 0) + (DATE.test(s) ? 2 : 0) }));
-  const hits = scored.filter(x => x.score > 0).sort((a, b) => b.score - a.score);
-  const picked = (hits.length ? hits : scored).slice(0, 5).map(x => x.s);
+  // Prefixes, NOT whole words. `\bneed\b` does not match "needs" and
+  // `\brequire\b` does not match "requires", so the old pattern missed almost
+  // every real action and an answer with three actions yielded one step.
+  const ACT = /\b(must|need|should|requir|approv|sign|escalat|notif|confirm|clos|correct|review|draft|prepar|send|flag|remediat|follow up|blocked|slip|owed|due)/i;
+  const DATE = /\b(\d{1,2}\s+\w+\s+\d{4}|\d{4}-\d{2}-\d{2}|by \w+day|within \d+|before \d)/i;
+
+  // Bullets first: in practice these ARE the actionable lines, and
+  // sentence-splitting alone missed most of them (a list of three actions
+  // yielded one step).
+  //
+  // The model hard-wraps its output, so a bullet's text continues on the next
+  // line with no marker. Treating every line as a candidate produced fragments
+  // like "above 20% requires CFO sign-off" — so merge continuations back into
+  // the bullet they belong to before scoring anything.
+  const flat = clean(text);
+  const merged = [];
+  for (const line of flat.split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    const bullet = line.match(/^\s*(?:•|\d+[.)])\s+(.*)$/);
+    if (bullet) { merged.push(bullet[1].trim()); continue; }
+
+    // Only a genuine wrapped continuation is merged: the previous entry has not
+    // ended its sentence AND this line starts lowercase. Without both checks a
+    // heading or a following paragraph gets swallowed into one huge bullet,
+    // which then fails the length filter and disappears.
+    const prev = merged[merged.length - 1];
+    const prevEndsSentence = prev && /[.!?:]$/.test(prev);
+    if (prev && !prevEndsSentence && /^[a-z]/.test(t)) {
+      merged[merged.length - 1] += ' ' + t;
+    } else {
+      merged.push(t);
+    }
+  }
+  const bullets = merged.filter(l => l.length > 24 && l.length < 320);
+
+  const sents = sentences(text).filter(s => s.length > 30 && s.length < 320);
+
+  const seen = [];
+  const candidates = [];
+  for (const c of [...bullets, ...sents]) {
+    // Containment, not just equality: a bullet and the sentence inside it are
+    // the same action, and their prefixes differ, so a prefix-keyed Set let
+    // both through and the list showed the same action twice.
+    const norm = c.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (norm.length < 20) continue;
+    if (seen.some(prev => prev.includes(norm) || norm.includes(prev))) continue;
+    seen.push(norm);
+    candidates.push({ s: c, score: (ACT.test(c) ? 2 : 0) + (DATE.test(c) ? 2 : 0) });
+  }
+
+  const hits = candidates.filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+  const picked = (hits.length ? hits : candidates).slice(0, 5).map(x => x.s);
   return picked.length ? picked : ['No clear actions found in this answer — ask a more specific question.'];
 }
 
