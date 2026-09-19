@@ -69,6 +69,14 @@ which reads as broken on stage. It now writes *"Searching the knowledge graph…
 and clears it on the first chunk. The demo script was corrected to use that gap deliberately
 rather than sit through it.
 
+**7. The graph view was the last thing that could break, and now it can't.**
+`/api/graph` and `/api/stats` bypassed the provider adapter, so with the network genuinely gone
+the footer count and the graph page failed while the ask path still worked — a confusing
+half-failure. Both now fall back to a committed 77KB graph snapshot and report
+`source: "cloud" | "fixture"`. Verified with the tenant pointed at a non-existent host: footer
+reads `219 nodes · 500 edges`, the graph renders 602k painted pixels, the LED honestly says
+`cloud · unreachable`, and there are **zero console errors**. Functional *and* truthful.
+
 ---
 
 ## Files delivered
@@ -88,6 +96,8 @@ rather than sit through it.
 | `smoke.py` | 4-check demo-path test; `--base` targets any URL, including a broken one |
 | `warmup.py` | One-command pre-demo rehearsal — health, graph size, all 4 questions timed |
 | `fixtures/answers.json` | Offline answers for the `mock` fallback (real outputs, not placeholders) |
+| `fixtures/graph.json` | Lean graph snapshot (77KB) so the graph view survives with no network |
+| `ASSESSMENT.md` | Strategic assessment: whether to pivot to a multi-tenant platform (recommendation: no) |
 | `render.yaml` | Blueprint: web + workflow services, Singapore region |
 | `commit.sh` | Continuous-commit helper — a single bulk commit can trigger a plagiarism check |
 
@@ -117,6 +127,10 @@ rather than sit through it.
    validated: two services, web + workflow, Singapore region).
 3. **Neo4j** — not required for the shipped scope. It becomes relevant at company scale for
    multi-hop traversal; Cognee supports it with no application change.
+4. **Multi-tenant platform pivot — assessed and declined.** See `ASSESSMENT.md`. Short version:
+   the platform layer is the one Cognee already occupies, W.Brain already sells the exact
+   concept at $39/month, and the rubric pays nothing for novelty. The platform story is
+   claimable for free because `--dataset` already provides per-brain isolation.
 
 ---
 
