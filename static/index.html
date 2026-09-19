@@ -278,6 +278,26 @@ const TURNS = [];
 // was lost when the standalone evidence panel was removed, which silently broke
 // every "Do something with this" button.
 let SOURCES = [];
+
+// Conversation history persists per brain, so switching pages or reloading does
+// not lose the thread. Keyed by brain: the demo brain and an uploaded brain are
+// different contexts, and mixing them would show answers from documents the
+// user is not currently looking at.
+const HISTORY_KEY = 'kestrel.history.' + (BRAIN || 'demo');
+const HISTORY_MAX = 60;          // turns kept; roughly 30 exchanges
+
+function saveHistory() {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(TURNS.slice(-HISTORY_MAX)));
+  } catch (e) { /* private mode or quota - history is a convenience, not state */ }
+}
+
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
+}
 const bar      = document.getElementById('bar');
 const go       = document.getElementById('go');
 const input    = document.getElementById('q');
@@ -390,6 +410,34 @@ function renderMarkdown(src) {
   return out.join('');
 }
 
+function renderTurn(role, text, sources) {
+  const { turn, bubble } = addTurn(role, text);
+  if (role === 'bot') {
+    bubble.innerHTML = renderMarkdown(text);
+    if (sources && sources.length) renderSources(turn, sources);
+  }
+  return turn;
+}
+
+function restoreHistory() {
+  const saved = loadHistory();
+  if (!saved.length) return;
+  TURNS.push(...saved);
+  saved.forEach(t => renderTurn(t.role, t.text, t.sources));
+  threadBar.style.display = 'flex';
+  turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
+  // Prime the action generators from the most recent answer so the buttons work
+  // immediately after a reload, not only after asking something new.
+  const lastBot = [...saved].reverse().find(t => t.role === 'bot');
+  if (lastBot) {
+    SOURCES = (lastBot.sources || []).filter(i => i && i.source).map(i => i.source);
+    LAST = { q: [...saved].reverse().find(t => t.role === 'user')?.text || '', text: lastBot.text };
+    buildActions();
+    document.getElementById('actions').style.display = 'block';
+  }
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
 function scrollThread() {
   // Keep the composer's subject in view: without this the new turn lands below
   // the fold and the page looks like nothing happened.
@@ -428,7 +476,15 @@ function renderSources(turn, items) {
   turn.appendChild(row);
 }
 
+let IN_FLIGHT = false;
+
 async function ask(q) {
+  // Re-entry guard. Submitting while an answer is still streaming interleaved
+  // the turns — the second question's user turn landed before the first
+  // question's bot turn, so the transcript read user, user, bot, bot.
+  if (IN_FLIGHT) return;
+  IN_FLIGHT = true;
+
   // A follow-up is resolved against the last few turns; without that every
   // question is a cold start and "and who signs it off?" has no referent.
   const history = TURNS.slice(-3)
@@ -436,11 +492,12 @@ async function ask(q) {
     .join('\n');
   TURNS.push({ role: 'user', text: q });
 
+  input.value = '';
   addTurn('user', q);
   const { bubble } = addTurn('bot', 'Searching the knowledge graph…');
   bubble.className = 'bubble placeholder';
 
-  bar.hidden = false; go.disabled = true;
+  bar.hidden = false; go.disabled = true; input.disabled = true;
   let text = '', sources = [], streaming = false;
 
   try {
@@ -493,12 +550,14 @@ async function ask(q) {
       document.getElementById('actions').style.display = 'block';
       threadBar.style.display = 'flex';
       turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
+      saveHistory();
     }
   } catch (err) {
     bubble.className = 'bubble err';
     bubble.textContent = 'Could not reach the server: ' + err.message;
   } finally {
-    bar.hidden = true; go.disabled = false;
+    bar.hidden = true; go.disabled = false; input.disabled = false;
+    IN_FLIGHT = false;
     input.focus();          // ready for the follow-up
   }
 }
@@ -532,6 +591,7 @@ document.getElementById('export-txt')?.addEventListener('click', () =>
   download('kestrel-conversation.txt', transcript('txt')));
 document.getElementById('clear-chat')?.addEventListener('click', () => {
   TURNS.length = 0;
+  try { localStorage.removeItem(HISTORY_KEY); } catch (e) {}
   threadEl.innerHTML = '<div class="placeholder" id="empty">Ask a question to start. Follow-ups keep the thread.</div>';
   threadBar.style.display = 'none';
   document.getElementById('actions').style.display = 'none';
@@ -717,6 +777,8 @@ document.getElementById('copybtn').addEventListener('click', async e => {
   e.target.classList.add('copied');
   setTimeout(() => { e.target.textContent = 'Copy'; e.target.classList.remove('copied'); }, 1400);
 });
+
+restoreHistory();
 
 document.getElementById('mailbtn').addEventListener('click', () => {
   // Opens the user's mail client with the draft pre-filled — the "paste into
