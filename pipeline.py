@@ -53,6 +53,21 @@ async def ingest_corpus(ctx: TaskContext, documents: list, dataset: str = "") ->
     all write to. That is the scalability claim, and it is testable rather than
     rhetorical: add documents, get more containers, change nothing else.
     """
+    # Guard, because the failure mode here is silent and nasty. Task inputs
+    # arrive as JSON, so a caller can easily pass the whole request object where
+    # a list is expected — and `for doc in documents` would then iterate the
+    # DICT'S KEYS. We watched exactly that happen: it ingested the literal
+    # strings "dataset" and "documents" and still returned
+    # {"queued": 2, "failed": 0} — a confident success over garbage. Fail loudly.
+    if not isinstance(documents, (list, tuple)):
+        raise TypeError(
+            f"documents must be a list of strings, got {type(documents).__name__}. "
+            "Note the CLI spreads a bare JSON object as keyword arguments; wrapping "
+            "it in an array passes the whole object as the first positional argument."
+        )
+    if not all(isinstance(d, str) and d.strip() for d in documents):
+        raise ValueError("documents must contain only non-empty strings")
+
     results = await asyncio.gather(
         *(ctx.run(ingest_document, doc, dataset) for doc in documents),
         return_exceptions=True,
