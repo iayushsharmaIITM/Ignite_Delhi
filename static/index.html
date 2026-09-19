@@ -45,8 +45,25 @@
            color:var(--muted); margin-bottom:9px; }
 
   #answer { padding:20px; border-radius:12px; border:1px solid var(--line);
-            background:var(--panel); min-height:104px; white-space:pre-wrap;
+            background:var(--panel); min-height:104px;
             font-size:15.5px; line-height:1.7; }
+  /* While streaming, show the raw text exactly as it arrives... */
+  #answer:not(.rendered) { white-space:pre-wrap; }
+  /* ...then swap to rendered markdown once the answer is complete. */
+  #answer.rendered { white-space:normal; }
+  #answer h3, #answer h4, #answer h5 { margin:16px 0 7px; font-size:14.5px;
+            font-weight:650; color:var(--fg); letter-spacing:.01em; }
+  #answer > *:first-child { margin-top:0; }
+  #answer p { margin:0 0 9px; }
+  #answer ul, #answer ol { margin:0 0 10px; padding-left:21px; }
+  #answer li { margin:3px 0; }
+  #answer strong { color:#fff; font-weight:640; }
+  #answer code { background:var(--panel-2); padding:1px 5px; border-radius:4px; font-size:13px; }
+  #answer table { width:100%; border-collapse:collapse; margin:8px 0 13px; font-size:13.5px; }
+  #answer th, #answer td { border:1px solid var(--line); padding:7px 10px;
+            text-align:left; vertical-align:top; }
+  #answer th { background:var(--panel-2); font-weight:640; color:var(--fg); }
+  #answer td { color:var(--muted); }
   .placeholder { color:var(--muted); }
   .err { color:var(--bad); }
 
@@ -58,6 +75,10 @@
                  word-break:break-all; line-height:1.5; }
 
   .bar { display:flex; gap:5px; align-items:center; height:16px; margin-top:12px; }
+  /* `hidden` only sets display:none via the UA stylesheet, so the display:flex
+     above overrides it. Without this rule the loading dots sit visible under
+     the empty answer box. */
+  .bar[hidden] { display:none; }
   .dot { width:6px; height:6px; border-radius:50%; background:var(--accent);
          animation:p 1s infinite; }
   .dot:nth-child(2){ animation-delay:.15s } .dot:nth-child(3){ animation-delay:.3s }
@@ -158,6 +179,82 @@ document.getElementById('f').addEventListener('submit', e => {
   if (q) ask(q);
 });
 
+// ---------------------------------------------------------------------------
+// Minimal markdown renderer.
+//
+// Cognee returns markdown — bold, headings, bullet lists and often tables.
+// Rendering it as literal text shows a judge "**bold**" and "|---|", which
+// looks broken. We deliberately do NOT pull in a CDN library: the app already
+// needs the network for the tenant, and a second remote dependency is a second
+// way for the demo to fail. This covers exactly what the model emits.
+// ---------------------------------------------------------------------------
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+function inline(s) {
+  return s
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+function renderMarkdown(src) {
+  const lines = escapeHtml(src).split('\n');
+  const out = [];
+  let listTag = null;
+  let i = 0;
+
+  const closeList = () => { if (listTag) { out.push('</' + listTag + '>'); listTag = null; } };
+  const openList = tag => {
+    if (listTag === tag) return;
+    closeList();
+    out.push('<' + tag + '>');
+    listTag = tag;
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // table — a pipe row followed by a |---|---| separator
+    if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+      closeList();
+      const split = r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => inline(c.trim()));
+      const head = split(line);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && /^\s*\|/.test(lines[i])) { rows.push(split(lines[i])); i++; }
+      out.push(
+        '<table><thead><tr>' + head.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>' +
+        rows.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('') +
+        '</tbody></table>'
+      );
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.*)$/);
+    if (heading) {
+      closeList();
+      const lvl = Math.min(heading[1].length + 2, 5);
+      out.push(`<h${lvl}>${inline(heading[2])}</h${lvl}>`);
+      i++; continue;
+    }
+
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    if (bullet) { openList('ul'); out.push(`<li>${inline(bullet[1])}</li>`); i++; continue; }
+
+    const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    if (numbered) { openList('ol'); out.push(`<li>${inline(numbered[1])}</li>`); i++; continue; }
+
+    closeList();
+    if (line.trim()) out.push(`<p>${inline(line)}</p>`);
+    i++;
+  }
+  closeList();
+  return out.join('');
+}
+
 async function ask(q) {
   answerEl.className = ''; answerEl.textContent = '';
   evSec.style.display = 'none'; evList.innerHTML = '';
@@ -185,12 +282,15 @@ async function ask(q) {
 
         if (ev.type === 'chunk' || ev.chunk) {
           text += (ev.text ?? ev.chunk);
-          answerEl.textContent = text;
+          answerEl.textContent = text;          // raw while streaming
         } else if (ev.type === 'references' && ev.items?.length) {
           renderEvidence(ev.items);
         } else if (ev.stage === 'error') {
           answerEl.className = 'err';
           answerEl.textContent = 'Something went wrong: ' + ev.message;
+        } else if (ev.stage === 'done' && text) {
+          answerEl.innerHTML = renderMarkdown(text);   // formatted when complete
+          answerEl.className = 'rendered';
         }
       }
     }

@@ -29,6 +29,28 @@ citations attached** — and can flag where the documents disagree.
 
 ---
 
+## What it looks like
+
+![Asking a cross-document question](screenshots/02-answer.png)
+
+The answer arrives as a table, because the underlying facts are a table. Note the
+**ARR mismatch** row: the system found that the contract says `$420k` while the sales
+quote said `$480k` — nobody asked it to compare those two numbers. It also caught that a
+promised 25% credit exceeds the 10% policy baseline and needs CFO sign-off.
+
+![The knowledge graph](screenshots/03-graph.png)
+
+219 nodes and 500 edges extracted from ten documents, rendered from our own `/api/graph`.
+Both `$420,000` and `$480,000 arr` appear as separate nodes — the contradiction is visible
+in the graph itself.
+
+![The landing state](screenshots/01-landing.png)
+
+Every suggested question is one the pre-built graph is known to answer well. They double as
+a demo safety net: the presenter never has to improvise a query on stage.
+
+---
+
 ## Architecture
 
 ```
