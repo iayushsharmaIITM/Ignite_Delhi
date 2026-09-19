@@ -153,7 +153,7 @@ curl -H "X-Api-Key: $COGNEE_API_KEY" https://api.aws.cognee.ai/api/tenants/curre
 |---|---|
 | Tenant unreachable | `/health` reports `upstream: unreachable`; the UI shows it. `/api/graph` and `/api/stats` fall back to the committed snapshot (`fixtures/graph.json`), so the graph view and the footer count still render — the response carries `source: "cloud" \| "fixture"` so you can always tell which you got |
 | **Key wrong or revoked** | `/health` reports `auth: failed` with the 401. This row exists because the tenant's own `/health` is **unauthenticated** — it claimed `healthy` while every query returned 401, so we added a probe that can actually fail |
-| No credentials configured (fresh clone) | `PROVIDER` resolves to `mock`; committed fixtures serve the whole demo offline, with zero setup |
+| No credentials configured (fresh clone) | `PROVIDER` resolves to `mock`; committed fixtures serve the whole demo offline, with zero setup. **Verified** from a clean `git archive` with no `.env`: `/health` reports `provider=mock`, `/api/stats` returns 219/500 via `source: "fixture"`, `smoke.py` passes 4/4, and all four demo questions answer in 0.8–3.6s |
 | Graph empty | `/graph` renders an explicit "run ingest.py first" state |
 | Mid-ingest query | `wait_ready()` blocks first — see below |
 | Any unhandled error | `/api/ask` emits a `stage: error` event; the UI never white-screens |

@@ -22,7 +22,7 @@ Do not reuse one script for both. The 5-minute pitch argues; the 1-minute pitch 
 | Answer latency | **~16–31s** end-to-end; first token at **~18s**, then streams fast |
 | Credentials per container | **1** (an API key) |
 | Services | **2** (web tier + workflow tier) |
-| Lines of application code | ~600 |
+| Code | **~1,300 lines** — 725 Python (web tier, Cognee client, memory layer, workflow) · 562 UI |
 
 ---
 

@@ -18,7 +18,7 @@ graph and answers cross-document questions **with citations**.
 | Graph | **219 nodes · 500 edges** |
 | Ingest | 10 documents queued in **10.9s** across 3 parallel workers; graph ready in ~1 min |
 | Latency | **~16–31s** end-to-end; first token at **~18s**, then streams in ~3s |
-| App code | ~600 lines |
+| App code | ~1,300 lines — 725 Python (web tier, Cognee client, memory layer, workflow) · 562 UI |
 
 ### The headline result
 
