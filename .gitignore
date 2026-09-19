@@ -24,3 +24,6 @@ cognee_db/
 # local run output
 /tmp/server.log
 screenshots/*.tmp
+
+# agent working data — not project source
+.workbuddy-ai/
