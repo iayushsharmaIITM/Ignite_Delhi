@@ -86,6 +86,55 @@ def _pipeline_state(payload) -> str:
     return "working"
 
 
+def _failure_detail(payload) -> str:
+    """Best-effort human explanation of a failed pipeline, for the UI.
+
+    Without this the user is told only "it failed", which is barely better than
+    being told nothing. Cognee puts the reason in different keys depending on
+    where it failed, so check the useful ones in order.
+    """
+    keys = ("error", "error_detail", "reason", "message")
+    if isinstance(payload, dict):
+        for value in payload.values():
+            if isinstance(value, dict):
+                for key in keys:
+                    text = value.get(key)
+                    if isinstance(text, str) and text.strip():
+                        return text.strip()[:300]
+        for key in keys:
+            text = payload.get(key)
+            if isinstance(text, str) and text.strip():
+                return text.strip()[:300]
+    return "The ingestion pipeline reported a failure."
+
+
+async def _read_capped(upload: UploadFile, limit: int) -> bytes:
+    """Read an upload in chunks, refusing as soon as it exceeds `limit`.
+
+    The old code did `await f.read()` for every file and only THEN checked the
+    size, so the whole payload was already resident in memory before any limit
+    applied — an easy way to OOM the container. Aborting mid-read means a 5 GB
+    upload costs one chunk, not five gigabytes of RAM.
+    """
+    chunks = []
+    total = 0
+    while True:
+        chunk = await upload.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"{upload.filename or 'file'} exceeds the "
+                    f"{limit // 1_048_576} MB per-file limit."
+                ),
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def _load_graph(dataset: str | None = None):
     """Return (graph, source) — live from the tenant, else the demo snapshot.
 
@@ -286,11 +335,25 @@ async def create_brain(
             detail=f"A brain called '{safe}' already exists. Pick another name.",
         )
 
-    payload = [(f.filename or "untitled", await f.read()) for f in files]
+    # Cap the count before reading anything, then cap each file WHILE reading it.
+    if len(files) > documents.MAX_FILES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many files: {len(files)}. The limit is {documents.MAX_FILES}.",
+        )
+
+    payload = [
+        (upload.filename or "untitled", await _read_capped(upload, documents.MAX_FILE_BYTES))
+        for upload in files
+    ]
     if not payload:
         raise HTTPException(status_code=400, detail="No files were uploaded.")
 
-    docs, failures = documents.extract_many(payload)
+    # Parsing a PDF or DOCX is CPU-bound and synchronous. Running it inline in an
+    # async handler stalls the entire event loop, including /health — which Render
+    # uses as a liveness probe, so a slow parse could get the service restarted
+    # mid-demo. Push it to a worker thread.
+    docs, failures = await asyncio.to_thread(documents.extract_many, payload)
     if not docs:
         detail = "; ".join(f"{f['name']}: {f['error']}" for f in failures[:5])
         raise HTTPException(
@@ -301,17 +364,35 @@ async def create_brain(
     async def ingest(doc: dict) -> dict:
         try:
             await memory_layer.remember(doc["text"], safe)
-            return {"name": doc["name"], "ok": True}
+            return {"name": doc["name"], "ok": True, "chars": doc["chars"]}
         except Exception as exc:  # noqa: BLE001 - report, never abort the batch
             return {"name": doc["name"], "ok": False, "error": str(exc)[:200]}
 
     results = await asyncio.gather(*(ingest(d) for d in docs))
 
+    succeeded = [r for r in results if r["ok"]]
+    failed = [r for r in results if not r["ok"]]
+
+    # A batch where nothing landed is not a created brain. This used to return
+    # 200 with "ok": true, and `chars` summed EVERY extracted document including
+    # the failed ones — so the UI printed "created with 0 document(s), 4,231
+    # characters" and linked to a dashboard that could not answer anything.
+    if not succeeded:
+        reasons = "; ".join(
+            f"{r['name']}: {r.get('error', 'unknown error')}" for r in failed[:5]
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"None of the documents could be ingested. {reasons}",
+        )
+
     return {
-        "ok": True,
+        "ok": not failed,
+        "partial": bool(failed),
         "name": safe,
-        "documents": sum(1 for r in results if r["ok"]),
-        "chars": sum(d["chars"] for d in docs),
+        "documents": len(succeeded),
+        # Count only what was actually stored, not what was merely uploaded.
+        "chars": sum(r["chars"] for r in succeeded),
         "ingested": results,
         "skipped": failures,
     }
@@ -347,8 +428,21 @@ async def brain_events(name: str, timeout_s: int = 600):
                     {"stage": "poll", "state": _pipeline_state(state), "status": state}
                 ) + "\n"
 
-            if cognee_cloud.is_terminal(state):
+            # Distinguish the two terminal outcomes. Previously ANY terminal
+            # state emitted "ready", so an ingestion that failed server-side was
+            # reported to the user as a finished, working brain.
+            kind = cognee_cloud.terminal_kind(state)
+            if kind == "success":
                 yield json.dumps({"stage": "ready"}) + "\n"
+                return
+            if kind == "failure":
+                yield json.dumps(
+                    {
+                        "stage": "failed",
+                        "state": _pipeline_state(state),
+                        "detail": _failure_detail(state),
+                    }
+                ) + "\n"
                 return
 
             await asyncio.sleep(3)
@@ -360,18 +454,35 @@ async def brain_events(name: str, timeout_s: int = 600):
 
 @app.delete("/api/brains/{name}")
 def delete_brain(name: str):
-    """Remove a brain. The demo brain is refused in cognee_cloud, not here."""
+    """Remove a brain.
+
+    RESERVED_NAMES is enforced here as well as in create_brain. The UI hides the
+    delete button for the demo and system brains, but the API is the real
+    boundary — and `DELETE /api/brains/default_dataset` would otherwise delete
+    Cognee's own internal dataset. The demo guard also lives inside
+    cognee_cloud.delete_dataset, so neither layer can be bypassed on its own.
+    """
     if memory_layer.PROVIDER != "cloud":
         raise HTTPException(status_code=400, detail="Deletion needs PROVIDER=cloud.")
+
+    # Normalise first, so a case trick such as "Company_Brain" cannot slip past
+    # the reserved check and then match an existing dataset.
+    safe = normalize_brain_name(name)
+    if safe and safe in RESERVED_NAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{safe}' is reserved and cannot be deleted.",
+        )
+
     try:
         import cognee_cloud
 
-        removed = cognee_cloud.delete_dataset(name)
+        removed = cognee_cloud.delete_dataset(safe or name)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)[:300]) from exc
     if not removed:
         raise HTTPException(status_code=404, detail=f"No brain called '{name}'.")
-    return {"ok": True, "deleted": name}
+    return {"ok": True, "deleted": safe or name}
 
 
 # --------------------------------------------------------------------------

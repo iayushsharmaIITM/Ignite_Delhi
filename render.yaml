@@ -31,6 +31,13 @@ services:
         sync: false
       - key: COGNEE_DATASET
         value: company_brain
+      # Render requires a web service to bind 0.0.0.0 to receive public traffic,
+      # and forwards to $PORT (default 10000). app.py defaults HOST to
+      # 127.0.0.1 for local use, so without this line the service starts, passes
+      # its own health check over loopback, and is unreachable from the internet
+      # — a confusing first-deploy failure. Do not remove.
+      - key: HOST
+        value: 0.0.0.0
 
   - type: workflow
     name: ignite-wf

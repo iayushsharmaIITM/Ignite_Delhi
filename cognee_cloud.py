@@ -44,13 +44,20 @@ import requests
 
 DEFAULT_DATASET = "company_brain"
 
+# Datasets that must never be deleted through this client: Cognee's own internal
+# dataset, and the demo brain (also matched via the configured COGNEE_DATASET at
+# call time, in case it was renamed).
+_PROTECTED_DATASETS = frozenset({DEFAULT_DATASET, "default_dataset"})
+
 # SearchType values we actually use. See Cognee's SearchType enum.
 GRAPH_COMPLETION = "GRAPH_COMPLETION"
 TEMPORAL = "TEMPORAL"
 RAG_COMPLETION = "RAG_COMPLETION"
 
-# Terminal pipeline states. Live value: "DATASET_PROCESSING_COMPLETED".
-_TERMINAL = ("completed", "success", "errored", "failed")
+# Terminal pipeline states, split by outcome. The live success value is
+# "DATASET_PROCESSING_COMPLETED".
+_TERMINAL_SUCCESS = ("DATASET_PROCESSING_COMPLETED",)
+_TERMINAL_FAILURE = ("DATASET_PROCESSING_FAILED", "DATASET_PROCESSING_ERRORED")
 
 _ENV_LOADED = False
 
@@ -131,14 +138,56 @@ def _is_uuid(value: str) -> bool:
     return len(value) == 36 and value.count("-") == 4
 
 
-def is_terminal(state: Any) -> bool:
-    """True when a pipeline status payload has reached a terminal state.
+def _status_values(state: Any):
+    """Yield every `status` string in a pipeline payload.
 
-    Public because the web tier streams ingestion progress and needs to know
-    when to stop polling without duplicating the terminal-state list.
+    Cognee keys the payload by dataset UUID:
+        {"<uuid>": {"status": "DATASET_PROCESSING_STARTED", ...}}
+    but also has a flat shape, so accept both.
     """
-    blob = json.dumps(state).lower()
-    return any(word in blob for word in _TERMINAL)
+    if isinstance(state, dict):
+        for value in state.values():
+            if isinstance(value, dict):
+                status = value.get("status")
+                if isinstance(status, str):
+                    yield status
+        flat = state.get("status")
+        if isinstance(flat, str):
+            yield flat
+
+
+def terminal_kind(state: Any) -> Optional[str]:
+    """Classify a pipeline payload: "success", "failure", or None (still running).
+
+    TRAP: the previous implementation lowercased the ENTIRE JSON payload and
+    substring-searched for "completed"/"failed". Because status() requests
+    `include_error_detail=true`, any error text containing those words made a
+    still-running dataset look terminal — and the web tier then told the user
+    their brain was ready. Match the `status` FIELD, never the whole blob.
+    """
+    for raw in _status_values(state):
+        value = raw.upper()
+        if value in _TERMINAL_SUCCESS:
+            return "success"
+        if value in _TERMINAL_FAILURE:
+            return "failure"
+        # Unknown status string. Fall back to keywords, but still only on the
+        # status field, so a new Cognee value cannot stall the poll loop.
+        if "FAIL" in value or "ERROR" in value:
+            return "failure"
+        if "COMPLET" in value or "SUCCESS" in value:
+            return "success"
+    return None
+
+
+def is_terminal(state: Any) -> bool:
+    """True when a pipeline payload has reached ANY terminal state.
+
+    Kept as a thin wrapper so existing callers keep working. Prefer
+    terminal_kind() when the outcome matters — treating a failure as "ready" is
+    how a broken ingest gets reported to the user as a working brain.
+    """
+    return terminal_kind(state) is not None
 
 
 load_env()
@@ -195,10 +244,15 @@ def delete_dataset(name: str) -> bool:
     The guard is deliberate and belongs in code, not in a comment: this project
     has already polluted the demo graph once, and the cheapest possible way to
     lose the demo would be a cleanup script that removes the wrong brain.
+
+    Mirrors RESERVED_NAMES in app.py on purpose. The route checks first, but this
+    is the last line of defence — `DELETE /api/brains/default_dataset` would
+    otherwise remove Cognee's own internal dataset, which the UI never even
+    offers a button for.
     """
-    if name == dataset():
+    if name in _PROTECTED_DATASETS or name == dataset():
         raise CogneeCloudError(
-            f"refusing to delete {name!r} - that is the demo dataset"
+            f"refusing to delete {name!r} - that dataset is protected"
         )
     if not exists(name):
         return False

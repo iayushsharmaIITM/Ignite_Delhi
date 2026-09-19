@@ -234,13 +234,24 @@ buildEl.addEventListener('click', async () => {
     return;
   }
 
-  note('Brain "' + created.name + '" created with ' + created.documents +
-       ' document(s), ' + created.chars.toLocaleString() + ' characters.', 'ok');
+  if (created.partial) {
+    note('Brain "' + created.name + '" created, but only ' + created.documents +
+         ' document(s) were stored (' + created.chars.toLocaleString() +
+         ' characters). Failures are listed below.', 'warn');
+  } else {
+    note('Brain "' + created.name + '" created with ' + created.documents +
+         ' document(s), ' + created.chars.toLocaleString() + ' characters.', 'ok');
+  }
 
   // Per-file failures are shown, not swallowed: a file the user thinks was
-  // ingested but was not is worse than a visible error.
+  // ingested but was not is worse than a visible error. Two different failure
+  // kinds, and both matter — a file we could not READ (skipped) and a file we
+  // read but could not STORE (ingested with ok:false).
   for (const s of created.skipped || []) {
     note('skipped ' + s.name + ' — ' + s.error, 'bad');
+  }
+  for (const r of created.ingested || []) {
+    if (r.ok === false) note('failed to store ' + r.name + ' — ' + (r.error || 'unknown'), 'bad');
   }
 
   await follow(created.name);
@@ -302,6 +313,12 @@ async function follow(name) {
         } else if (m.stage === 'ready') {
           note('Pipeline complete.', 'ok');
           finish(true);
+        } else if (m.stage === 'failed') {
+          // A failed pipeline is NOT a ready brain. Saying "complete" here was
+          // the worst bug in the upload path: the user was sent to a dashboard
+          // that could not answer anything, with no indication why.
+          note('Ingestion failed: ' + (m.detail || 'no reason given'), 'bad');
+          finish(false);
         } else if (m.stage === 'error') {
           note('Error: ' + m.message, 'bad');
           finish(false);
