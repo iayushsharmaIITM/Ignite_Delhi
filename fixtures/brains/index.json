@@ -1,0 +1,25 @@
+{
+ "exported_at": "2026-09-19T15:42:22",
+ "brains": {
+  "acme_industrial": {
+   "nodes": 40,
+   "edges": 64,
+   "bytes": 11408
+  },
+  "company_brain": {
+   "nodes": 219,
+   "edges": 500,
+   "bytes": 79221
+  },
+  "default_dataset": {
+   "nodes": 30,
+   "edges": 29,
+   "bytes": 6282
+  },
+  "kestrel_full": {
+   "nodes": 233,
+   "edges": 543,
+   "bytes": 85750
+  }
+ }
+}

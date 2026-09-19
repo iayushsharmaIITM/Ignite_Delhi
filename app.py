@@ -22,6 +22,7 @@ import json
 import os
 import re
 import time
+from pathlib import Path
 
 # --- environment must load BEFORE memory_layer is imported ---------------
 # memory_layer reads PROVIDER at import time, so a .env loaded afterwards
@@ -50,6 +51,9 @@ app = FastAPI(title="Kestrel Company Brain")
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
 
 GRAPH_FIXTURE = os.path.join(HERE, "fixtures", "graph.json")
+# Per-brain snapshots, written by snapshot.py. Committed, so a deployment with
+# no tenant can still serve every brain rather than only the demo.
+BRAINS_DIR = Path(HERE) / "fixtures" / "brains"
 
 # Single source of truth for "which brain is the demo".
 DEMO_DATASET = memory_layer.default_dataset()
@@ -141,10 +145,15 @@ async def _read_capped(upload: UploadFile, limit: int) -> bytes:
 
 
 def _load_graph(dataset: str | None = None):
-    """Return (graph, source) — live from the tenant, else the demo snapshot.
+    """Return (graph, source) — live from the tenant, else a committed snapshot.
 
-    The snapshot is only truthful for the demo brain (see module docstring), so
-    for any other brain a failure returns None and the caller reports it.
+    Snapshots are per-brain (`fixtures/brains/<name>.json`, written by
+    snapshot.py). Each file is that brain's OWN data, so the honesty rule still
+    holds: a snapshot is never served for a brain it does not describe, because
+    a fabricated graph looks exactly like a real one.
+
+    `fixtures/graph.json` is the original single-brain snapshot and is still
+    honoured for the demo, so an older checkout keeps working.
     """
     target = dataset or DEMO_DATASET
     cloud_error = None
@@ -156,14 +165,40 @@ def _load_graph(dataset: str | None = None):
     except Exception as exc:  # noqa: BLE001
         cloud_error = str(exc)[:200]
 
+    candidates = [BRAINS_DIR / f"{target}.json"]
     if target == DEMO_DATASET:
+        candidates.append(GRAPH_FIXTURE)   # legacy single-brain snapshot
+
+    for path in candidates:
         try:
-            with open(GRAPH_FIXTURE, encoding="utf-8") as fh:
+            with open(path, encoding="utf-8") as fh:
                 return json.load(fh), "fixture"
+        except FileNotFoundError:
+            continue
         except Exception as exc:  # noqa: BLE001
-            cloud_error = f"{cloud_error}; fixture: {exc}"[:300]
+            cloud_error = f"{cloud_error}; {path.name}: {exc}"[:300]
 
     return None, f"cloud: {cloud_error}"[:300]
+
+
+def _offline_brains() -> list:
+    """Every brain we hold a snapshot for, read from the export manifest."""
+    try:
+        with open(BRAINS_DIR / "index.json", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except Exception:  # noqa: BLE001
+        return []
+    return [
+        {
+            "name": name,
+            "id": None,
+            "is_demo": name == DEMO_DATASET,
+            "is_system": name == "default_dataset",
+            "nodes": info.get("nodes"),
+            "edges": info.get("edges"),
+        }
+        for name, info in sorted((manifest.get("brains") or {}).items())
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -273,12 +308,20 @@ def stats(dataset: str | None = None):
 @app.get("/api/brains")
 def list_brains():
     """Every brain on the tenant. Sizes are fetched per row by the dashboard."""
-    if memory_layer.PROVIDER == "mock":
+    if memory_layer.PROVIDER != "cloud":
+        # Offline: list the brains we hold committed snapshots for, rather than
+        # an empty list. A deployment with no tenant should still be able to
+        # browse and query every brain that was exported.
+        brains = _offline_brains()
         return {
             "ok": True,
             "provider": "mock",
-            "brains": [],
-            "note": "Offline mode: uploads and listing need PROVIDER=cloud.",
+            "brains": brains,
+            "demo": DEMO_DATASET,
+            "note": (
+                "Offline mode: showing committed snapshots. Uploads need "
+                "PROVIDER=cloud."
+            ) if brains else "Offline mode: no snapshots found. Run snapshot.py.",
         }
     try:
         import cognee_cloud
