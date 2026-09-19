@@ -1,5 +1,8 @@
 {
  "namedcite1": {
   "# halcyon escalation note project halcyon's migration is blocked. the blocker is the vendor's certificate rotation, whic": "halcyon_escalation_note.md"
+ },
+ "new_100_people": {
+  "index,user id,first name,last name,sex,email,phone,date of birth,job title 1,88f7b33d2bcf9f5,shelby,terrell,male,elijah5": "people-100.csv"
  }
 }
