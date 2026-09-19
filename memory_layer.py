@@ -59,18 +59,44 @@ async def remember(text: str, dataset: str | None = None) -> None:
     await asyncio.to_thread(cognee_cloud.remember, text, dataset)
 
 
-async def recall(query: str):
-    """Yield events. Async generator so the UI can stream."""
+def default_dataset() -> str:
+    """The pre-built demo brain. Everything else is a user-created brain."""
+    return os.getenv("COGNEE_DATASET", "company_brain")
+
+
+async def recall(query: str, dataset: str | None = None):
+    """Yield events. Async generator so the UI can stream.
+
+    `dataset=None` asks the demo brain. Any other value asks that specific
+    brain, which is what makes one UI able to serve every uploaded brain.
+    """
     if PROVIDER == "mock":
-        async for event in _mock(query):
+        async for event in _mock(query, dataset):
             yield event
         return
-    async for event in _cloud(query):
+    async for event in _cloud(query, dataset):
         yield event
 
 
-async def _mock(query: str):
-    """Offline path. Reads a committed fixture, so it works with zero network."""
+async def _mock(query: str, dataset: str | None = None):
+    """Offline path. Reads a committed fixture, so it works with zero network.
+
+    The fixtures only describe the demo brain. Serving them for an uploaded
+    brain would be a fabricated answer dressed as a real one, so we refuse
+    instead - the same reason app.py refuses to show the demo graph for a
+    user's brain.
+    """
+    if dataset and dataset != default_dataset():
+        yield {
+            "type": "chunk",
+            "text": (
+                f"The offline safety net only covers the demo brain, so it has "
+                f"no answers for '{dataset}'. Run with PROVIDER=cloud to query "
+                "an uploaded brain."
+            ),
+        }
+        return
+
     try:
         with open(FIXTURES) as handle:
             fixtures = json.load(handle)
@@ -90,7 +116,7 @@ async def _mock(query: str):
         yield {"type": "references", "items": entry["references"]}
 
 
-async def _cloud(query: str):
+async def _cloud(query: str, dataset: str | None = None):
     """Real path: the Cognee Cloud tenant does the graph work.
 
     `asyncio.to_thread` keeps the FastAPI event loop free while the blocking
@@ -99,7 +125,8 @@ async def _cloud(query: str):
     """
     import cognee_cloud
 
-    results = await asyncio.to_thread(cognee_cloud.recall, query)
+    # Second positional arg is `name` — the dataset to query.
+    results = await asyncio.to_thread(cognee_cloud.recall, query, dataset)
 
     # Cognee returns the evidence block inline in the answer text, so split it
     # out and stream only the prose. The citations get their own panel.

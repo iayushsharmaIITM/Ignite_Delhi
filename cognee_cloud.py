@@ -24,7 +24,7 @@ TRAPS BAKED INTO THIS FILE (each cost real debugging time)
    Passing a name returns 422 uuid_parsing. Hence `resolve_id()`.
 2. The terminal pipeline state is `DATASET_PROCESSING_COMPLETED`. An exact
    match on '"completed"' never fires, so the poll loops until timeout.
-   Hence `_is_terminal()`.
+   Hence `is_terminal()`.
 3. Calling recall() before the graph finishes building returns a confident,
    WRONG answer. We measured it: it invented "$39 per year" for a $420,000
    contract. Hence `wait_ready()`.
@@ -131,7 +131,12 @@ def _is_uuid(value: str) -> bool:
     return len(value) == 36 and value.count("-") == 4
 
 
-def _is_terminal(state: Any) -> bool:
+def is_terminal(state: Any) -> bool:
+    """True when a pipeline status payload has reached a terminal state.
+
+    Public because the web tier streams ingestion progress and needs to know
+    when to stop polling without duplicating the terminal-state list.
+    """
     blob = json.dumps(state).lower()
     return any(word in blob for word in _TERMINAL)
 
@@ -177,6 +182,33 @@ def resolve_id(name: Optional[str] = None) -> str:
     if not found:
         raise CogneeCloudError(f"Dataset {name!r} not found")
     return found
+
+
+def exists(name: str) -> bool:
+    """True when a dataset with this name is present on the tenant."""
+    return dataset_id(name) is not None
+
+
+def delete_dataset(name: str) -> bool:
+    """Delete an entire dataset. Returns False if it was not there.
+
+    The guard is deliberate and belongs in code, not in a comment: this project
+    has already polluted the demo graph once, and the cheapest possible way to
+    lose the demo would be a cleanup script that removes the wrong brain.
+    """
+    if name == dataset():
+        raise CogneeCloudError(
+            f"refusing to delete {name!r} - that is the demo dataset"
+        )
+    if not exists(name):
+        return False
+    resp = requests.delete(
+        f"{_base()}/api/v1/datasets/{resolve_id(name)}",
+        headers=_headers(),
+        timeout=timeout(),
+    )
+    _check(resp, "delete_dataset")
+    return True
 
 
 # --------------------------------------------------------------------------
@@ -231,7 +263,7 @@ def wait_ready(name: Optional[str] = None, timeout_s: int = 900, interval: int =
     last: Any = None
     while time.time() < deadline:
         state = status(key)
-        if _is_terminal(state):
+        if is_terminal(state):
             return state
         last = state
         time.sleep(interval)

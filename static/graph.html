@@ -42,8 +42,8 @@
 <canvas id="c"></canvas>
 
 <div class="hud">
-  <h1>Knowledge graph</h1>
-  <p>Every entity and relationship extracted from the company corpus.</p>
+  <h1 id="title">Knowledge graph</h1>
+  <p id="subtitle">Every entity and relationship extracted from the company corpus.</p>
 </div>
 
 <div class="panel" id="panel">loading…</div>
@@ -173,14 +173,29 @@ canvas.addEventListener('wheel', e => {
 }, { passive: false });
 
 // --- load ----------------------------------------------------------------
-fetch('/api/graph').then(r => r.json()).then(g => {
+// `?brain=<name>` scopes the view to an uploaded brain; absent = demo brain.
+// `dataset=` is accepted too so a URL copied from the API still works.
+const _p = new URLSearchParams(location.search);
+const BRAIN = _p.get('brain') || _p.get('dataset') || '';
+const GRAPH_URL = '/api/graph' + (BRAIN ? '?dataset=' + encodeURIComponent(BRAIN) : '');
+
+if (BRAIN) {
+  document.getElementById('title').textContent = BRAIN;
+  document.getElementById('subtitle').textContent =
+    'Entities and relationships extracted from the documents you uploaded.';
+}
+
+fetch(GRAPH_URL).then(r => r.json()).then(g => {
   if (g.error) throw new Error(g.error);
   const rawNodes = g.nodes || [];
   const rawEdges = g.edges || [];
 
   if (!rawNodes.length) {
-    document.body.insertAdjacentHTML('beforeend',
-      '<div class="err">The graph is empty. Run <code>python ingest.py</code> first.</div>');
+    // "Run python ingest.py" is only the right advice for the demo brain.
+    document.body.insertAdjacentHTML('beforeend', BRAIN
+      ? '<div class="err">This brain has no graph yet. Ingestion may still be '
+        + 'running — check <a href="/brains">brains</a>.</div>'
+      : '<div class="err">The graph is empty. Run <code>python ingest.py</code> first.</div>');
     return;
   }
 

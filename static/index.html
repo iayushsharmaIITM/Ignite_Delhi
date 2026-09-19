@@ -22,6 +22,18 @@
   h1 .mark { color:var(--accent); margin-right:8px; }
   p.sub { color:var(--muted); margin:0; font-size:14.5px; max-width:62ch; }
 
+  .brainbar { display:flex; align-items:center; gap:10px; margin-top:16px;
+              padding:9px 13px; border-radius:9px; border:1px solid var(--accent-dim);
+              background:var(--panel); font-size:13px; }
+  /* Same trap as .bar below: display:flex beats the UA stylesheet's
+     [hidden] { display:none }, so without this the bar shows on the demo brain. */
+  .brainbar[hidden] { display:none; }
+  .brainbar .tag { color:var(--accent); font-weight:700; letter-spacing:.06em;
+                   text-transform:uppercase; font-size:10.5px; }
+  .bname { color:var(--fg); font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+           font-size:12.5px; }
+  .brainbar a { margin-left:auto; }
+
   form { display:flex; gap:10px; margin-top:26px; }
   input { flex:1; padding:14px 16px; border-radius:10px; border:1px solid var(--line);
           background:var(--panel); color:var(--fg); font-size:15px; outline:none;
@@ -103,6 +115,11 @@
     <p class="sub">Company knowledge is scattered across contracts, tickets, meetings and
       chat. Ask one question and get an answer grounded in all of it — with the evidence
       it came from.</p>
+    <div class="brainbar" id="brainbar" hidden>
+      <span class="tag">Asking</span>
+      <span class="bname" id="bname"></span>
+      <a href="/brains">switch brain</a>
+    </div>
   </header>
 
   <form id="f">
@@ -127,12 +144,36 @@
   <footer>
     <span class="pill"><span class="led" id="led"></span><span id="prov">connecting…</span></span>
     <span class="pill" id="stats">graph: —</span>
-    <span class="pill"><a href="/graph">graph view</a></span>
+    <span class="pill"><a id="graphlink" href="/graph">graph view</a></span>
+    <span class="pill"><a href="/brains">brains</a></span>
+    <span class="pill"><a href="/upload">new brain</a></span>
     <span class="pill"><a href="/health">/health</a></span>
   </footer>
 </main>
 
 <script>
+// ---------------------------------------------------------------------------
+// Which brain are we asking?
+//
+// `?brain=<name>` selects a brain somebody uploaded; absent means the pre-built
+// demo brain. Every API call carries it as `dataset=`, which is the whole trick
+// that lets ONE dashboard serve every brain instead of one UI per brain.
+// ---------------------------------------------------------------------------
+// Accept `dataset=` as well as `brain=`. The API speaks `dataset` and the pages
+// speak `brain`; a hand-edited URL using the wrong one must not silently fall
+// back to the demo brain, which is what makes a wrong-brain answer possible.
+const BRAIN = (() => {
+  const p = new URLSearchParams(location.search);
+  return p.get('brain') || p.get('dataset') || '';
+})();
+
+function qs(extra) {
+  const params = new URLSearchParams(extra || {});
+  if (BRAIN) params.set('dataset', BRAIN);
+  const s = params.toString();
+  return s ? '?' + s : '';
+}
+
 const QUESTIONS = [
   "Why is the Bluepeak renewal at risk, and what have we promised them?",
   "What service credit do we owe Bluepeak, and who approved it?",
@@ -148,14 +189,27 @@ const go       = document.getElementById('go');
 const input    = document.getElementById('q');
 
 // Suggested questions double as a demo safety net: every one of these is
-// known to return a good answer from the pre-built graph.
+// known to return a good answer from the pre-built graph. They are specific to
+// the demo corpus though, so showing them for an uploaded brain would invite
+// questions it cannot answer.
 const chips = document.getElementById('chips');
-QUESTIONS.forEach(q => {
-  const c = document.createElement('button');
-  c.type = 'button'; c.className = 'chip'; c.textContent = q;
-  c.addEventListener('click', () => { input.value = q; ask(q); });
-  chips.appendChild(c);
-});
+if (BRAIN) {
+  chips.style.display = 'none';
+  input.placeholder = 'Ask across the documents you uploaded…';
+  document.getElementById('brainbar').hidden = false;
+  document.getElementById('bname').textContent = BRAIN;
+  // graph.html reads `brain=`, so build the page URL with that key rather than
+  // reusing the API's `dataset=` query string.
+  document.getElementById('graphlink').href = '/graph?brain=' + encodeURIComponent(BRAIN);
+  document.title = BRAIN + ' · Kestrel Company Brain';
+} else {
+  QUESTIONS.forEach(q => {
+    const c = document.createElement('button');
+    c.type = 'button'; c.className = 'chip'; c.textContent = q;
+    c.addEventListener('click', () => { input.value = q; ask(q); });
+    chips.appendChild(c);
+  });
+}
 
 fetch('/health').then(r => r.json()).then(d => {
   // "healthy" alone is not enough: the tenant's /health is unauthenticated, so
@@ -175,10 +229,13 @@ fetch('/health').then(r => r.json()).then(d => {
   document.getElementById('prov').textContent = 'unreachable';
 });
 
-fetch('/api/stats').then(r => r.json()).then(d => {
-  if (!d.ok) return;
-  document.getElementById('stats').textContent =
-    'graph: ' + d.nodes + ' nodes · ' + d.edges + ' edges';
+fetch('/api/stats' + qs()).then(r => r.json()).then(d => {
+  const el = document.getElementById('stats');
+  // An uploaded brain can legitimately have no graph yet — ingestion runs in
+  // the background — so say that instead of leaving a dash that reads as a
+  // failure. The demo brain never hits this because of the fixture fallback.
+  if (!d.ok) { el.textContent = 'graph: not ready'; return; }
+  el.textContent = 'graph: ' + d.nodes + ' nodes · ' + d.edges + ' edges';
 }).catch(() => {});
 
 document.getElementById('f').addEventListener('submit', e => {
@@ -276,7 +333,7 @@ async function ask(q) {
   let text = '';
   let streaming = false;
   try {
-    const res = await fetch('/api/ask?q=' + encodeURIComponent(q));
+    const res = await fetch('/api/ask' + qs({ q }));
     if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
 
     const reader = res.body.getReader();

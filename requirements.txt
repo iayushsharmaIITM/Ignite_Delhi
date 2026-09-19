@@ -11,6 +11,18 @@ uvicorn==0.53.0
 requests==2.34.2
 python-dotenv==1.2.3
 
+# Required by FastAPI to parse multipart uploads (Form + UploadFile).
+# WITHOUT THIS the brain-upload endpoint returns 500 in the deployed container
+# while working perfectly on a dev machine that happens to have it installed.
+python-multipart==0.0.32
+
+# Document extraction for the upload path (documents.py).
+# pypdf reads PDF text; python-docx reads paragraphs AND tables.
+# Both are imported optionally at runtime, so a failed install degrades to
+# "that format is unsupported" instead of taking the whole app down.
+pypdf==6.19.0
+python-docx==1.2.0
+
 # Render Workflows SDK — used by pipeline.py (workflow tier only).
 # app.py does not import it, so the web tier boots even if this is missing.
 render==1.1.0

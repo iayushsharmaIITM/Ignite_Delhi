@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brains · Kestrel Company Brain</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>◆</text></svg>">
+<style>
+  :root {
+    --bg:#0f1115; --panel:#171a21; --panel-2:#1c2029; --line:#262b36;
+    --fg:#e8ebf2; --muted:#98a2b3; --accent:#5b9cf8; --accent-dim:#2b4a7d;
+    --good:#4ade80; --bad:#f27a7a; --warn:#fbbf24;
+  }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         -webkit-font-smoothing:antialiased; }
+  main { max-width:820px; margin:0 auto; padding:48px 24px 64px; }
+
+  header { margin-bottom:26px; }
+  h1 { font-size:24px; font-weight:650; margin:0 0 6px; letter-spacing:-.01em; }
+  h1 .mark { color:var(--accent); margin-right:8px; }
+  p.sub { color:var(--muted); margin:0; font-size:14.5px; max-width:64ch; }
+
+  .actions { margin:22px 0 26px; }
+  .btn { display:inline-block; padding:11px 20px; border-radius:9px; border:0;
+         background:var(--accent); color:#08111f; font-weight:640; font-size:14px;
+         text-decoration:none; cursor:pointer; }
+  .btn:hover { opacity:.9; text-decoration:none; }
+  .btn.ghost { background:transparent; color:var(--muted);
+               border:1px solid var(--line); font-weight:500; }
+  .btn.ghost:hover { color:var(--fg); border-color:var(--accent-dim); }
+
+  ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+  li.row { padding:16px 18px; border-radius:12px; background:var(--panel);
+           border:1px solid var(--line); display:flex; align-items:center;
+           gap:16px; flex-wrap:wrap; }
+  li.row.demo { border-color:var(--accent-dim); }
+
+  .meta { min-width:0; flex:1; }
+  .nm { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:14.5px;
+        word-break:break-all; }
+  .badge { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:999px;
+           font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+           background:var(--accent-dim); color:#cfe0ff; vertical-align:middle; }
+  .stats { color:var(--muted); font-size:12.5px; margin-top:4px; }
+  .acts { display:flex; gap:8px; flex-wrap:wrap; }
+  .acts a, .acts button { padding:8px 14px; border-radius:8px; font-size:13px;
+           text-decoration:none; cursor:pointer; border:1px solid var(--line);
+           background:var(--panel-2); color:var(--fg); font-family:inherit; }
+  .acts a:hover { border-color:var(--accent-dim); text-decoration:none; }
+  .acts .del { color:var(--bad); }
+  .acts .del:hover { border-color:#5a2b2b; }
+  .acts button:disabled { opacity:.45; cursor:default; }
+
+  .msg { padding:18px; border-radius:10px; border:1px solid var(--line);
+         background:var(--panel); color:var(--muted); }
+  .msg.bad { border-color:#5a2b2b; color:var(--bad); }
+
+  footer { margin-top:38px; padding-top:18px; border-top:1px solid var(--line);
+           color:var(--muted); font-size:12.5px; display:flex; gap:16px; flex-wrap:wrap; }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  code { background:var(--panel-2); padding:2px 6px; border-radius:5px; font-size:12px;
+         font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><span class="mark">◆</span>Brains</h1>
+    <p class="sub">Every knowledge graph on this tenant. The demo brain is pre-built;
+      the rest were created from documents someone uploaded.</p>
+  </header>
+
+  <div class="actions">
+    <a class="btn" href="/upload">New brain</a>
+  </div>
+
+  <ul id="list"></ul>
+  <div class="msg" id="msg">Loading…</div>
+
+  <footer>
+    <a href="/">demo dashboard</a>
+    <a href="/upload">new brain</a>
+    <a href="/health">/health</a>
+  </footer>
+</main>
+
+<script>
+const listEl = document.getElementById('list');
+const msgEl  = document.getElementById('msg');
+
+function row(brain) {
+  const li = document.createElement('li');
+  li.className = 'row' + (brain.is_demo ? ' demo' : '');
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+
+  const nm = document.createElement('div');
+  nm.className = 'nm';
+  nm.textContent = brain.name;            // textContent: names are user input
+  if (brain.is_demo) {
+    const b = document.createElement('span');
+    b.className = 'badge'; b.textContent = 'demo';
+    nm.appendChild(b);
+  } else if (brain.is_system) {
+    const b = document.createElement('span');
+    b.className = 'badge'; b.textContent = 'system';
+    nm.appendChild(b);
+  }
+
+  const stats = document.createElement('div');
+  stats.className = 'stats';
+  stats.textContent = 'measuring…';
+
+  meta.append(nm, stats);
+
+  const acts = document.createElement('div');
+  acts.className = 'acts';
+
+  const open = document.createElement('a');
+  open.href = '/?brain=' + encodeURIComponent(brain.name);
+  open.textContent = 'Open';
+  acts.appendChild(open);
+
+  const graph = document.createElement('a');
+  graph.href = '/graph?brain=' + encodeURIComponent(brain.name);
+  graph.textContent = 'Graph';
+  acts.appendChild(graph);
+
+  // The demo brain and Cognee's internal default are not deletable. The server
+  // refuses the demo one too — this is the UI agreeing with the API rather than
+  // offering a button that errors.
+  if (!brain.is_demo && !brain.is_system) {
+    const del = document.createElement('button');
+    del.className = 'del'; del.textContent = 'Delete';
+    del.addEventListener('click', async () => {
+      if (!confirm('Delete the brain "' + brain.name + '" and its graph? This cannot be undone.')) return;
+      del.disabled = true;
+      try {
+        const res = await fetch('/api/brains/' + encodeURIComponent(brain.name),
+                                { method: 'DELETE' });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.detail || ('HTTP ' + res.status));
+        li.remove();
+        if (!listEl.children.length) show('No brains left. Create one from the upload page.');
+      } catch (err) {
+        del.disabled = false;
+        stats.textContent = 'delete failed: ' + err.message;
+      }
+    });
+    acts.appendChild(del);
+  }
+
+  li.append(meta, acts);
+  listEl.appendChild(li);
+  return stats;
+}
+
+function show(text, bad) {
+  msgEl.hidden = false;
+  msgEl.className = 'msg' + (bad ? ' bad' : '');
+  msgEl.textContent = text;
+}
+
+async function loadStats(name, el, isDemo) {
+  try {
+    const r = await fetch('/api/stats?dataset=' + encodeURIComponent(name));
+    const d = await r.json();
+    if (!d.ok) { el.textContent = isDemo ? 'graph unavailable' : 'graph not ready yet'; return; }
+    el.textContent = d.nodes + ' nodes · ' + d.edges + ' edges' +
+                     (d.source === 'fixture' ? ' · offline snapshot' : '');
+  } catch {
+    el.textContent = 'could not read graph size';
+  }
+}
+
+(async () => {
+  let data;
+  try {
+    const res = await fetch('/api/brains');
+    data = await res.json();
+  } catch (err) {
+    show('Could not reach the server: ' + err.message, true);
+    return;
+  }
+
+  if (!data.ok) { show(data.error || 'Could not list brains.', true); return; }
+
+  const brains = data.brains || [];
+  if (!brains.length) {
+    show(data.note || 'No brains yet. Create one from the upload page.');
+    return;
+  }
+
+  msgEl.hidden = true;
+  for (const b of brains) {
+    const statsEl = row(b);
+    loadStats(b.name, statsEl, b.is_demo);
+  }
+})();
+</script>
+</body>
+</html>
