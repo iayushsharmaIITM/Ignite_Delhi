@@ -11,9 +11,9 @@
 | **Budget** | 3 hours |
 | **Build window** | **11:18:49 → 13:06:11 IST, 19 Sep 2026 — 1 h 47 m 22 s** |
 | **Branch** | `main` |
-| **Commits** | **19** (tree clean at time of writing) |
+| **Commits** | **19 build commits** in 1 h 47 m, plus documentation commits added after the freeze |
 | **Code** | **3,208 lines** — 2,044 Python (1,255 app · 789 tests/tooling) · 1,164 UI |
-| **Docs** | 2,252 lines across 9 documents + 10 corpus files |
+| **Docs** | 2,252 lines across 9 documents + 10 corpus files (plus this report) |
 | **Status** | **Working end to end, verified this session.** Never deployed — see §9. |
 
 This document is written to be *audited*, not admired. Every number is reproducible
@@ -644,7 +644,7 @@ thing that must change**, and I would not describe this as production-ready.
 
 1. **GitHub repo URL** — the only true blocker. `gh` is not installed, so either the
    repo must be created manually or `gh` installed and authenticated by device flow.
-   **All 20 commits are ready to push and have no remote.**
+   **All commits are ready to push and have no remote.**
 2. **`RENDER_API_KEY`** — needed to deploy. Possibly unnecessary: `render login` is an
    interactive device flow the operator can complete directly.
 
@@ -669,7 +669,7 @@ cd Ignite_Delhi
 PY=/Users/_iayushsharma_/.workbuddy-ai/binaries/python/envs/hackathon/bin/python
 
 # 1. Inventory and history
-git log --oneline | wc -l                 # 20 (19 build commits + this report)
+git log --oneline | wc -l                 # 19 build commits + docs commits
 git ls-files | wc -l                      # 48
 cat $(git ls-files '*.py' '*.html') | wc -l   # 3208
 
