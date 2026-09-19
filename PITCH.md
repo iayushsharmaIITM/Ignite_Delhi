@@ -18,7 +18,8 @@ Do not reuse one script for both. The 5-minute pitch argues; the 1-minute pitch 
 | Corpus | 10 synthetic company documents |
 | Graph | **219 nodes · 500 edges** |
 | Ingest time | 10 documents queued in **10.9s** across 3 workers; graph ready in **~1 minute** |
-| Answer latency | ~15s, streamed |
+| Parallel fan-out proof | 3 documents → 3 separate task containers → **`failed:0 queued:3` in 6.05s**, all queryable from one shared graph |
+| Answer latency | ~16–20s, streamed |
 | Credentials per container | **1** (an API key) |
 | Services | **2** (web tier + workflow tier) |
 | Lines of application code | ~600 |

@@ -31,16 +31,21 @@ app = Workflows()
     retry=Retry(max_retries=3, wait_duration_ms=1000, backoff_scaling=1.5),
     timeout_seconds=600,
 )
-async def ingest_document(ctx: TaskContext, text: str) -> str:
-    """Ingest a single document. Runs in its own container."""
+async def ingest_document(ctx: TaskContext, text: str, dataset: str = "") -> str:
+    """Ingest a single document. Runs in its own container.
+
+    `dataset` defaults to COGNEE_DATASET; pass a name to target a scratch
+    dataset, which is how the fan-out below is tested without touching the
+    demo graph.
+    """
     from memory_layer import remember
 
-    await remember(text)
+    await remember(text, dataset or None)
     return "ingested"
 
 
 @app.task(timeout_seconds=900)
-async def ingest_corpus(ctx: TaskContext, documents: list) -> dict:
+async def ingest_corpus(ctx: TaskContext, documents: list, dataset: str = "") -> dict:
     """Fan ingestion out across containers — one task run per document.
 
     Each ctx.run() is its own ephemeral container. They share no filesystem and
@@ -49,7 +54,7 @@ async def ingest_corpus(ctx: TaskContext, documents: list) -> dict:
     rhetorical: add documents, get more containers, change nothing else.
     """
     results = await asyncio.gather(
-        *(ctx.run(ingest_document, doc) for doc in documents),
+        *(ctx.run(ingest_document, doc, dataset) for doc in documents),
         return_exceptions=True,
     )
     ok = sum(1 for r in results if not isinstance(r, Exception))

@@ -46,13 +46,17 @@ def _cloud_configured() -> bool:
 PROVIDER = os.getenv("PROVIDER") or ("cloud" if _cloud_configured() else "mock")
 
 
-async def remember(text: str) -> None:
-    """Store text as memory. Builds the knowledge graph under the hood."""
+async def remember(text: str, dataset: str | None = None) -> None:
+    """Store text as memory. Builds the knowledge graph under the hood.
+
+    `dataset=None` targets COGNEE_DATASET. Pass an explicit name to exercise a
+    scratch dataset without touching the demo graph.
+    """
     if PROVIDER == "mock":
         return
     import cognee_cloud
 
-    await asyncio.to_thread(cognee_cloud.remember, text)
+    await asyncio.to_thread(cognee_cloud.remember, text, dataset)
 
 
 async def recall(query: str):
