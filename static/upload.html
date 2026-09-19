@@ -210,6 +210,17 @@ fileEl.addEventListener('change', () => { addFiles(fileEl.files); fileEl.value =
 ['dragleave', 'drop'].forEach(ev =>
   dropEl.addEventListener(ev, e => { e.preventDefault(); dropEl.classList.remove('over'); }));
 dropEl.addEventListener('drop', e => addFiles(e.dataTransfer.files));
+// Arrived from the brains list via "Add documents": pre-fill the name and say
+// what will happen, so the user is not surprised by a 409 they have to resolve.
+(function prefillFromQuery() {
+  const want = new URLSearchParams(location.search).get('brain');
+  if (!want) return;
+  nameEl.value = want;
+  refresh();
+  note('Adding to the existing brain "' + want + '". Its current graph stays; ' +
+       'these documents are added to it.', 'warn');
+})();
+
 nameEl.addEventListener('input', refresh);
 
 buildEl.addEventListener('click', async () => {

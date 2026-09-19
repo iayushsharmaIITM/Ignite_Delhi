@@ -7,6 +7,9 @@
   "# beta marker bbb-222 must be findable.": "beta.md",
   "# gamma marker ccc-333 also.": "gamma.md"
  },
+ "deltest1": {
+  "# x marker del-1.": "x.md"
+ },
  "namedcite1": {
   "# halcyon escalation note project halcyon's migration is blocked. the blocker is the vendor's certificate rotation, whic": "halcyon_escalation_note.md"
  },
