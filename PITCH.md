@@ -13,8 +13,8 @@ Both scripts are word-counted against a 140 wpm speaking rate:
 
 | Round | Words | At 140 wpm | Budget | Buffer |
 |---|---|---|---|---|
-| Round 1 (5 min) | 550 | **236s** | 300s | 64s for pauses and emphasis |
-| Round 2 (1 min) | 133 | **57s** | 60s | 3s — it fits at 150–160 wpm with room |
+| Round 1 (5 min) | 553 | **237s** | 300s | 63s for pauses and emphasis |
+| Round 2 (1 min) | 135 | **58s** | 60s | **2s — tight.** At 140 wpm this barely fits; deliver it briskly or cut a sentence |
 
 Every Round 1 segment is individually inside its own budget, so you can check your pace at each
 timestamp rather than discovering at 4:30 that you are behind.
@@ -32,7 +32,7 @@ timestamp rather than discovering at 4:30 that you are behind.
 | Answer latency | **~16–31s** end-to-end; first token at **~18s**, then streams fast |
 | Credentials per container | **1** (an API key) |
 | Services | **2** (web tier + workflow tier) |
-| Code | **~1,300 lines** — 725 Python (web tier, Cognee client, memory layer, workflow) · 562 UI |
+| Code | **3,208 lines** — 2,044 Python (1,255 app · 789 tests/tooling) · 1,164 UI |
 
 ---
 

@@ -1,4 +1,8 @@
-# Render Blueprint — deploys BOTH services in one command: `render blueprint launch`
+# Render Blueprint — defines BOTH services.
+#
+# There is NO CLI deploy command for Blueprints. `render blueprints` supports
+# only `validate` (verified against CLI v2.28.0). Deploy by connecting this repo
+# in the Render dashboard, which reads this file.
 #
 # Why two services: Render task runs cannot accept inbound connections (no ports),
 # so the workflow can never serve the UI. The web tier serves HTTP and triggers runs.
