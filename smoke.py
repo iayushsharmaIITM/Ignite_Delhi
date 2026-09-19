@@ -40,7 +40,10 @@ def health():
         assert data.get("upstream") == "healthy", f"upstream={data.get('upstream')}"
         # The tenant /health endpoint is unauthenticated, so upstream=healthy
         # does NOT prove our key works. Check the authenticated probe too.
-        assert data.get("auth") != "failed", f"key rejected: {data.get('auth_error')}"
+        assert data.get("auth") == "ok", (
+            f"authenticated probe did not pass (auth={data.get('auth')!r}, "
+            f"error={data.get('auth_error')})"
+        )
     print(f"        provider={data.get('provider')} upstream={data.get('upstream')} "
           f"auth={data.get('auth', 'n/a')}")
 
