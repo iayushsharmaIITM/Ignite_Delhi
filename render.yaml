@@ -5,7 +5,11 @@
 # in the Render dashboard, which reads this file.
 #
 # Why two services: Render task runs cannot accept inbound connections (no ports),
-# so the workflow can never serve the UI. The web tier serves HTTP and triggers runs.
+# so the workflow service can never serve the UI.
+#
+# Note: the web service does NOT trigger workflow runs. It talks to the Cognee
+# Cloud tenant directly, so uploads take no retry from the workflow tier.
+# `ignite-wf` is the parallel-ingest path used by ingest.py.
 #
 # Why there is no LLM key and no database password below: the Cognee Cloud tenant
 # instance owns the model, the embeddings, the vector store and the graph. Every

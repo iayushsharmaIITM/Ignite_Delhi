@@ -2,8 +2,17 @@
 
 WHY THIS FILE EXISTS SEPARATELY FROM pipeline.py
 Render task runs cannot accept inbound connections (no ports), so the workflow
-can never serve the UI. Two services are mandatory:
-  this web tier  ->  triggers runs  ->  Render Workflow (compute)
+service can never serve the UI. Two services are therefore mandatory:
+
+  this web tier  ->  Cognee Cloud tenant      (serves HTTP, answers questions)
+  pipeline.py    ->  Cognee Cloud tenant      (fans ingestion across containers)
+
+WHAT IS *NOT* TRUE, stated plainly because an earlier draft of this docstring
+claimed it: the web tier does NOT trigger Render Workflow runs. `POST /api/brains`
+ingests by calling memory_layer -> cognee_cloud directly, so uploads get no
+retry and no fan-out from the workflow tier. pipeline.py is the parallel-ingest
+path used by ingest.py, and it is the path that scales. Routing uploads through
+it is the obvious next step, not something this file already does.
 
 TWO KINDS OF BRAIN, ONE DASHBOARD
 `COGNEE_DATASET` is the pre-built demo brain. Anything a user uploads becomes a

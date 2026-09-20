@@ -191,6 +191,19 @@
                  background:none; border:0; box-shadow:none; padding:0; backdrop-filter:none; }
   }
 
+  /* Suggestions generated from the answer, shown at the foot of the turn they
+     belong to, so they keep flowing down the conversation instead of sitting
+     once at the top. */
+  .followups { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
+  .followups button {
+    padding:8px 14px; border-radius:999px; border:1px solid var(--line-2);
+    background:var(--panel-2); color:var(--fg-2); font-size:12.5px;
+    cursor:pointer; text-align:left; transition:all .16s ease; max-width:100%;
+  }
+  .followups button:hover { color:var(--fg); border-color:var(--line-3);
+                            background:var(--panel-3); transform:translateY(-1px); }
+  .followups button.act-chip { border-style:dashed; }
+
   /* Actions ride with the FIRST answer rather than trailing the page, so the
      thread reads top-down: answer, what you can do with it, then follow-ups. */
   /* Actions attached to EVERY answer, so a follow-up can be acted on without
@@ -673,6 +686,85 @@ function closeSource() {
   srcText = '';
 }
 
+// --- suggestions, derived from the answer -----------------------------------
+// Not a fixed list. These are read out of the answer that was just given: the
+// people and organisations it names, the deadlines it mentions, and whether it
+// describes something that still needs approving or doing. A static list of
+// four questions cannot follow a conversation; these can.
+function suggestFrom(text) {
+  const clean_ = clean(text);
+  const out = [];
+  const seen = new Set();
+  const push = (label, question) => {
+    const key = label.toLowerCase();
+    if (seen.has(key) || out.length >= 4) return;
+    seen.add(key);
+    out.push({ label, question: question || label });
+  };
+
+  // Action prompts first - these are the ones people actually want.
+  if (/\b(approv|sign[- ]?off|signoff|authoris|authoriz|pending|awaiting)\b/i.test(clean_)) {
+    push('Draft a mail about this', 'Draft a mail summarising this and what needs approving.');
+  }
+  if (/\b(deadline|due|by \d|before \d|expires?|overdue|passed)\b/i.test(clean_)) {
+    push('What are the next steps?', 'What are the next steps and who owns each one?');
+  }
+  push('List the next steps', 'List the concrete next steps with an owner for each.');
+
+  // People named in the answer. Capitalised words that are not sentence starts.
+  const people = new Set();
+  const re = /\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b/g;
+  let m;
+  while ((m = re.exec(clean_))) {
+    const full = m[0];
+    if (/^(The|This|That|These|Those|When|What|Where|Which|While|Their|There)\b/.test(full)) continue;
+    people.add(full);
+  }
+  [...people].slice(0, 2).forEach(name => {
+    push('Who is ' + name + '?', 'What is ' + name + "'s role and what do they own?");
+  });
+
+  // A verification prompt, which is the one a reader most often wants next.
+  if (/\b(contract|policy|agreement|msa|handbook)\b/i.test(clean_)) {
+    push('Check this against the policy', 'Does this comply with our policy, and which one governs it?');
+  } else {
+    push('Is this consistent across documents?', 'Is this consistent across all our documents?');
+  }
+
+  return out.slice(0, 4);
+}
+
+function renderSuggestions(turn, text) {
+  const items = suggestFrom(text);
+  if (!items.length) return;
+  const row = document.createElement('div');
+  row.className = 'followups';
+  items.forEach(it => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = it.label;
+    b.title = it.question;
+    // Action chips drive the same generators as the panel; question chips ask.
+    if (/^(Draft|List|Check)/.test(it.label)) b.classList.add('act-chip');
+    b.addEventListener('click', () => {
+      if (it.label === 'Draft a mail about this') {
+        showDraft('email', 'Email draft', null, text);
+        document.getElementById('draft').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return;
+      }
+      if (it.label === 'List the next steps' || it.label === 'What are the next steps?') {
+        showDraft('steps', 'Next steps', null, text);
+        document.getElementById('draft').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return;
+      }
+      input.value = it.question;
+      ask(it.question);
+    });
+    row.appendChild(b);
+  });
+  turn.appendChild(row);
+}
+
 function renderSources(turn, items) {
   const named = items.filter(i => i && i.source);
   if (!named.length) return;
@@ -706,6 +798,10 @@ async function ask(q) {
   TURNS.push({ role: 'user', text: q });
 
   input.value = '';
+  // The starter chips are only an entry point. Once a conversation starts they
+  // are stale - the answer-derived suggestions are the live ones.
+  const starters = document.getElementById('chips');
+  if (starters) starters.style.display = 'none';
   addTurn('user', q);
   const { bubble } = addTurn('bot', 'Searching the knowledge graph…');
   bubble.className = 'bubble placeholder';
@@ -759,6 +855,7 @@ async function ask(q) {
       renderSources(bubble.parentElement, sources);
       // Actions on THIS answer, so a follow-up is actionable in place.
       renderAnswerActions(bubble.parentElement, q, text);
+      renderSuggestions(bubble.parentElement, text);
       SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
       LAST = { q, text };
 
