@@ -176,9 +176,10 @@
     backdrop-filter:blur(10px); box-shadow:var(--shadow);
   }
   #threadbar button.mini {
-    padding:7px 13px; border-radius:999px; border:1px solid var(--line-2);
-    background:transparent; color:var(--fg-2); font-size:12.5px; cursor:pointer;
-    transition:all .16s ease; white-space:nowrap;
+    min-width:40px; padding:7px 10px; border-radius:8px; border:1px solid var(--line-2);
+    background:transparent; color:var(--fg-2); cursor:pointer; white-space:nowrap;
+    font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+    letter-spacing:.06em; transition:all .16s ease;
   }
   #threadbar button.mini:hover { border-color:var(--line-3); background:var(--panel-2); color:var(--fg); }
   #threadbar .count {
@@ -211,10 +212,12 @@
   .answer-acts { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px;
                  padding-top:11px; border-top:1px solid var(--line); }
   .answer-acts button {
-    padding:6px 12px; border-radius:999px; border:1px solid var(--line-2);
-    background:transparent; color:var(--muted); font-size:12px; cursor:pointer;
-    transition:all .15s ease;
+    display:inline-flex; align-items:center; justify-content:center;
+    width:32px; height:32px; padding:0; border-radius:9px;
+    border:1px solid var(--line-2); background:transparent; color:var(--muted);
+    cursor:pointer; transition:all .15s ease;
   }
+  .answer-acts button svg { width:15px; height:15px; }
   .answer-acts button:hover { color:var(--fg); border-color:var(--line-3);
                               background:var(--panel-2); }
   .answer-acts button.copied { color:var(--good); border-color:var(--good); }
@@ -307,11 +310,11 @@
 
   <section>
     <div id="threadbar">
-      <button class="mini" id="export-md" type="button">Export as Markdown</button>
-      <button class="mini" id="export-txt" type="button">Plain text</button>
-      <button class="mini" id="export-docx" type="button">Word</button>
-      <button class="mini" id="export-pdf" type="button">PDF</button>
-      <button class="mini" id="clear-chat" type="button">Clear</button>
+      <button class="mini" id="export-md" type="button" title="Export as Markdown">MD</button>
+      <button class="mini" id="export-txt" type="button" title="Export as plain text">TXT</button>
+      <button class="mini" id="export-docx" type="button" title="Export as Word document">DOC</button>
+      <button class="mini" id="export-pdf" type="button" title="Export as PDF">PDF</button>
+      <button class="mini" id="clear-chat" type="button" title="Clear this conversation">✕</button>
       <span class="count" id="turncount"></span>
     </div>
     <div class="label">Conversation</div>
@@ -391,7 +394,7 @@ const turnCount = document.getElementById('turncount');
 const TURNS = [];
 // Filenames from the most recent answer, used by the action generators. This
 // was lost when the standalone evidence panel was removed, which silently broke
-// every "Do something with this" button.
+// every per-answer action.
 let SOURCES = [];
 
 // "draft a mail", "write an email", "compose a note to Dana" - when the question
@@ -604,28 +607,46 @@ function addTurn(role, text) {
   return { turn, bubble };
 }
 
+// --- icons -------------------------------------------------------------------
+// Signs, not sentences. Each action is recognisable by shape; the label lives in
+// the tooltip, where it costs no space.
+const ICON = {
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+  email: '<rect x="2.5" y="4.5" width="19" height="15" rx="2"/><path d="m3 6 9 6.5L21 6"/>',
+  steps: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1.4 1.4L8 4.6"/><path d="M4 12l1.4 1.4L8 10.6"/><path d="M4 18l1.4 1.4L8 16.6"/>',
+  chat: '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.9-.9L3 21l1.9-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/>',
+};
+
+function iconSvg(name) {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+         'stroke-linecap="round" stroke-linejoin="round">' + (ICON[name] || '') + '</svg>';
+}
+
 // A compact action row under one answer. Each button acts on THAT answer's text,
 // not on whichever answer happened to be last.
 function renderAnswerActions(turn, q, text) {
   const row = document.createElement('div');
   row.className = 'answer-acts';
 
-  const mk = (label, fn) => {
+  const mk = (icon, title, fn) => {
     const b = document.createElement('button');
-    b.type = 'button'; b.textContent = label;
+    b.type = 'button';
+    b.innerHTML = iconSvg(icon);
+    b.title = title;
+    b.setAttribute('aria-label', title);
     b.addEventListener('click', () => fn(b));
     row.appendChild(b);
     return b;
   };
 
-  mk('Copy', async b => {
+  mk('copy', 'Copy this answer', async b => {
     await copyText(clean(text) + (SOURCES.length ? '\n\nSources: ' + SOURCES.join(', ') : ''));
-    b.classList.add('copied'); b.textContent = 'Copied';
-    setTimeout(() => { b.classList.remove('copied'); b.textContent = 'Copy'; }, 1300);
+    b.classList.add('copied'); b.title = 'Copied';
+    setTimeout(() => { b.classList.remove('copied'); b.title = 'Copy this answer'; }, 1300);
   });
-  mk('Email draft', () => showDraft('email', 'Email draft', q, text));
-  mk('Next steps',  () => showDraft('steps', 'Next steps',  q, text));
-  mk('Chat update', () => showDraft('chat',  'Chat update', q, text));
+  mk('email', 'Draft an email from this answer', () => showDraft('email', 'Email draft', q, text));
+  mk('steps', 'List the next steps',            () => showDraft('steps', 'Next steps',  q, text));
+  mk('chat',  'Write a chat update',            () => showDraft('chat',  'Chat update', q, text));
 
   turn.appendChild(row);
   return row;
@@ -713,11 +734,18 @@ function suggestFrom(text) {
 
   // People named in the answer. Capitalised words that are not sentence starts.
   const people = new Set();
+  // Two capitalised words is not a person. "Component Action" and "Credit Policy"
+  // both match that shape, and a suggestion asking who they are is obviously
+  // wrong. Reject anything containing a business noun.
+  const NOT_A_NAME = /\b(action|component|policy|credit|invoice|contract|agreement|renewal|outage|ticket|meeting|notes?|report|status|date|value|table|summary|issue|process|system|team|service|account|platform|review|approval|deadline|incident|handbook|matrix|threshold|ceiling|plan|draft|update|change|risk|impact|owner|role|step)\b/i;
+  const LEADING = /^(The|This|That|These|Those|When|What|Where|Which|While|Their|There|Our|Your|Its|Both|Each|Some|Most|All|No|Not|And|But|For|From|With|Within|After|Before|During|Under|Over|Above|Below)$/;
   const re = /\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b/g;
   let m;
   while ((m = re.exec(clean_))) {
     const full = m[0];
-    if (/^(The|This|That|These|Those|When|What|Where|Which|While|Their|There)\b/.test(full)) continue;
+    const [first, last] = m.slice(1);
+    if (LEADING.test(first) || LEADING.test(last)) continue;
+    if (NOT_A_NAME.test(full)) continue;
     people.add(full);
   }
   [...people].slice(0, 2).forEach(name => {
@@ -859,23 +887,8 @@ async function ask(q) {
       SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
       LAST = { q, text };
 
-      // Mount the action panel inside the FIRST answer only, once. It then stays
-      // put while follow-ups stack below it, which is what makes the thread read
-      // in order rather than trailing a panel at the bottom of the page.
-      if (!document.getElementById('actions')) {
-        const panel = document.createElement('div');
-        panel.id = 'actions';
-        panel.innerHTML =
-          '<div class="acts-head"><span class="label">Do something with this</span>' +
-          '<button class="dismiss" type="button" title="Hide">×</button></div>' +
-          '<div class="acts" id="actlist"></div>';
-        panel.querySelector('.dismiss').addEventListener('click', () => {
-          panel.remove();
-        });
-        bubble.parentElement.appendChild(panel);
-      }
-      buildActions(document.getElementById('actlist'));
-      document.getElementById('actions').style.display = 'block';
+      // The per-answer action row above is the only place these live. A separate
+      // panel repeating the same four controls was clutter.
 
       // If the question asked for a mail, produce it there and then rather than
       // making the user find the button. Copy and Open-in-mail come with it.
@@ -1023,12 +1036,6 @@ document.getElementById('clear-chat')?.addEventListener('click', () => {
 // on immediately: a mail they can paste into Gmail, the next steps, and a short
 // update for a chat thread. Generated locally so there is no second wait and no
 // second failure mode.
-const ACTIONS = [
-  { key: 'Email draft',  kind: 'email' },
-  { key: 'Next steps',   kind: 'steps' },
-  { key: 'Chat update',  kind: 'chat'  },
-];
-
 let LAST = { q: '', text: '' };
 
 function clean(text) {
@@ -1159,32 +1166,6 @@ function showDraft(kind, label, q, text) {
 
 // The panel is built into whichever element is passed, so it can live inside the
 // first answer instead of at the end of the page.
-function buildActions(host) {
-  const list = host || document.getElementById('actlist');
-  if (!list) return;
-  list.innerHTML = '';
-  ACTIONS.forEach(a => {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'act';
-    const k = document.createElement('span'); k.className = 'k'; k.textContent = a.key;
-    const d = document.createElement('span'); d.textContent = 'Generate from this answer';
-    b.append(k, d);
-    b.addEventListener('click', () => showDraft(a.kind, a.key));
-    list.appendChild(b);
-  });
-  const b = document.createElement('button');
-  b.type = 'button'; b.className = 'act';
-  const k = document.createElement('span'); k.className = 'k'; k.textContent = 'Copy answer';
-  const d = document.createElement('span'); d.textContent = 'Plain text, ready to paste';
-  b.append(k, d);
-  b.addEventListener('click', async () => {
-    await copyText(clean(LAST.text) + (SOURCES.length ? '\n\nSources: ' + SOURCES.join(', ') : ''));
-    b.classList.add('copied');
-    setTimeout(() => b.classList.remove('copied'), 1200);
-  });
-  list.appendChild(b);
-}
-
 async function copyText(value) {
   try {
     await navigator.clipboard.writeText(value);
