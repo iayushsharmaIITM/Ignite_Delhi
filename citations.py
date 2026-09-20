@@ -216,3 +216,15 @@ def enrich(references: list, dataset: str) -> list:
             # unresolved rather than pretending it is a source.
             out.append({"source": None, "excerpt": None, "raw": text})
     return out
+
+
+def data_id_for(dataset: str, filename: str) -> str | None:
+    """Reverse of the resolve map: which data item holds this filename?
+
+    Lets the app read an uploaded document back from the tenant, since uploads
+    are not on local disk. Returns None rather than guessing.
+    """
+    for data_id, info in for_dataset(dataset).items():
+        if info.get("source") == filename:
+            return data_id
+    return None

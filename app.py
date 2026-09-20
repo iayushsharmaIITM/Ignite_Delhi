@@ -579,6 +579,58 @@ def delete_brain(name: str):
 
 
 # --------------------------------------------------------------------------
+# reading a source document back
+# --------------------------------------------------------------------------
+
+@app.get("/api/source")
+def source(name: str, dataset: str | None = None):
+    """Return the text of a cited source document, so a citation is checkable.
+
+    A citation you cannot open is an assertion. This makes it verifiable.
+
+    Path safety: only a bare filename is accepted - no separators, no parent
+    references - and the resolved path is re-checked to be inside corpus/
+    before it is read. `basename` alone is not enough on its own, so both
+    checks run.
+    """
+    import re as _re
+
+    if not name or not _re.fullmatch(r"[A-Za-z0-9._ -]{1,120}", name):
+        raise HTTPException(status_code=400, detail="Invalid source name.")
+    if os.path.basename(name) != name:
+        raise HTTPException(status_code=400, detail="Invalid source name.")
+
+    # 1. the corpus on disk (the demo brain, and anything committed)
+    corpus_root = os.path.realpath(os.path.join(HERE, "corpus"))
+    path = os.path.realpath(os.path.join(corpus_root, name))
+    if path.startswith(corpus_root + os.sep) and os.path.isfile(path):
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return {"ok": True, "name": name, "source": "corpus", "text": fh.read()}
+
+    # 2. an uploaded document, read back from the tenant.
+    #
+    # Skipped for the demo brain: its corpus is on disk, so a miss there is a
+    # genuine 404. Without this guard an unknown name fell through to the tenant,
+    # which resolves the whole dataset map first and took ~20s to say "not found".
+    target = dataset or DEMO_DATASET
+    if target == DEMO_DATASET:
+        raise HTTPException(status_code=404, detail=f"No source document called '{name}'.")
+
+    try:
+        import citations
+        import cognee_cloud
+
+        data_id = citations.data_id_for(target, name)
+        if data_id:
+            text = cognee_cloud.data_raw(cognee_cloud.resolve_id(target), data_id)
+            return {"ok": True, "name": name, "source": "tenant", "text": text}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)[:200]) from exc
+
+    raise HTTPException(status_code=404, detail=f"No source document called '{name}'.")
+
+
+# --------------------------------------------------------------------------
 # pages
 # --------------------------------------------------------------------------
 

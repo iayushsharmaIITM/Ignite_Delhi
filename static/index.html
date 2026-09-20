@@ -119,6 +119,52 @@
   .turn .srcs span { font-size:11px; color:var(--muted); background:var(--panel-2);
                border:1px solid var(--line); padding:3px 9px; border-radius:999px;
                font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  /* Sources are buttons now: a citation you cannot open is just an assertion. */
+  .turn .srcs button {
+    font-size:11px; color:var(--muted); background:var(--panel-2);
+    border:1px solid var(--line); padding:4px 10px; border-radius:999px;
+    cursor:pointer; transition:all .15s ease;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  .turn .srcs button:hover { color:var(--fg); border-color:var(--line-3); background:var(--panel-3); }
+
+  #source-modal {
+    position:fixed; inset:0; z-index:80; display:flex;
+    align-items:center; justify-content:center; padding:40px 24px;
+    background:rgba(0,0,0,.66); backdrop-filter:blur(3px);
+  }
+  #source-modal[hidden] { display:none; }
+  #source-modal .sheet {
+    width:min(860px, 100%); max-height:100%; display:flex; flex-direction:column;
+    background:var(--panel); border:1px solid var(--line-2);
+    border-radius:var(--radius); box-shadow:var(--shadow-lg); overflow:hidden;
+  }
+  #source-modal .head {
+    display:flex; align-items:center; gap:12px; padding:14px 18px;
+    border-bottom:1px solid var(--line); background:var(--panel-2);
+  }
+  #source-modal .head .nm {
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:13px; color:var(--fg); font-weight:600;
+  }
+  #source-modal .head .where { font-size:11px; color:var(--muted-2); }
+  #source-modal .head .sp { margin-left:auto; display:flex; gap:8px; }
+  #source-modal .head button {
+    padding:6px 13px; border-radius:999px; border:1px solid var(--line-2);
+    background:transparent; color:var(--fg-2); font-size:12.5px; cursor:pointer;
+  }
+  #source-modal .head button:hover { border-color:var(--line-3); color:var(--fg); }
+  #source-modal pre {
+    margin:0; padding:20px 22px; overflow:auto;
+    font:12.5px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:var(--fg-2); white-space:pre-wrap; word-break:break-word;
+  }
+  #source-modal mark {
+    background:rgba(233,234,238,.16); color:var(--fg);
+    border-radius:3px; padding:1px 2px;
+  }
+  #source-modal .state { padding:22px; color:var(--muted); font-size:13.5px; }
+
   /* Export controls pinned to the top-right of the conversation, so they are
      reachable from anywhere in a long chat rather than only above the first
      answer. Sits clear of the sidebar and stays put while the thread scrolls. */
@@ -272,6 +318,20 @@
       <textarea id="draftbody" spellcheck="false"></textarea>
     </div>
   </section>
+
+  <div id="source-modal" hidden>
+    <div class="sheet">
+      <div class="head">
+        <span class="nm" id="src-name"></span>
+        <span class="where" id="src-where"></span>
+        <span class="sp">
+          <button type="button" id="src-copy">Copy</button>
+          <button type="button" id="src-close">Close</button>
+        </span>
+      </div>
+      <pre id="src-body"></pre>
+    </div>
+  </div>
 
   <footer>
     <span class="pill"><a id="graphlink" href="/graph">Open the graph view →</a></span>
@@ -558,15 +618,72 @@ function renderAnswerActions(turn, q, text) {
   return row;
 }
 
+// --- source documents --------------------------------------------------------
+// A citation you cannot open is an assertion. Clicking a source chip fetches the
+// document and shows it, with the cited passage highlighted.
+let srcText = '';
+
+async function openSource(name, excerpt) {
+  const modal = document.getElementById('source-modal');
+  const body = document.getElementById('src-body');
+  document.getElementById('src-name').textContent = name;
+  document.getElementById('src-where').textContent = 'loading…';
+  body.textContent = '';
+  modal.hidden = false;
+
+  try {
+    const params = new URLSearchParams({ name });
+    if (BRAIN) params.set('dataset', BRAIN);
+    const res = await fetch('/api/source?' + params.toString());
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
+
+    srcText = data.text || '';
+    document.getElementById('src-where').textContent =
+      (data.source === 'tenant' ? 'from your upload' : 'from the corpus') +
+      ' · ' + srcText.length.toLocaleString() + ' chars';
+
+    // Highlight the cited passage so the claim can be checked at a glance.
+    const needle = (excerpt || '').slice(0, 90).replace(/\s+/g, ' ').trim();
+    const flat = srcText.replace(/\s+/g, ' ');
+    const at = needle ? flat.toLowerCase().indexOf(needle.toLowerCase()) : -1;
+
+    body.textContent = '';
+    if (at >= 0) {
+      // Rebuild with the match marked. Offsets differ from the original because
+      // whitespace was collapsed, so search the collapsed form and mark by text.
+      const before = document.createElement('span');
+      before.textContent = srcText.slice(0, Math.max(0, at - 20));
+      const mark = document.createElement('mark');
+      mark.textContent = srcText.slice(Math.max(0, at - 20), at - 20 + needle.length + 40);
+      const after = document.createElement('span');
+      after.textContent = srcText.slice(Math.max(0, at - 20) + needle.length + 40);
+      body.append(before, mark, after);
+    } else {
+      body.textContent = srcText;
+    }
+  } catch (err) {
+    document.getElementById('src-where').textContent = 'unavailable';
+    body.textContent = 'Could not open this source: ' + err.message;
+  }
+}
+
+function closeSource() {
+  document.getElementById('source-modal').hidden = true;
+  srcText = '';
+}
+
 function renderSources(turn, items) {
   const named = items.filter(i => i && i.source);
   if (!named.length) return;
   const row = document.createElement('div');
   row.className = 'srcs';
   named.forEach(i => {
-    const chip = document.createElement('span');
+    const chip = document.createElement('button');
+    chip.type = 'button';
     chip.textContent = i.source;
-    chip.title = i.excerpt || '';
+    chip.title = 'Open this source document';
+    chip.addEventListener('click', () => openSource(i.source, i.excerpt));
     row.appendChild(chip);
   });
   turn.appendChild(row);
@@ -771,6 +888,20 @@ function exportPdf() {
     setTimeout(() => frame.remove(), 2000);
   }, 400);
 }
+
+document.getElementById('src-close')?.addEventListener('click', closeSource);
+document.getElementById('source-modal')?.addEventListener('click', e => {
+  // Click the backdrop to dismiss, but not the sheet itself.
+  if (e.target.id === 'source-modal') closeSource();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeSource();
+});
+document.getElementById('src-copy')?.addEventListener('click', async e => {
+  await copyText(srcText);
+  e.target.textContent = 'Copied';
+  setTimeout(() => { e.target.textContent = 'Copy'; }, 1200);
+});
 
 document.getElementById('export-docx')?.addEventListener('click', exportWord);
 document.getElementById('export-pdf')?.addEventListener('click', exportPdf);
