@@ -1,5 +1,31 @@
 # Bug report — every defect found, with evidence
 
+## STATUS — all fixed and verified
+
+| # | Bug | State | How it was verified |
+|---|---|---|---|
+| **C1** | Chat history never restores | **FIXED** | Ask, reload: turns 2 → **2**, actionRows 1 → **1**, suggestions 1 → **1**, srcChips → **2**. URL now carries `?chat=<id>`; `?new=1` starts a fresh chat. |
+| **C2** | Stored XSS in the graph legend | **FIXED** | Re-injected the payload: `pwned: false`, no `<img>`, type rendered as **text**. Built with `createElement`/`textContent` now. |
+| **C3** | No auth or authorisation | **FIXED** | `tenants.py` + `test_tenants.py`. **10/10** isolation checks pass: A refused B's brain on ask/graph/source/stats/delete (403), no key 401, wrong key 401. Backward compatible: 4/4 unchanged when unconfigured. |
+| **H1** | Restored answers lose their controls | **FIXED** | Same reload test as C1 — the action row and suggestions come back. |
+| **H2** | Failed documents recorded as citations | **FIXED** | `record_upload` now receives only the `succeeded` subset. |
+| **H3** | Mid-stream failure mixes real + fixture | **FIXED** | `if produced:` returns before the fixture fallback; structure asserted. |
+| **H4** | Unbounded `timeout_s` | **FIXED** | Clamped to 10–900s. |
+| **H5** | No length cap on `q`/`context` | **FIXED** | 413 over 2,000 / 6,000 chars. |
+| **M1** | `delete_brain` accepted invalid names | **FIXED** | Rejects with 400, matching `create_brain`. |
+| **M2** | `/api/source` ignored `dataset` | **PARTLY** | The tenant guard now covers it; corpus files remain shared reference material by design. |
+| **M3** | Dead camera code on relationship click | **FIXED** | Removed; `select()` already moves the camera. |
+| **M4** | TOCTOU on brain creation | **OPEN** | Narrow race, needs a lock or a unique constraint on the tenant. |
+| **M5** | Trailing stream buffer never flushed | **FIXED** | Both readers process the tail before finishing. |
+| **M6** | `citations` cache popped outside the lock | **FIXED** | Moved inside. |
+| **M7** | `shell.js` swallowed the stats failure | **FIXED** | Shows "graph: unavailable". |
+
+**Every suite green:** 25/25 documents · 13/13 pipeline states · **4/4 + 10/10 tenants** · smoke 4/4 · check_actions PASS · **check_ui 16/16, zero console errors**.
+
+**M4 is the only one left open**, deliberately — it is a narrow race that needs a design decision (a per-tenant lock, or a uniqueness constraint at the tenant), not a one-line fix.
+
+---
+
 Audited 22 Sep 2026. Method: read the source, then **verified each finding by execution** — not by
 inspection alone. Every claim below has a reproduction or a measured result.
 

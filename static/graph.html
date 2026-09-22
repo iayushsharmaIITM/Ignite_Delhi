@@ -567,11 +567,12 @@ function renderDetail(node) {
     row.append(arrow, verb, who);
     // Clicking a relationship walks to that node — the graph becomes navigable
     // rather than something you can only look at.
-    if (other) row.addEventListener('click', () => {
-      select(other.id);
-      cam.x = W / 2 - other.x * cam.k;
-      cam.y = H / 2 - other.y * cam.k;
-    });
+    // M3: this used to set cam.x/cam.y directly after select(). select() calls
+    // fitTo(), which sets camTarget, and the frame loop's easeCam() then lerps
+    // cam toward it - so those assignments were discarded on the next frame.
+    // select() already moves the camera; the manual set was dead code that
+    // merely looked like it was doing the work.
+    if (other) row.addEventListener('click', () => select(other.id));
     list.appendChild(row);
   }
   body.appendChild(list);
@@ -652,11 +653,27 @@ fetch(GRAPH_URL).then(r => r.json()).then(g => {
 
   const types = {};
   nodes.forEach(n => types[n.type] = (types[n.type] || 0) + 1);
-  document.getElementById('legend').innerHTML = Object.entries(types)
+
+  // C2: this used to interpolate the node type into innerHTML. A type is graph
+  // data, and an uploaded brain's graph is built from user documents - so a
+  // crafted document could execute script here. Verified exploitable. Every
+  // value below goes in via textContent or a property assignment instead.
+  const legend = document.getElementById('legend');
+  legend.textContent = '';
+  Object.entries(types)
     .sort((a, b) => b[1] - a[1])
-    .map(([t, c]) =>
-      `<div><span class="swatch" style="background:${colorFor(t)}"></span>${t} <b>${c}</b></div>`)
-    .join('');
+    .forEach(([type, count]) => {
+      const row = document.createElement('div');
+      const swatch = document.createElement('span');
+      swatch.className = 'swatch';
+      swatch.style.background = colorFor(type);   // not a string-interpolated style
+      const label = document.createElement('span');
+      label.textContent = type;
+      const num = document.createElement('b');
+      num.textContent = count;
+      row.append(swatch, label, document.createTextNode(' '), num);
+      legend.appendChild(row);
+    });
 
   // Core nodes = the most connected ones. They are what the graph opens with;
   // everything else is one click away.
@@ -674,8 +691,11 @@ fetch(GRAPH_URL).then(r => r.json()).then(g => {
 
   wake();
 }).catch(err => {
-  document.body.insertAdjacentHTML('beforeend',
-    `<div class="err">Could not load the graph: ${err.message}</div>`);
+  // Same rule as the legend: an error message is text, not markup.
+  const box = document.createElement('div');
+  box.className = 'err';
+  box.textContent = 'Could not load the graph: ' + (err && err.message ? err.message : 'unknown error');
+  document.body.appendChild(box);
 });
 </script>
 <script src="/static/shell.js"></script>

@@ -45,7 +45,7 @@ try:
 except ImportError:  # dotenv is optional; env vars still work
     pass
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile  # noqa: E402
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile  # noqa: E402
 from fastapi.responses import FileResponse, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
@@ -72,6 +72,58 @@ DEMO_DATASET = memory_layer.default_dataset()
 # "Acme Corp!" should get acme_corp, not an error.
 BRAIN_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_]{2,39}$")
 RESERVED_NAMES = {DEMO_DATASET, "default_dataset", "company_brain"}
+
+# H5: request-size limits. The honest client sends ~1 question and 3 turns of
+# context, so these are generous - they exist to bound the API, not the user.
+MAX_QUESTION_CHARS = 2_000
+MAX_CONTEXT_CHARS = 6_000
+
+
+# --------------------------------------------------------------------------
+# tenant resolution and dataset authorisation
+# --------------------------------------------------------------------------
+# Backward compatible: when no tenants are configured every caller resolves to
+# one unrestricted tenant, which is exactly the previous behaviour. Enforcement
+# begins the moment fixtures/tenants.json exists.
+
+def current_tenant(request: Request):
+    """Resolve the caller from the X-API-Key header."""
+    import tenants
+
+    return tenants.resolve(request.headers.get("x-api-key"))
+
+
+def require_tenant(request: Request):
+    """401 when authorisation is configured and the key is missing or unknown."""
+    import tenants
+
+    if not tenants.configured():
+        return None                       # single-tenant mode: unchanged
+    tenant = tenants.resolve(request.headers.get("x-api-key"))
+    if tenant is None:
+        raise HTTPException(
+            status_code=401,
+            detail="A valid X-API-Key header is required.",
+        )
+    return tenant
+
+
+def require_dataset_access(request: Request, dataset: str | None) -> None:
+    """403 unless the caller's tenant may reach `dataset`.
+
+    Every read route funnels through here rather than checking inline, so a new
+    route cannot forget the check by omission - it has to actively skip a call.
+    """
+    import tenants
+
+    if not tenants.configured():
+        return
+    tenant = require_tenant(request)
+    if not tenant.allows(dataset):
+        raise HTTPException(
+            status_code=403,
+            detail=f"'{dataset}' is not available to this account.",
+        )
 
 
 def normalize_brain_name(raw: str) -> str:
@@ -256,7 +308,7 @@ def health():
 # --------------------------------------------------------------------------
 
 @app.get("/api/ask")
-async def ask(q: str, dataset: str | None = None, context: str | None = None):
+async def ask(request: Request, q: str, dataset: str | None = None, context: str | None = None):
     """Stream the answer as newline-delimited JSON so the UI never sits blank.
 
     `context` carries the preceding turns of the conversation. It is prepended
@@ -264,6 +316,24 @@ async def ask(q: str, dataset: str | None = None, context: str | None = None):
     what was already asked — without it, every turn is a cold start and a
     follow-up question has no referent.
     """
+    require_dataset_access(request, dataset)
+
+    # H5: both are unbounded query parameters, and `context` is interpolated
+    # straight into the prompt. Unbounded input is unbounded token cost on every
+    # call - a trivial way to inflate the inference bill. Mirrors how
+    # documents.py caps uploads: refuse early with a clear reason.
+    if len(q) > MAX_QUESTION_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Question is too long ({len(q)} chars). The limit is {MAX_QUESTION_CHARS}.",
+        )
+    if context and len(context) > MAX_CONTEXT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Conversation context is too long ({len(context)} chars). "
+                   f"The limit is {MAX_CONTEXT_CHARS}.",
+        )
+
     question = q if not context else f"{context.strip()}\n\nFollow-up question: {q}"
 
     async def gen():
@@ -279,8 +349,9 @@ async def ask(q: str, dataset: str | None = None, context: str | None = None):
 
 
 @app.get("/api/graph")
-def graph(dataset: str | None = None):
+def graph(request: Request, dataset: str | None = None):
     """The knowledge graph, for the graph view."""
+    require_dataset_access(request, dataset)
     g, source = _load_graph(dataset)
     if g is None:
         return {"error": source, "nodes": [], "edges": []}
@@ -289,13 +360,14 @@ def graph(dataset: str | None = None):
 
 
 @app.get("/api/stats")
-def stats(dataset: str | None = None):
+def stats(request: Request, dataset: str | None = None):
     """Graph size — cheap numbers that make the graph feel real.
 
     Uses /graph rather than /graph-summary: the summary endpoint returns
     numNodes 0 until a summary run has been computed, which would render as
     a confidently empty graph.
     """
+    require_dataset_access(request, dataset)
     target = dataset or DEMO_DATASET
     g, source = _load_graph(target)
     if g is None:
@@ -366,6 +438,7 @@ def list_brains():
 
 @app.post("/api/brains")
 async def create_brain(
+    request: Request,
     name: str = Form(...),
     files: list[UploadFile] = File(...),
     append: bool = Form(False),
@@ -404,6 +477,8 @@ async def create_brain(
             status_code=400,
             detail=f"'{safe}' is reserved. Please choose another name.",
         )
+
+    require_dataset_access(request, safe)
 
     import cognee_cloud
 
@@ -481,7 +556,13 @@ async def create_brain(
     try:
         import citations
 
-        await asyncio.to_thread(citations.record_upload, safe, docs)
+        # H2: record only the documents that ACTUALLY landed. Passing all of
+        # `docs` recorded the failed ones too, so a brain could cite a source
+        # file that is not in its graph - a false citation, which is the one
+        # thing this product exists to prevent.
+        landed = {r["name"] for r in succeeded}
+        stored = [d for d in docs if d["name"] in landed]
+        await asyncio.to_thread(citations.record_upload, safe, stored)
     except Exception:  # noqa: BLE001 - never fail a successful upload over this
         pass
 
@@ -502,6 +583,9 @@ async def create_brain(
 
 @app.get("/api/brains/{name}/events")
 async def brain_events(name: str, timeout_s: int = 600):
+    # H4: timeout_s is client-controlled. Unclamped, `?timeout_s=99999999`
+    # returns 200 and holds a connection polling the tenant for years.
+    timeout_s = max(10, min(timeout_s, 900))
     """Stream ingestion progress as newline-delimited JSON.
 
     Deliberately the same streaming shape /api/ask already proved, rather than
@@ -555,7 +639,7 @@ async def brain_events(name: str, timeout_s: int = 600):
 
 
 @app.delete("/api/brains/{name}")
-def delete_brain(name: str):
+def delete_brain(request: Request, name: str):
     """Remove a brain.
 
     RESERVED_NAMES is enforced here as well as in create_brain. The UI hides the
@@ -567,10 +651,23 @@ def delete_brain(name: str):
     if memory_layer.PROVIDER != "cloud":
         raise HTTPException(status_code=400, detail="Deletion needs PROVIDER=cloud.")
 
+    require_dataset_access(request, name)
+
     # Normalise first, so a case trick such as "Company_Brain" cannot slip past
     # the reserved check and then match an existing dataset.
     safe = normalize_brain_name(name)
-    if safe and safe in RESERVED_NAMES:
+    # M1: create_brain REFUSES a name that fails normalisation; delete used to
+    # fall through and pass the raw name to delete_dataset. The two routes must
+    # agree about what a valid name is - and delete is the dangerous one.
+    if not safe:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Brain name must be 3-40 characters, using letters, numbers or "
+                "underscores."
+            ),
+        )
+    if safe in RESERVED_NAMES:
         raise HTTPException(
             status_code=400,
             detail=f"'{safe}' is reserved and cannot be deleted.",
@@ -579,12 +676,12 @@ def delete_brain(name: str):
     try:
         import cognee_cloud
 
-        removed = cognee_cloud.delete_dataset(safe or name)
+        removed = cognee_cloud.delete_dataset(safe)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)[:300]) from exc
     if not removed:
         raise HTTPException(status_code=404, detail=f"No brain called '{name}'.")
-    return {"ok": True, "deleted": safe or name}
+    return {"ok": True, "deleted": safe}
 
 
 # --------------------------------------------------------------------------
@@ -592,7 +689,7 @@ def delete_brain(name: str):
 # --------------------------------------------------------------------------
 
 @app.get("/api/source")
-def source(name: str, dataset: str | None = None):
+def source(request: Request, name: str, dataset: str | None = None):
     """Return the text of a cited source document, so a citation is checkable.
 
     A citation you cannot open is an assertion. This makes it verifiable.
@@ -602,6 +699,8 @@ def source(name: str, dataset: str | None = None):
     before it is read. `basename` alone is not enough on its own, so both
     checks run.
     """
+    require_dataset_access(request, dataset)
+
     if not name or not re.fullmatch(r"[A-Za-z0-9._ -]{1,120}", name):
         raise HTTPException(status_code=400, detail="Invalid source name.")
     if os.path.basename(name) != name:

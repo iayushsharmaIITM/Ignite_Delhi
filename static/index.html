@@ -403,10 +403,44 @@ const CHATS_KEY = 'kestrel.chats.' + (BRAIN || 'demo');
 const CHAT_MAX = 30;             // conversations kept
 const TURNS_MAX = 60;            // turns kept per conversation
 
-// A specific conversation can be opened with ?chat=<id>; otherwise this is a
-// fresh one that only becomes visible in the sidebar once it has a question.
-const CHAT_ID = new URLSearchParams(location.search).get('chat')
-  || 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+// Resolve the conversation id in this order:
+//   1. an explicit ?chat=<id>            (the sidebar links straight to a chat)
+//   2. the id this tab was already using (so a reload reopens the same one)
+//   3. a new id
+//
+// C1: this used to be step 3 only. The conversation was SAVED under one id and
+// looked up under a freshly generated one, so history never came back — the
+// whole feature silently did nothing and orphaned every conversation in
+// localStorage. `?new=1` is the explicit "start a fresh chat" signal, because
+// without it a New-chat click would just resume the tab's current conversation.
+const CHAT_SESSION_KEY = 'kestrel.currentChat.' + (BRAIN || 'demo');
+const CHAT_ID = (() => {
+  const params = new URLSearchParams(location.search);
+  if (params.get('new')) {
+    try { sessionStorage.removeItem(CHAT_SESSION_KEY); } catch (e) {}
+  }
+  const fromUrl = params.get('chat');
+  if (fromUrl) return fromUrl;
+  try {
+    const remembered = sessionStorage.getItem(CHAT_SESSION_KEY);
+    if (remembered) return remembered;
+  } catch (e) { /* private mode - a fresh id each load is the old behaviour */ }
+  return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+})();
+
+// Persist the id for the next load and put it in the URL, so a reload reopens
+// this chat and the sidebar can mark it active.
+function rememberChat() {
+  try { sessionStorage.setItem(CHAT_SESSION_KEY, CHAT_ID); } catch (e) {}
+  try {
+    const url = new URL(location.href);
+    url.searchParams.delete('new');
+    if (url.searchParams.get('chat') !== CHAT_ID) {
+      url.searchParams.set('chat', CHAT_ID);
+      history.replaceState(null, '', url);
+    }
+  } catch (e) { /* history API unavailable - sessionStorage still covers reloads */ }
+}
 
 function allChats() {
   try {
@@ -427,6 +461,7 @@ function saveHistory() {
       turns: TURNS.slice(-TURNS_MAX),
     });
     localStorage.setItem(CHATS_KEY, JSON.stringify(chats.slice(0, CHAT_MAX)));
+    rememberChat();
     // Tell the sidebar to re-render its list; it was built at load time.
     window.dispatchEvent(new Event('kestrel:chats'));
   } catch (e) { /* private mode or quota - history is a convenience, not state */ }
@@ -548,11 +583,17 @@ function renderMarkdown(src) {
   return out.join('');
 }
 
-function renderTurn(role, text, sources) {
+// H1: a restored answer used to come back with its text and source chips but
+// WITHOUT its action row or its suggestions - renderTurn never called those two
+// renderers, so the controls silently vanished on reload. `question` is the
+// user turn this answer replied to, needed to generate the drafts.
+function renderTurn(role, text, sources, question) {
   const { turn, bubble } = addTurn(role, text);
   if (role === 'bot') {
     bubble.innerHTML = renderMarkdown(text);
     if (sources && sources.length) renderSources(turn, sources);
+    renderAnswerActions(turn, question || '', text);
+    renderSuggestions(turn, text);
   }
   return turn;
 }
@@ -561,7 +602,14 @@ function restoreHistory() {
   const saved = loadHistory();
   if (!saved.length) return;
   TURNS.push(...saved);
-  saved.forEach(t => renderTurn(t.role, t.text, t.sources));
+  // Track the question each answer replied to, so restored answers can build
+  // their action row exactly as a live one does.
+  let lastQuestion = '';
+  saved.forEach(t => {
+    if (t.role === 'user') lastQuestion = t.text;
+    else renderTurn(t.role, t.text, t.sources, lastQuestion);
+    if (t.role === 'user') renderTurn(t.role, t.text, t.sources);
+  });
   threadBar.style.display = 'flex';
   turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
   // Prime the action generators from the most recent answer so the buttons work
@@ -862,6 +910,20 @@ async function ask(q) {
           bubble.textContent = 'Something went wrong: ' + ev.message;
         } else if (ev.stage === 'done' && text) {
           bubble.innerHTML = renderMarkdown(text);
+        }
+      }
+    }
+
+    // M5: whatever is left in `buf` is a final line that never got its newline.
+    // Dropping it loses the last event - including `done`, which is what turns
+    // the raw markdown into rendered markdown. Process the tail explicitly.
+    if (buf.trim()) {
+      let ev; try { ev = JSON.parse(buf); } catch { ev = null; }
+      if (ev) {
+        if (ev.type === 'chunk' || ev.chunk) {
+          text += (ev.text ?? ev.chunk);
+        } else if (ev.type === 'references' && ev.items?.length) {
+          sources = ev.items;
         }
       }
     }

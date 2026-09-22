@@ -64,8 +64,11 @@
   function chatGroup() {
     const chats = chatList();
     const sep = qs ? '&' : '?';
+    // ?new=1 tells the ask page to start a fresh conversation. Without it the
+    // link would resume whatever chat this tab already had open.
+    const newHref = '/' + (qs ? qs + '&new=1' : '?new=1');
     let html = '<div class="nav-label">Chats</div>' +
-      '<a class="nav-item" href="/' + (qs || '') + '">' +
+      '<a class="nav-item" href="' + newHref + '">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
       'stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>' +
       '<span>New chat</span></a>';
@@ -139,5 +142,9 @@
     document.getElementById('sb-graph').textContent = d.ok
       ? 'graph: ' + d.nodes + ' nodes · ' + d.edges + ' edges'
       : 'graph: not ready';
-  }).catch(() => {});
+  }).catch(() => {
+    // M7: an empty catch left the reader unable to tell a slow fetch from a
+    // broken backend - the row just stayed blank.
+    document.getElementById('sb-graph').textContent = 'graph: unavailable';
+  });
 })();

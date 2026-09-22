@@ -84,20 +84,31 @@ async def recall(query: str, dataset: str | None = None):
     # not make the demo look broken. The mock refuses for an uploaded brain,
     # which is the honest outcome there: we have no answers for documents the
     # fixtures never saw.
+    produced = False
     try:
-        produced = False
         async for event in _cloud(query, dataset):
             produced = True
             yield event
-        if produced:
-            return
+        return                      # clean finish - the real answer stands alone
     except Exception as exc:  # noqa: BLE001
+        if produced:
+            # H3: part of a real answer has already been streamed. Falling
+            # through to the fixtures would emit ONE response that mixes a real
+            # answer with a committed one - worse than either alone, and
+            # impossible for the reader to tell apart. Report and stop.
+            yield {
+                "type": "chunk",
+                "text": f"\n\n_(The connection dropped mid-answer: {str(exc)[:80]}. "
+                        "The answer above is incomplete.)_",
+            }
+            return
         yield {
             "type": "chunk",
             "text": f"(The knowledge graph is unreachable - {str(exc)[:80]}. "
                     "Falling back to the committed answers.)\n\n",
         }
 
+    # Only reached when nothing was produced: a clean fallback to the fixtures.
     async for event in _mock(query, dataset):
         yield event
 

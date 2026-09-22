@@ -118,9 +118,10 @@ def record_upload(dataset: str, documents: list) -> None:
         except OSError:
             return
 
-    # Drop the cached map for this dataset so the next question sees the new
-    # files instead of waiting out the TTL.
-    _cache.pop(dataset, None)
+        # M6: dropped inside the lock. Popping it after releasing let a
+        # concurrent for_dataset() repopulate the stale entry in the gap, so the
+        # next question would read the pre-upload map anyway.
+        _cache.pop(dataset, None)
 
 
 def _fetch_map(dataset: str) -> dict:

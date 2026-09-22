@@ -381,6 +381,16 @@ async function follow(name) {
         }
       }
     }
+    // M5: a final line without its newline would otherwise be dropped, losing
+    // the terminal `ready`/`failed` event and reporting a success as a failure.
+    if (buf.trim()) {
+      let m; try { m = JSON.parse(buf); } catch { m = null; }
+      if (m) {
+        if (m.stage === 'ready') { note('Pipeline complete.', 'ok'); finish(true); }
+        else if (m.stage === 'failed') { note('Ingestion failed: ' + (m.detail || 'no reason given'), 'bad'); finish(false); }
+        else if (m.stage === 'timeout') { note('Timed out waiting.', 'warn'); finish(false); }
+      }
+    }
   } catch (err) {
     note('Progress stream failed: ' + err.message, 'warn');
   }
