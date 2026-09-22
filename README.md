@@ -31,46 +31,73 @@ citations attached** — and can flag where the documents disagree.
 
 ## What it looks like — The Complete Experience
 
-### 1. Unified App Shell & Streamed Grounded Answers
-![App shell and question answering](screenshots/shell-ask.png)
+### 1. Unified app shell, streamed grounded answers, openable sources
+![App shell with per-answer actions](screenshots/icon-actions.png)
 
-The app features a unified monochrome sidebar shell across all four pages (`/`, `/graph`, `/brains`, `/upload`). Answers stream with real-time pipeline status, clear source chips resolved to human-readable filenames (e.g. `01_contract_MSA-2025-0114_bluepeak.md`), and verbatim excerpts via [`citations.py`](citations.py).
+A single monochrome sidebar shell across all four pages (`/`, `/graph`, `/brains`, `/upload`).
+Answers stream with live pipeline status and resolve their citations to human-readable filenames
+(e.g. `01_contract_MSA-2025-0114_bluepeak.md`).
 
-### 2. Actionable Layer: "Do something with this"
-![Actionable drafts](screenshots/actions-draft.png)
+**Citations are clickable.** Clicking a source chip opens the document itself with the cited passage
+highlighted — a citation you cannot open is just an assertion. Served from `corpus/` on disk, or read
+back from the tenant for an uploaded brain.
 
-An answer is no longer a dead end. Every turn includes an actionable layer that generates instant outputs right in the browser:
-- **Email Draft**: Formats a professional memo or customer email citing the exact contract and meeting facts, with 1-click clipboard copy and an `Open in mail app` (`mailto:`) shortcut.
-- **Next Steps**: Converts cross-document findings into a structured, numbered action checklist.
-- **Chat Update**: Creates a concise Slack/Teams announcement ready to paste.
-- **Copy Answer**: Instant clipboard copy with non-secure context fallback.
+![Source document with the cited passage highlighted](screenshots/source-modal.png)
 
-### 3. Conversational Threading & Per-Brain History
-![Conversational thread with follow-ups](screenshots/chat-thread.png)
+### 2. Actions on every answer — icons, not sentences
+Each answer carries its own action row: **copy**, **email draft**, **next steps**, **chat update**.
+Each acts on *that* answer's text, so a follow-up is actionable in place rather than requiring a
+scroll back up. The controls are icon-only with the label in the tooltip and `aria-label`.
 
-Ask follow-up questions in a continuous thread (e.g. *"who owns the renewal?"* after asking about renewal dates).
-- **Persistent History**: Chat threads persist across reloads in `localStorage`, strictly scoped per brain so demo answers never bleed into uploaded datasets.
-- **Thread Export**: Export the entire conversational history with sources as Markdown or plain text.
-- **Re-Entry Protection**: Input controls automatically disable while requests stream to prevent interleaved turns.
+- **Email draft** — a professional memo citing the exact contract and meeting facts, with clipboard
+  copy and an `Open in mail app` (`mailto:`) shortcut.
+- **Next steps** — cross-document findings as a numbered action checklist.
+- **Chat update** — a concise Slack/Teams announcement ready to paste.
 
-### 4. Interactive Knowledge Graph & Node Inspector
-![Interactive graph and node inspector](screenshots/brain-graph-inspector.png)
+Asking for a mail in the chat (*"draft a mail to Dana…"*) produces it automatically.
 
-Rendered with zero frontend dependencies on an HTML5 canvas:
-- **Clickable Nodes**: Clicking any entity opens the **Node Inspector**, revealing its type, internal properties, and all connected incoming and outgoing typed edges (e.g., `requires_approval`, `escalates_to`, `breaches_sla`).
-- **Monochrome Design System**: High-contrast, clean visual design matching the rest of the application.
-- **Visible Contradictions**: Opposing facts like `$420,000` (contract) and `$480,000 arr` (meeting notes) are visible as distinct, conflicting nodes in the graph structure itself.
+### 3. Conversational threading, per-brain history, and a chat list
+![Conversation with answer-derived suggestions](screenshots/chat-history.png)
+
+Follow-ups resolve against the thread (*"who owns the renewal?"* after asking about renewal dates).
+
+- **Chats list** — conversations are kept per brain in `localStorage` and listed in the sidebar, so you
+  can reopen one or start a new one. Titles come from the first question.
+- **Per-brain scoping** — demo answers never bleed into an uploaded dataset.
+- **Suggestions derived from the answer**, not a fixed list. They flow at the foot of every turn and
+  include the action prompts, so the next useful thing is one click away.
+- **Export** — the whole conversation as `MD`, `TXT`, `DOC` or `PDF` from the badge row pinned
+  top-right. (`DOC` is Word-compatible HTML; a true `.docx` is a ZIP archive and not hand-built here.)
+- **Re-entry protection** — the input disables while a request streams, so turns cannot interleave.
+
+![Answer-derived suggestions flowing at the foot of the turn](screenshots/flowing-suggestions.png)
+
+### 4. Interactive knowledge graph — core nodes that expand
+![Core nodes expanded into sub-nodes](screenshots/graph-core-expanded.png)
+
+Rendered with zero frontend dependencies on an HTML5 canvas.
+
+- **Opens as core nodes** — the 12 most connected, not all 219 at once. Clicking a node reveals its
+  sub-nodes; clicking again hides them. A wall of 219 nodes is impressive for a second and unreadable
+  after that.
+- **Zoom to focus** — expanding flies the camera in; a labelled **Exit node view** control zooms back
+  out. The background drops away behind a black gradient so the sub-nodes are the only thing on screen.
+
+![Focused node view with the background removed](screenshots/graph-focus-gradient.png)
+
+- **Node inspector** — type, internal properties, and every connected incoming and outgoing typed edge
+  (`requires_approval`, `escalates_to`, `breaches_sla`).
+- **Visible contradictions** — `$420,000` (contract) and `$480,000 arr` (meeting notes) appear as
+  distinct conflicting nodes in the structure itself.
 
 ---
 
 ## Build your own brain — upload your documents
 
-![The brains dashboard](screenshots/brain-dashboard.png)
+![The brains list, each row offering Open, Graph and Add documents](screenshots/brains-add-documents.png)
 
 The demo brain is pre-built, but the app is not limited to it. Upload your own documents and
 you get your own knowledge graph, queried through **the same dashboard**.
-
-![Uploading documents](screenshots/brain-upload.png)
 
 Drag in up to **40 files** — PDF, DOCX, TXT, MD, CSV, JSON, or code files (`.py`, `.yaml`, etc.), 5 MB each. Ingestion streams real pipeline states (`DATASET_PROCESSING_STARTED` → `DATASET_PROCESSING_COMPLETED`), so extraction and graph building provide transparent progress feedback.
 

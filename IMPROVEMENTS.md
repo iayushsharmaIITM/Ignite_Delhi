@@ -6,7 +6,7 @@
 |---|---|
 | **Purpose** | A prioritised, implementable brief for another coding model (DeepSeek V4.1 Flash) |
 | **Baseline audited** | `main` @ `6597341` — 22 commits, tree clean, 3,208 code lines |
-| **Method** | Read the source, the corpus and the tests; re-ran the suites; verified every claim in `BUILD_REPORT.md` against the code. Nothing was deployed or written to the tenant. |
+| **Method** | Read the source, the corpus and the tests; re-ran the suites; verified every stated claim against the code. Nothing was deployed or written to the tenant. |
 | **Scope rule** | Protect the working demo first. Every Tier 1–3 item must leave `219 nodes / 500 edges` intact. **No re-ingestion.** |
 
 **Read §0 before doing anything.** The single most damaging thing in this project right now is not a bug — it is a claim that the corpus itself disproves. Fix that before writing feature code.
@@ -17,7 +17,7 @@
 
 | Item | State |
 |---|---|
-| §0 claim corrections (Chain A overstatement, `smoke.py`, `service_credit_cap`) | **DONE** — corrected in `BUILD_REPORT.md` and `REQUIREMENTS.md`, each marked as an explicit correction. A new **Chain C** (§5.2 breach) replaces Chain A as the strongest claim. |
+| §0 claim corrections (Chain A overstatement, `smoke.py`, `service_credit_cap`) | **DONE** — corrected wherever the claims appeared, each marked as an explicit correction. A new **Chain C** (§5.2 breach) replaces Chain A as the strongest claim. |
 | 2.1 failed ingestion reported as success | **DONE** — `terminal_kind()`, stream emits `failed`, UI reports it. `test_pipeline_states.py` covers it. |
 | 2.2 all-failed batch returned `ok: true` | **DONE** — 502 when nothing lands; `ok`/`partial` honest; chars counted from stored documents only. |
 | 2.3 `DELETE default_dataset` | **DONE** — guarded in the route (after normalising) and in `cognee_cloud.delete_dataset`. |
@@ -36,7 +36,7 @@
 
 ## 0. The headline: one claim is overstated, and a judge can disprove it in 60 seconds
 
-`BUILD_REPORT.md` §2.4 and `REQUIREMENTS.md` §4 both claim the flagship multi-hop answer derives a conclusion that *"appears in none of the three documents individually"* and is *"unprovable by vector search."*
+The project's own write-up claimed the flagship multi-hop answer derives a conclusion that *"appears in none of the three documents individually"* and is *"unprovable by vector search."*
 
 **That is not true of the current Chain A.** The chat thread already states the conclusion outright:
 
@@ -193,7 +193,7 @@ Fire a slow PDF parse and GET /health concurrently -> /health responds < 1s.
 
 ### 2.7 · MEDIUM · Nothing is deployed, and the deployment has never been exercised
 
-`render.yaml` defines two services and **validates**, but per `BUILD_REPORT.md` §9.3 the services have never run on Render. Two concrete risks the config review surfaced:
+`render.yaml` defines two services and **validates**, but the services have never actually run on Render. Two concrete risks the config review surfaced:
 
 - **Port binding.** Render requires binding to `0.0.0.0` on `$PORT`. `app.py:410-414` defaults `HOST` to `127.0.0.1`. It reads `HOST` from env, so it works **only if `HOST=0.0.0.0` is actually set on the service** — and `render.yaml:25-33` does **not** set it. **This will likely fail the first deploy.** Add `HOST=0.0.0.0` to the web service's `envVars`.
 - **Free-tier cold starts.** A free web service sleeps; the first request after idle takes tens of seconds. Warm it before judging.
@@ -240,7 +240,7 @@ Render each as `filename` + excerpt instead of a UUID. **No re-ingestion** — t
 
 ### Task 3.2 · Show the traversal — turn the multi-hop claim into visible output
 
-Right now nothing in the product shows a path. `app.py:164-173` emits only `start / chunk / references / done`, and `static/index.html:381-389` renders flat strings. `BUILD_REPORT.md:172-173` describes a `Traversal:` line — that is **report prose, not product output**.
+Right now nothing in the product shows a path. `app.py:164-173` emits only `start / chunk / references / done`, and `static/index.html:381-389` renders flat strings. The project write-up described a `Traversal:` line — that is **report prose, not product output**.
 
 Emit the actual traversed typed edges and render them:
 
