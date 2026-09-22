@@ -243,13 +243,6 @@ function easeCam() {
   return true;
 }
 
-function hiddenChildren(id) {
-  const shown = visibleIds;
-  let count = 0;
-  for (const nb of neighboursOf(id)) if (!shown.has(nb)) count++;
-  return count;
-}
-
 function expandAll() {
   for (const nd of nodes) expanded.add(nd.id);
   syncExit();

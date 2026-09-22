@@ -602,9 +602,7 @@ def source(name: str, dataset: str | None = None):
     before it is read. `basename` alone is not enough on its own, so both
     checks run.
     """
-    import re as _re
-
-    if not name or not _re.fullmatch(r"[A-Za-z0-9._ -]{1,120}", name):
+    if not name or not re.fullmatch(r"[A-Za-z0-9._ -]{1,120}", name):
         raise HTTPException(status_code=400, detail="Invalid source name.")
     if os.path.basename(name) != name:
         raise HTTPException(status_code=400, detail="Invalid source name.")

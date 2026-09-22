@@ -372,13 +372,6 @@ const BRAIN = (() => {
   return p.get('brain') || p.get('dataset') || '';
 })();
 
-function qs(extra) {
-  const params = new URLSearchParams(extra || {});
-  if (BRAIN) params.set('dataset', BRAIN);
-  const s = params.toString();
-  return s ? '?' + s : '';
-}
-
 const QUESTIONS = [
   "Why is the Bluepeak renewal at risk, and what have we promised them?",
   "What service credit do we owe Bluepeak, and who approved it?",
@@ -577,8 +570,6 @@ function restoreHistory() {
   if (lastBot) {
     SOURCES = (lastBot.sources || []).filter(i => i && i.source).map(i => i.source);
     LAST = { q: [...saved].reverse().find(t => t.role === 'user')?.text || '', text: lastBot.text };
-    buildActions();
-    document.getElementById('actions').style.display = 'block';
   }
   window.scrollTo(0, document.body.scrollHeight);
 }
@@ -1026,7 +1017,6 @@ document.getElementById('clear-chat')?.addEventListener('click', () => {
   } catch (e) {}
   threadEl.innerHTML = '<div class="placeholder" id="empty">Ask a question to start. Follow-ups keep the thread.</div>';
   threadBar.style.display = 'none';
-  document.getElementById('actions').style.display = 'none';
   document.getElementById('draft').style.display = 'none';
 });
 
