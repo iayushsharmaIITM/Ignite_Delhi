@@ -1,0 +1,31 @@
+# Local OSS Cognee — BUILD_PLAN.md M0.2.
+#
+# Gitignored on purpose: local debugging may paste real keys into .env.oss and
+# this file may grow local-only tweaks. .env.oss.example is the tracked
+# template; recreate this file from it on a fresh clone:
+#
+#   cp .env.oss.example .env.oss
+#   docker compose -f compose.oss.yml up -d
+#   curl -s localhost:8888/health
+#
+# Port 8888 on the host so the OSS server can never be confused with our app
+# tier on 8000. The image is pinned EXACTLY — never latest, never a floating
+# minor tag (BUILD_PLAN.md N4: upstream ships ~2 releases/month, breaking).
+#
+# The named volume keeps embedded stores (SQLite/LanceDB/Kuzu) across container
+# recreation, so the hours-long free-tier ingest in M1.2 survives a rebuild.
+# Externalized state (Neon) arrives in Phase 2 and replaces this.
+
+services:
+  cognee-oss:
+    image: cognee/cognee:1.6.1
+    container_name: cognee-oss
+    ports:
+      - "8888:8000"
+    env_file:
+      - .env.oss
+    volumes:
+      - cognee_oss_state:/app/.cognee
+
+volumes:
+  cognee_oss_state:

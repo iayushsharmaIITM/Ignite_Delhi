@@ -4,6 +4,29 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
+## M0.2 — local OSS container (pinned, auth off) — DONE 2026-09-25
+(human chose Colima via brew when Docker was found absent)
+
+- Installed colima 0.10.3 + docker CLI 29.8.1 + compose 5.5.1 via brew (one
+  retry needed: stale brew metadata aborted the first install; `brew update`
+  fixed it). Compose plugin symlinked into ~/.docker/cli-plugins.
+- `colima start --cpu 2 --memory 4` — VM up (x86 emulation available).
+- **Correction to research + plan:** Docker Hub tag is `cognee/cognee:1.6.1`
+  — NO `v` prefix (`v1.6.1` does not resolve; found via registry API).
+  compose.oss.yml and BUILD_PLAN.md corrected. Digest:
+  sha256:db0973f4b913d73daa4061bc19362cde6edc59d1be8243b6667fade364b06428.
+- `compose.oss.yml` (gitignored; port 8888:8000, named volume for embedded
+  state) + tracked `.env.oss.example` (both auth flags false, fixed JWT
+  secret placeholder, commented LLM/embedding block for M1.1).
+- Check results:
+  - `curl localhost:8888/health` → `{"status":"ready","health":"healthy","version":"1.6.1-local"}` (≈30s after start; first boot runs migrations).
+  - `docker compose ps` → Up.
+  - **Auth-off proven:** `GET /api/v1/datasets/` unauthenticated → 307 → 200 `[]`.
+    Note: OSS canonical path has NO trailing slash (FastAPI redirect); our
+    client's trailing-slash URL still works because requests follows redirects.
+- Observations (not fixed, per N6): none new.
+
+
 ## M0.1 — verification harness + workspace files — DONE 2026-09-25
 (was BLOCKED; the two out-of-scope fixes were approved by the human and applied)
 
