@@ -102,7 +102,6 @@
     '<div class="sb-foot">' +
       '<div class="row"><span class="led" id="sb-led"></span>' +
       '<span id="sb-prov">connecting…</span></div>' +
-      '<div class="row"><span id="sb-graph">graph: —</span></div>' +
     '</div>';
 
   const toggle = document.createElement('button');
@@ -137,14 +136,4 @@
     document.getElementById('sb-prov').textContent = 'unreachable';
   });
 
-  const statsUrl = '/api/stats' + (brain ? '?dataset=' + encodeURIComponent(brain) : '');
-  fetch(statsUrl).then(r => r.json()).then(d => {
-    document.getElementById('sb-graph').textContent = d.ok
-      ? 'graph: ' + d.nodes + ' nodes · ' + d.edges + ' edges'
-      : 'graph: not ready';
-  }).catch(() => {
-    // M7: an empty catch left the reader unable to tell a slow fetch from a
-    // broken backend - the row just stayed blank.
-    document.getElementById('sb-graph').textContent = 'graph: unavailable';
-  });
 })();

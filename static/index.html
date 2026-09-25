@@ -12,21 +12,10 @@
 
   /* ---- hero ---------------------------------------------------------------- */
   header { margin-bottom:34px; }
-  header::before {
-    content:"Company Brain"; display:block;
-    font-size:10px; font-weight:700; letter-spacing:.19em; text-transform:uppercase;
-    color:var(--accent); margin:0 0 12px;
-  }
-  h1 { font-family:var(--serif); font-size:36px; font-weight:560; margin:0 0 12px;
+  h1 { font-family:var(--serif); font-size:36px; font-weight:560; margin:0 0 10px;
        letter-spacing:-.024em; line-height:1.06; }
   h1 .mark { display:none; }
   p.sub { color:var(--muted); margin:0; font-size:15px; max-width:56ch; line-height:1.65; }
-
-  /* live graph facts under the hero (audit: the empty state should say what
-     this is). Populated from /api/stats. */
-  .facts { margin-top:16px; font-size:12.5px; color:var(--muted);
-           font-family:var(--mono); letter-spacing:.01em; }
-  .facts b { color:var(--fg-2); font-weight:600; }
 
   .brainbar { display:flex; align-items:center; gap:10px; margin-top:20px;
               padding:8px 2px 10px; border-bottom:1px solid var(--line);
@@ -356,16 +345,13 @@
 <div class="wrap">
   <header>
     <h1><span class="mark">◆</span>Kestrel Company Brain</h1>
-    <p class="sub">Company knowledge is scattered across contracts, tickets, meetings and
-      chat. Ask one question and get an answer grounded in all of it — with the evidence
-      it came from.</p>
-    <div class="facts" id="facts"></div>
+    <p class="sub">One question, one answer — grounded in every document the company has written, with the evidence it came from.</p>
   </header>
 
   <div class="chips" id="chips"></div>
 
   <section>
-    <div id="thread"><div class="placeholder" id="empty">Ask a question to start. Follow-ups keep the thread.</div></div>
+    <div id="thread"><div class="placeholder" id="empty"></div></div>
   </section>
 
   <section id="draft">
@@ -644,18 +630,6 @@ document.addEventListener('keydown', e => {
 
 const QUICK_MD = document.getElementById('quick-md');
 const CLEAR_BTN = document.getElementById('clear-chat');
-
-// ---------------------------------------------------------------------------
-// Live graph facts for the empty state — the page should say what it is.
-// ---------------------------------------------------------------------------
-fetch('/api/stats' + (BRAIN ? '?dataset=' + encodeURIComponent(BRAIN) : ''))
-  .then(r => r.json()).then(d => {
-    if (!d.ok) return;
-    const el = document.getElementById('facts');
-    el.innerHTML = '<b>' + d.nodes + ' nodes</b> · <b>' + d.edges + ' edges</b> of ' +
-      (d.is_demo ? 'planted company knowledge' : 'your documents') +
-      (d.source === 'fixture' ? ' · offline snapshot' : '');
-  }).catch(() => {});
 
 if (BRAIN) {
   input.placeholder = 'Ask across the documents you uploaded…';
@@ -1251,7 +1225,7 @@ CLEAR_BTN?.addEventListener('click', () => {
     const rest = allChats().filter(c => c.id !== CHAT_ID);
     localStorage.setItem(CHATS_KEY, JSON.stringify(rest));
   } catch (e) {}
-  threadEl.innerHTML = '<div class="placeholder" id="empty">Ask a question to start. Follow-ups keep the thread.</div>';
+  threadEl.innerHTML = '<div class="placeholder" id="empty"></div>';
   barsub.hidden = true;
   document.getElementById('draft').style.display = 'none';
 });
