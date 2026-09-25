@@ -4,6 +4,18 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
+## M1.1 — inference keys for the OSS container — WAITING-HUMAN 2026-09-25
+
+Prep done: `.env.oss.example` template covers LLM_PROVIDER/MODEL/API_KEY/
+ENDPOINT + LLM_RATE_LIMIT_REQUESTS=5 and EMBEDDING_PROVIDER/MODEL/DIMENSIONS/
+API_KEY; var names confirmed against the running 1.6.1 container code
+(`LLM_API_KEY` in settings/preflight/cognify modules, `EMBEDDING_DIMENSIONS`
+in preflight). Per card, STOPPING here — human supplies: (1) LLM provider
+choice (Cerebras `https://api.cerebras.ai/v1` or Groq) + API key,
+(2) embedding choice (Gemini `gemini-embedding-001`/768 + key, or local
+fastembed/384). Keys go into gitignored `.env.oss` only, never tracked files.
+M1.2+ wait on this card.
+
 ## PHASE 0 GATE — recorded 2026-09-25
 
 Full `./verify.sh` green (documents 25/25, pipe-states 13/13, tenants 10/10,
