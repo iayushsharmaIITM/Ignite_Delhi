@@ -4,6 +4,26 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
+## M1.1 — second Bedrock key tested; wall confirmed account-level — UPDATE 5, 2026-09-25
+
+Human supplied a SECOND long-term Bedrock API key (same account 799823514509).
+Swapped into `.env.oss` (only place it lives), container recreated, probed
+gpt-oss-120b: **same `Operation not allowed`**.
+
+Two keys × identical refusal × (11 model IDs × both API paths) = the block is
+account-level, not key-level. What remains, all on the AWS console side
+(us-east-1):
+1. **Model access**: Bedrock → Model access — enable `openai.gpt-oss-120b`
+   (third-party models need explicit enablement; a brand-new account may
+   have nothing enabled, which matches every probe).
+2. **Daily token quota**: the first call of the day got "Too many tokens
+   per day"; even with access enabled, the day-cap must reset.
+When either clears: config is already correct (gpt-oss-120b + fastembed/384);
+next action = `python3 contract_test.py --base http://localhost:8888 --flavor oss`
+→ M1.2 corpus ingest. No rework.
+
+
+
 ## M1.1 — Bedrock key + gpt-oss-120b wired; account refuses all invokes today — UPDATE 4, 2026-09-25
 
 Human's model choice: **gpt-oss-120b** on the Bedrock key. Active block is now
