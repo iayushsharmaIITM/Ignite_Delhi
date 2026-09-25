@@ -4,6 +4,50 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
+## M1.1/M1.2 — warm routes + light-mode trial LIVE on OpenRouter — UPDATE 7, 2026-09-25
+
+Human provided an **OpenRouter key** (free tier, $250 cap, $0 used) for a
+light-mode trial and asked that **all provider routes stay warm**.
+
+**Warm-route table (new `provider_check.py`, run inside the container):**
+
+| provider | verdict |
+|---|---|
+| openrouter | **LIVE** (real key, real answers) |
+| openai, groq, cerebras, anthropic, deepseek, z.ai | WARM (401 at dummy key — route proven) |
+| bedrock | WARM (account pending verification; key wired) |
+| azure | CONFIG-WARM (litellm maps the model string; endpoint testable when the human's resource exists) |
+| ollama | SKIP (dormant by design) |
+
+Any new key = uncomment its block in `.env.oss` + restart the container.
+
+**Active: OpenRouter `openai/gpt-oss-120b`** (the human's chosen model; free
+pool congested, paid path costs cents; reasoning model ≈118 tok overhead).
+Embeddings: keyless fastembed/384.
+
+**INCIDENT (fixed):** after the OpenRouter swap, the whole contract test went
+401 — one of my `.env.oss` block-editing rewrites had commented out the
+auth-off vars (the commenting loop's stop marker precedes the section it
+edits, so it ran to EOF) and the active embedding lines were lost with the
+bedrock block. Fixed by surgical rewrite + **post-edit assertions** in the
+rewrite script (exactly one active LLM block, embeddings active, auth vars
+uncommented). Lesson recorded: never trust string-surgery on the env file —
+assert after every edit.
+
+**Contract test vs local OSS: 11/11 PASS** — first fully-real run (terminal
+`DATASET_PROCESSING_COMPLETED -> success`, real recall text, zero skips).
+
+**M1.2 light mode: PROVEN.** 2-doc slice (Bluepeak MSA + P1 ticket) ingested
+into a scratch dataset on local OSS; flagship question ("Why is the Bluepeak
+renewal at risk...") returned a genuine cross-document answer — outage
+breaches 99.9% SLA at 99.89%, 10%/20% credit ladder — with evidence chunks
+from BOTH documents. Scratch deleted after.
+
+Next: full 12-doc corpus ingest (est. $0.10–0.50 of the cap, ~20–40 min),
+then M1.3 (app parity) and M1.4 (measurements).
+
+
+
 ## M1.1 — ROOT CAUSE IDENTIFIED: AWS account pending verification — UPDATE 6, 2026-09-25
 
 Human confirmed the region is **eu-north-1 (Stockholm)** — `AWS_REGION` set
