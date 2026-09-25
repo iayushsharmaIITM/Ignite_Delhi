@@ -4,7 +4,24 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
-## M1.1 — Bedrock key wired; account daily token cap is the blocker — UPDATE 3, 2026-09-25
+## M1.1 — Bedrock key + gpt-oss-120b wired; account refuses all invokes today — UPDATE 4, 2026-09-25
+
+Human's model choice: **gpt-oss-120b** on the Bedrock key. Active block is now
+`bedrock/openai.gpt-oss-120b-1:0` + keyless fastembed/384. Container healthy.
+
+- Probed BOTH Bedrock API paths (`invoke/` and converse) for gpt-oss-120b:
+  both `Operation not allowed`. Cumulative refusal list today (all identical
+  error since the first call's daily-token message): sonnet-4, haiku-3.5
+  (also EOL), nova-micro, nova-lite, llama3.1-8b, titan-embed-v2,
+  grok-4.6 (us + global profiles), gpt-oss-120b (invoke + converse).
+- Conclusion stands: the account's daily token wall tripped during probe 1;
+  model choice is irrelevant until it lifts (or until model access is
+  enabled in the console). Zero rework needed when it does: the active
+  config is already the human's choice; next action = contract test → M1.2.
+- gpt-oss-120b ALSO runs free on Groq (same weights, `openai/gpt-oss-120b`
+  via api.groq.com/v1) — a Groq key would run the identical model today.
+
+
 
 Human clarified the key is for **Grok** — "grok 6" is **Grok 4.6** on Bedrock.
 Listed the account's inference profiles WITH the bearer key (control plane
