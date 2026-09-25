@@ -4,6 +4,35 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
+## M1.1 — swappable-key layer complete; keys still pending — UPDATE 2026-09-25
+
+Human decisions recorded: (a) the swap layer must cover **nine providers** —
+OpenAI, Azure, OpenRouter, Groq, Cerebras, Anthropic, AWS Bedrock, DeepSeek,
+Z.AI; (b) actual keys come later; (c) the keyless-local experiment was
+abandoned mid-pull by human decision ("not important at this step") and the
+space cleaned up.
+
+- `.env.oss.example` is now the nine-provider registry (blocks A–I plus the
+  keyless-local block), each a comment-swap + restart, no code changes.
+- Keyless-local attempt — findings banked before teardown:
+  1. Container reaches host Ollama via `host.docker.internal:11434` (verified).
+  2. Cognee's `LLMConfig` requires ALL of model/endpoint/key even for Ollama
+     — a non-empty dummy (`ollama-local`) satisfies it (in the template).
+  3. fastembed model id must be `sentence-transformers/all-MiniLM-L6-v2`
+     (384 dims) — bare `all-MiniLM-L6-v2` is rejected by TextEmbedding.
+  4. **3B-class local models fail Cognee's strict structured-output schema**
+     (llama3.2:3b → `SummarizedContent` ValidationError after LiteLLM
+     retries; pipeline never completed). An 8B-class model is the local
+     floor; a hosted key is the practical path.
+- Cleanup per human instruction: pulled models deleted, partial blobs purged
+  (~6GB reclaimed), `brew services stop ollama`. The keyless block is marked
+  DORMANT in both env files with exact re-enable steps.
+- OSS container remains healthy on :8888 (auth off, contract-verified in
+  Phase 0); the app is up for preview on :8000 against the live tenant.
+- STILL WAITING-HUMAN: one hosted LLM key (Cerebras block is pre-wired as the
+  recommended default) + optional Gemini embedding key. M1.2 (corpus ingest
+  into local OSS) starts the moment keys land.
+
 ## M1.1 — inference keys for the OSS container — WAITING-HUMAN 2026-09-25
 
 Prep done: `.env.oss.example` template covers LLM_PROVIDER/MODEL/API_KEY/
