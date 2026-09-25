@@ -21,7 +21,7 @@ Human's model choice: **gpt-oss-120b** on the Bedrock key. Active block is now
 - gpt-oss-120b ALSO runs free on Groq (same weights, `openai/gpt-oss-120b`
   via api.groq.com/v1) — a Groq key would run the identical model today.
 
-
+## M1.1 — Bedrock key wired; account daily token cap is the blocker — UPDATE 3, 2026-09-25
 
 Human clarified the key is for **Grok** — "grok 6" is **Grok 4.6** on Bedrock.
 Listed the account's inference profiles WITH the bearer key (control plane
