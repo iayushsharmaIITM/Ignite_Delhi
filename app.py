@@ -57,7 +57,22 @@ app = FastAPI(title="Kestrel Company Brain")
 
 # One shared stylesheet and sidebar for every page. Serving them from /static
 # means the shell is written once instead of pasted into four HTML files.
-app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
+class NoCacheStaticFiles(StaticFiles):
+    """Static assets that the browser may not cache stale.
+
+    Without a Cache-Control header, browsers heuristic-cache these files —
+    which is exactly how a redesigned shell.css kept appearing as the OLD
+    dark theme (the HTML revalidated, the stylesheet didn't). These are
+    hand-edited files with no content hash, so revalidate always.
+    """
+
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+app.mount("/static", NoCacheStaticFiles(directory=os.path.join(HERE, "static")), name="static")
 
 GRAPH_FIXTURE = os.path.join(HERE, "fixtures", "graph.json")
 # Per-brain snapshots, written by snapshot.py. Committed, so a deployment with
