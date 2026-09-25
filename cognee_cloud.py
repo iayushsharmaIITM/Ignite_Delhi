@@ -146,11 +146,18 @@ def _status_values(state: Any):
     but also has a flat shape, so accept both.
     """
     if isinstance(state, dict):
-        for value in state.values():
+        for key, value in state.items():
             if isinstance(value, dict):
                 status = value.get("status")
                 if isinstance(status, str):
                     yield status
+            elif isinstance(value, str) and key != "status":
+                # Bare {"<uuid>": "<STATE>"} shape: the cloud tenant returns
+                # this when include_error_detail is absent (measured
+                # 2026-09-25), and OSS may return it always. Accept it.
+                # (key != "status" so the flat {"status": ...} shape below
+                # yields exactly once.)
+                yield value
         flat = state.get("status")
         if isinstance(flat, str):
             yield flat
