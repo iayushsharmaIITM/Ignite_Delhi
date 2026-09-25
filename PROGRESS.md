@@ -4,6 +4,30 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
+## M1.1 — ROOT CAUSE IDENTIFIED: AWS account pending verification — UPDATE 6, 2026-09-25
+
+Human confirmed the region is **eu-north-1 (Stockholm)** — `AWS_REGION` set
+accordingly in both env files. Container key hash verified byte-exact against
+the pasted key (an earlier mismatch was a newline artifact in the checker).
+
+- Probed eu-north-1: `global.xai.grok-4.6` visible (43 profiles; no gpt-oss
+  profile anywhere in any region — gpt-oss is region-scoped `openai.*`),
+  both grok-4.6 and gpt-oss-120b → `Operation not allowed`.
+- **The verdict, stated verbatim by Bedrock itself** in ap-south-1 and
+  eu-west-1: *"Your account is currently being verified."* The account is
+  new / pending Bedrock use-case verification. That single fact explains
+  every refusal since morning across 4 regions, 2 keys, 11 model IDs, and
+  both API paths — including the earlier "Too many tokens per day".
+- **Nothing remains to fix in our stack.** Keys: correct and authenticated.
+  Wiring: verified byte-exact. Config: human's chosen model + fastembed,
+  region eu-north-1. The only unblock is AWS finishing account verification
+  (user should check email + Bedrock console → Model access → use-case
+  status; new accounts require submitting the use-case form).
+- When verification clears: `contract_test.py --base http://localhost:8888
+  --flavor oss` → M1.2 corpus ingest. Zero rework.
+
+
+
 ## M1.1 — second Bedrock key tested; wall confirmed account-level — UPDATE 5, 2026-09-25
 
 Human supplied a SECOND long-term Bedrock API key (same account 799823514509).
