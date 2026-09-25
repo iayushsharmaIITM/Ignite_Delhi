@@ -4,7 +4,23 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
-## M1.1 — Bedrock key wired; account daily token cap is the blocker — UPDATE 2, 2026-09-25
+## M1.1 — Bedrock key wired; account daily token cap is the blocker — UPDATE 3, 2026-09-25
+
+Human clarified the key is for **Grok** — "grok 6" is **Grok 4.6** on Bedrock.
+Listed the account's inference profiles WITH the bearer key (control plane
+accepted it: 87 profiles) — the Grok profiles are `us.xai.grok-4.6` and
+`global.xai.grok-4.6`.
+
+- Active block now: LLM `bedrock/us.xai.grok-4.6`, embeddings switched to
+  **keyless fastembed/384** (Titan was refused on this account; nothing has
+  been ingested yet, so the dimension switch is free). Container healthy.
+- Both Grok profiles currently return `Operation not allowed` — same as every
+  other model after the first call's `Too many tokens per day`. Two
+  non-exclusive causes, both on the AWS side: (1) the daily token budget
+  tripped in the first probe, (2) xAI model access may not be enabled yet
+  (Bedrock console → Model access → enable Grok 4.6).
+- When either clears, the setup runs as-is: contract test → M1.2. Block G in
+  `.env.oss.example` records the profile IDs and the fastembed pairing.
 
 Human supplied a **long-term Bedrock API key** (CSV in Downloads; stored ONLY
 in gitignored `.env.oss` — never echoed, never tracked).
