@@ -4,6 +4,34 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
+## M1.1 — Bedrock key wired; account daily token cap is the blocker — UPDATE 2, 2026-09-25
+
+Human supplied a **long-term Bedrock API key** (CSV in Downloads; stored ONLY
+in gitignored `.env.oss` — never echoed, never tracked).
+
+- Active block switched to Bedrock: `AWS_BEARER_TOKEN_BEDROCK` + `AWS_REGION=
+  us-east-1`, LLM `bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0`,
+  embeddings `bedrock/amazon.titan-embed-text-v2:0` / 1024 dims. The dormant
+  ollama block is fully commented out (no var collisions). Template block G
+  now documents both auth paths (API key vs SigV4 creds).
+- **Auth and routing VERIFIED**: the first direct LiteLLM probe authenticated
+  (Bearer accepted) and reached Bedrock's quota layer — no AccessDenied, no
+  signature errors, container healthy after recreate (~24s).
+- **Blocker: the account's daily token budget.** First sonnet-4 call:
+  `Too many tokens per day, please wait before trying again`. Every subsequent
+  call (sonnet-4, nova-micro/lite, llama3-1-8b, titan-embed-v2) then returns
+  `Operation not allowed` — the error CHANGED after the first call, i.e. the
+  day-cap tripped mid-probe. Not a wiring/permission issue.
+- Probe matrix recorded for the record: sonnet-4 → quota → not-allowed;
+  others → not-allowed; claude-3-5-haiku → end-of-life on this account.
+- Nothing to fix in our stack. When the budget resets (or the account raises
+  its quota / enables model access in us-east-1), the SAME setup runs as-is:
+  rerun `python3 contract_test.py --base http://localhost:8888 --flavor oss`
+  then M1.2. Alternative for TODAY: any other provider key (e.g. Groq free)
+  is one comment-swap away in `.env.oss`.
+- Note: embedding dimensions are baked at first ingest. If the trial starts
+  on fastembed/384 and later moves to Titan/1024, the corpus re-ingests.
+
 ## M1.1 — swappable-key layer complete; keys still pending — UPDATE 2026-09-25
 
 Human decisions recorded: (a) the swap layer must cover **nine providers** —
