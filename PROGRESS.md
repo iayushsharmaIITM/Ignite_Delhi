@@ -4,6 +4,36 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
+## PHASE 0 GATE — recorded 2026-09-25
+
+Full `./verify.sh` green (documents 25/25, pipe-states 13/13, tenants 10/10,
+smoke 4/4, ui PASS); contract test green on cloud (11/11) AND oss (11/11 +
+1 no-llm SKIP by design); findings F1-negative recorded (M0.5). M0.1–M0.5 DONE.
+Phase 1 unblocked.
+
+## M0.4 — flavor switch for the two renamed recall fields — DONE 2026-09-25
+
+`cognee_cloud.py` only (recall body): new `flavor()` (`COGNEE_FLAVOR`, default
+`cloud`); `recall()` sends `search_type`/`include_references` on oss,
+`searchType`/`includeReferences` on cloud. `terminal_kind` untouched.
+Check: `contract_test.py --flavor oss --base http://localhost:8888` → PASS
+(11/11, 1 SKIP); `--flavor cloud` → PASS (11/11); `./verify.sh --quick` green.
+
+Two empirical confirmations: OSS **rejects** cloud names with 422 (drift is
+loud — the switch is required, not cosmetic); cloud **silently accepts** both
+(200). OSS keyless recall 422s `LLMAPIKeyNotSetError` — classified in
+`probe_recall` as no-llm SKIP (harness refinement to `contract_test.py`,
+documented in its docstring; full text checks rerun WITH keys after M1.1).
+Note: OSS pipeline reaches COMPLETED keyless — only generation needs the key.
+
+## M0.5 — record what OSS does with `filename` — DONE 2026-09-25
+
+Finding **F1-negative**: OSS v1.6.1 stores `text_<hash>`, NOT the sent
+basename — measured on two OSS runs (`text_8b1ffde9…`, `text_2e5c78b6…` vs
+sent `probe_filename.md`) plus three cloud runs. Same behavior both flavors,
+so `citations.py` content-fingerprint matching stays the primary path in
+Phase 1; no code change (zero-code verification card as expected).
+
 ## M0.3 — contract_test.py — DONE 2026-09-25
 
 `python3 contract_test.py --flavor cloud` → **11/11 PASS** (was 10/11).

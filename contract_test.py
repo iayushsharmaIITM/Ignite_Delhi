@@ -221,16 +221,22 @@ def _recall_body(flavor: str) -> dict:
 
 
 def probe_recall():
-    """Main path: this flavor's field names must NOT 422.
+    """Main path: this flavor's field names must NOT 422 for field reasons.
 
     422 is the drift signal — it means the endpoint stopped accepting the
     field names this flavor sends. A 200 with a text answer is required when
-    the pipeline succeeded; on a failed pipeline (OSS, no LLM key) a clean
-    non-422 error is acceptable shape-wise and the text check is skipped.
+    the pipeline succeeded; on OSS without an LLM key (M0.2 state) recall
+    422s with LLMAPIKeyNotSetError instead of generating — measured
+    2026-09-25 — which is a no-llm SKIP, not drift. Only a 422 that does NOT
+    mention the LLM key fails the run.
     """
     r = requests.post(f"{base()}/api/v1/recall", headers=headers(),
                       json=_recall_body(ARGS.flavor), timeout=cc.timeout())
     if r.status_code == 422:
+        if "LLMAPIKeyNotSet" in r.text or "LLM_API_KEY" in r.text:
+            SKIPS.append("recall 422 LLMAPIKeyNotSet (OSS without an LLM key) — "
+                         "field names accepted, generation downgraded")
+            return
         raise AssertionError(
             f"RECALL FIELD DRIFT: {ARGS.flavor} body rejected with 422: {r.text[:200]}"
         )

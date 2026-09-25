@@ -110,6 +110,16 @@ def configured() -> bool:
     return bool(service_url() and api_key())
 
 
+def flavor() -> str:
+    """Wire flavor: "cloud" (default) or "oss".
+
+    BUILD_PLAN.md M0.4: OSS v1.6.1 renamed two recall fields to snake_case.
+    Default stays "cloud" so the deployed app behaves byte-identically until
+    the cutover; export COGNEE_FLAVOR=oss only in shells pointing at OSS.
+    """
+    return os.getenv("COGNEE_FLAVOR", "cloud")
+
+
 def _headers() -> dict:
     return {"X-Api-Key": api_key()}
 
@@ -349,11 +359,15 @@ def wait_ready(name: Optional[str] = None, timeout_s: int = 900, interval: int =
 def recall(query: str, name: Optional[str] = None, search_type: str = GRAPH_COMPLETION,
            top_k: Optional[int] = None, include_references: bool = True) -> list:
     """Ask the graph. Returns Cognee's result list (text + evidence)."""
+    # M0.4: the two field names differ by flavor; everything else identical.
+    oss = flavor() == "oss"
+    key_search = "search_type" if oss else "searchType"
+    key_refs = "include_references" if oss else "includeReferences"
     body: dict[str, Any] = {
         "query": query,
         "datasets": [name or dataset()],
-        "searchType": search_type,
-        "includeReferences": include_references,
+        key_search: search_type,
+        key_refs: include_references,
     }
     if top_k:
         body["topK"] = top_k
