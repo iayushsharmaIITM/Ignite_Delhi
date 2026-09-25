@@ -22,6 +22,12 @@
   h1 .mark { display:none; }
   p.sub { color:var(--muted); margin:0; font-size:15px; max-width:56ch; line-height:1.65; }
 
+  /* live graph facts under the hero (audit: the empty state should say what
+     this is). Populated from /api/stats. */
+  .facts { margin-top:16px; font-size:12.5px; color:var(--muted);
+           font-family:var(--mono); letter-spacing:.01em; }
+  .facts b { color:var(--fg-2); font-weight:600; }
+
   .brainbar { display:flex; align-items:center; gap:10px; margin-top:20px;
               padding:8px 2px 10px; border-bottom:1px solid var(--line);
               font-size:12.5px; }
@@ -32,42 +38,90 @@
   .brainbar a { margin-left:auto; color:var(--muted); border:0; }
   .brainbar a:hover { color:var(--fg); }
 
-  /* ---- composer: cream command bar, ink button ----------------------------- */
+  /* ---- composer: the one bar that rules the page ----------------------------
+     Row 1: [+ file] [brain ▾] input [send/stop]
+     Row 2 (when a thread exists): ⋯ menu · quick export · clear · turn count  */
   form { display:flex; gap:10px; position:fixed; left:var(--sb-w); right:0; bottom:0;
          z-index:35; margin:0; padding:26px 44px 20px;
          background:linear-gradient(180deg, rgba(250,249,246,0), var(--bg) 42%);
          backdrop-filter:blur(10px); }
-  form .field { flex:1; max-width:772px; margin:0 auto; display:flex; gap:10px;
-                align-items:center; padding:6px 6px 6px 18px;
-                border-radius:14px; border:1px solid var(--line-2);
-                background:var(--panel);
-                box-shadow:0 1px 2px rgba(28,25,23,.05), 0 10px 30px rgba(28,25,23,.08);
-                transition:border-color .18s ease, box-shadow .18s ease; }
-  form .field:focus-within { border-color:var(--accent-soft);
-                box-shadow:0 1px 2px rgba(28,25,23,.05), 0 10px 30px rgba(28,25,23,.08), 0 0 0 4px var(--accent-glow); }
-  body { padding-bottom:110px; }
-  input { flex:1; padding:13px 4px; border:0; background:transparent; color:var(--fg);
-          font-size:15px; outline:none; }
+  form .field { flex:1; max-width:772px; margin:0 auto; }
+  body { padding-bottom:130px; }
+  .bar-card { border-radius:16px; border:1px solid var(--line-2);
+              background:var(--panel);
+              box-shadow:0 1px 2px rgba(28,25,23,.05), 0 10px 30px rgba(28,25,23,.08);
+              transition:border-color .18s ease, box-shadow .18s ease; }
+  .bar-card:focus-within { border-color:var(--accent-soft);
+              box-shadow:0 1px 2px rgba(28,25,23,.05), 0 10px 30px rgba(28,25,23,.08), 0 0 0 4px var(--accent-glow); }
+  .bar-row { display:flex; align-items:center; gap:8px; padding:8px 8px 8px 10px; }
+  input { flex:1; padding:11px 4px; border:0; background:transparent; color:var(--fg);
+          font-size:15px; outline:none; min-width:0; }
   input:focus { border:0; box-shadow:none; }
   input::placeholder { color:var(--muted-2); }
-  /* Scoped to #go: a generic button rule leaked white-space:nowrap and the
-     ink surface into every button (chips could not wrap -> grid overflow). */
-  #go { padding:11px 24px; border-radius:10px; border:0;
-        background:var(--btn-ink);
-        color:#faf9f6; font-weight:600; font-size:14px; cursor:pointer;
-        letter-spacing:-.01em; white-space:nowrap;
-        box-shadow:0 1px 2px rgba(28,25,23,.25);
-        transition:transform .12s ease, opacity .15s ease; }
-  @media (max-width: 820px) {
-    /* The composer is pinned at left:var(--sb-w) for the sidebar; with the
-       sidebar collapsed it must span the viewport instead. */
-    form { left:0; padding:18px 16px 16px; }
-  }
-  button:hover:not(:disabled) { opacity:.85; }
-  button:active:not(:disabled) { transform:translateY(1px); }
-  button:disabled { opacity:.45; cursor:default; }
 
-  /* ---- starter prompts: white cards on paper -------------------------------- */
+  .bar-btn { display:inline-flex; align-items:center; gap:6px; flex:none;
+             padding:9px 11px; border-radius:9px; border:0; background:transparent;
+             color:var(--muted); cursor:pointer; font-size:13px; font-weight:590;
+             transition:background .15s ease, color .15s ease; }
+  .bar-btn:hover { background:var(--panel-2); color:var(--fg); }
+  .bar-btn svg { width:16px; height:16px; }
+  .bar-btn .bname { color:var(--fg-2); font-family:var(--sans); font-size:13px;
+                    max-width:150px; overflow:hidden; text-overflow:ellipsis;
+                    white-space:nowrap; }
+  .bar-btn.chev svg, .bar-btn svg.chev { width:12px; height:12px; }
+
+  #go { display:inline-flex; align-items:center; justify-content:center; flex:none;
+        width:38px; height:38px; padding:0; border-radius:11px; border:0;
+        background:var(--btn-ink); color:#faf9f6; cursor:pointer;
+        transition:transform .12s ease, opacity .15s ease, background .18s ease; }
+  #go svg { width:16px; height:16px; }
+  #go:hover:not(:disabled) { opacity:.85; }
+  #go:active:not(:disabled) { transform:translateY(1px); }
+  #go:disabled { opacity:.35; cursor:default; }
+  #go.stop { background:var(--bad); }
+
+  /* row 2 — conversation controls, quiet, only once a thread exists */
+  .bar-menu-row { display:flex; align-items:center; gap:2px; padding:0 8px 8px 10px; }
+  .bar-menu-row[hidden] { display:none; }
+  .bar-menu-row button, .bar-menu-row .mi {
+    padding:5px 9px; border-radius:7px; border:0; background:transparent;
+    color:var(--muted); font-size:12px; cursor:pointer;
+    transition:background .15s ease, color .15s ease; font-family:var(--sans); }
+  .bar-menu-row button:hover { background:var(--panel-2); color:var(--fg); }
+  .bar-menu-row button.armed { color:var(--bad); background:rgba(185,28,28,.07);
+                               font-weight:600; }
+  .bar-menu-row .spacer { flex:1; }
+  .bar-menu-row .count { font-size:10.5px; color:var(--muted-2);
+                         font-family:var(--mono); padding-right:4px; }
+
+  /* pop-up menus open UP from the bar */
+  .pop { position:absolute; bottom:calc(100% + 8px); left:10px; z-index:50;
+         min-width:230px; padding:6px; border-radius:12px;
+         background:var(--panel); border:1px solid var(--line-2);
+         box-shadow:var(--shadow-lg);
+         transform-origin:bottom left;
+         animation:pop .16s ease; }
+  .pop[hidden] { display:none; }
+  @keyframes pop { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  .pop button { display:flex; align-items:center; gap:9px; width:100%; text-align:left;
+                padding:8px 10px; border-radius:8px; border:0; background:transparent;
+                color:var(--fg-2); font-size:13px; cursor:pointer; white-space:nowrap;
+                box-shadow:none; }
+  .pop button:hover { background:var(--panel-2); color:var(--fg); }
+  .pop button .tick { margin-left:auto; color:var(--accent); font-weight:700; }
+  .pop button.armed { color:var(--bad); background:rgba(185,28,28,.07); font-weight:600; }
+  .pop .pop-sep { height:1px; background:var(--line); margin:6px 4px; }
+  .pop .pop-note { padding:7px 10px 4px; font-size:10px; letter-spacing:.12em;
+                   text-transform:uppercase; color:var(--muted-2); font-weight:700; }
+  .pop a.pop-item { display:flex; align-items:center; gap:9px; width:100%; text-align:left;
+                padding:8px 10px; border-radius:8px; border:0;
+                color:var(--fg-2); font-size:13px; text-decoration:none; }
+  .pop a.pop-item:hover { background:var(--panel-2); color:var(--fg); }
+
+  /* relative anchor so .pop menus can position against their row */
+  .bar-anchor { position:relative; }
+
+  /* ---- starter prompts ------------------------------------------------------- */
   .chips { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:10px; margin-top:20px; }
   .chip { min-width:0; padding:14px 34px 13px 16px; border-radius:var(--radius-sm);
           border:1px solid var(--line-2);
@@ -82,8 +136,6 @@
   .chip:hover::after { color:var(--accent); transform:translateX(2px); }
 
   section { margin-top:36px; }
-  .label { font-size:10px; font-weight:700; letter-spacing:.15em; text-transform:uppercase;
-           color:var(--muted); margin-bottom:9px; }
 
   #answer { padding:4px 0; border:0; background:none; box-shadow:none; min-height:60px;
             font-size:16px; line-height:1.75; }
@@ -94,9 +146,11 @@
 
   /* ---- thread: the answer is a document ------------------------------------- */
   #thread { display:flex; flex-direction:column; gap:0; max-width:72ch; }
-  .turn { display:flex; flex-direction:column; gap:10px; }
+  .turn { display:flex; flex-direction:column; gap:10px;
+          animation:rise .18s ease; }
   .turn + .turn { margin-top:32px; }
   .turn.bot { padding-top:28px; border-top:1px solid var(--line); }
+  @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
   .turn .who { font-size:9.5px; letter-spacing:.17em; text-transform:uppercase;
                font-weight:700; color:var(--muted-2); display:flex; align-items:center; gap:8px; }
   .turn.bot .who::before { content:""; width:14px; height:1.5px;
@@ -106,6 +160,10 @@
   .turn.bot .bubble { font-size:15.5px; line-height:1.8; color:#292524; }
   .turn.bot .bubble:not(.rendered) { white-space:pre-wrap; }
   .turn.bot .bubble.rendered { white-space:normal; }
+  /* the streaming caret lives at the end of the text while it arrives */
+  .bubble.streaming::after { content:"▍"; color:var(--accent);
+                             animation:blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
   .turn.bot .bubble h3, .turn.bot .bubble h4, .turn.bot .bubble h5 {
                margin:24px 0 8px; font-size:14px; font-weight:650; color:var(--fg);
                letter-spacing:.01em; font-family:var(--sans); }
@@ -127,7 +185,7 @@
   .turn.bot .bubble td { color:var(--fg-2); }
   .turn.bot .bubble tr:last-child td { border-bottom:0; }
 
-  /* ---- sources: white cards, openable --------------------------------------- */
+  /* ---- sources ---------------------------------------------------------------- */
   .turn .srcs { display:flex; flex-wrap:wrap; gap:7px; }
   .turn .srcs span, .turn .srcs button {
     font-size:11.5px; color:var(--fg-2); background:var(--panel);
@@ -138,7 +196,7 @@
   .turn .srcs button:hover { color:var(--accent); border-color:var(--accent-soft);
                              transform:translateY(-1px); }
 
-  /* ---- per-answer actions ---------------------------------------------------- */
+  /* ---- per-answer actions ------------------------------------------------------ */
   .answer-acts { display:flex; flex-wrap:wrap; gap:5px; margin-top:16px;
                  padding-top:12px; border-top:1px solid var(--line);
                  opacity:.55; transition:opacity .18s ease; }
@@ -155,7 +213,7 @@
                               background:var(--panel-2); }
   .answer-acts button.copied { color:var(--good); border-color:var(--good); }
 
-  /* ---- follow-ups: ink ghost prompts ----------------------------------------- */
+  /* ---- follow-ups ---------------------------------------------------------------- */
   .followups { display:flex; flex-wrap:wrap; gap:4px 18px; margin-top:14px; }
   .followups button {
     padding:5px 0; border:0; background:none; color:var(--muted); font-size:13px;
@@ -169,7 +227,7 @@
   .followups button.act-chip { color:var(--accent); }
   .followups button.act-chip:hover { color:var(--accent-2); }
 
-  /* ---- source modal: light sheet ---------------------------------------------- */
+  /* ---- source modal ---------------------------------------------------------------- */
   #source-modal {
     position:fixed; inset:0; z-index:80; display:flex;
     align-items:center; justify-content:center; padding:40px 24px;
@@ -180,7 +238,9 @@
     width:min(860px, 100%); max-height:100%; display:flex; flex-direction:column;
     background:var(--panel); border:1px solid var(--line-2);
     border-radius:var(--radius); box-shadow:var(--shadow-lg); overflow:hidden;
+    animation:sheet .16s ease;
   }
+  @keyframes sheet { from { opacity:0; transform:scale(.98); } to { opacity:1; transform:none; } }
   #source-modal .head {
     display:flex; align-items:center; gap:12px; padding:13px 18px;
     border-bottom:1px solid var(--line); background:var(--panel-2);
@@ -207,29 +267,59 @@
   }
   #source-modal .state { padding:22px; color:var(--muted); font-size:13.5px; }
 
-  /* ---- threadbar: paper glass -------------------------------------------------- */
-  #threadbar {
-    display:none; position:fixed; top:16px; right:24px; z-index:36;
-    align-items:center; gap:4px;
-    padding:5px 7px; border-radius:10px;
-    background:rgba(255,255,255,.82); border:1px solid var(--line-2);
-    backdrop-filter:blur(14px); box-shadow:var(--shadow);
+  /* ---- add-files sheet (add to the current brain from the chat) ---------------- */
+  #files-sheet {
+    position:fixed; inset:0; z-index:80; display:flex;
+    align-items:center; justify-content:center; padding:40px 24px;
+    background:rgba(28,25,23,.4); backdrop-filter:blur(6px);
   }
-  #threadbar button.mini {
-    min-width:38px; padding:7px 10px; border-radius:7px; border:0;
-    background:transparent; color:var(--muted); cursor:pointer; white-space:nowrap;
-    font:600 10.5px/1 var(--mono); letter-spacing:.08em; transition:all .15s ease;
-    box-shadow:none;
+  #files-sheet[hidden] { display:none; }
+  #files-sheet .sheet {
+    width:min(620px, 100%); max-height:100%; display:flex; flex-direction:column;
+    background:var(--panel); border:1px solid var(--line-2);
+    border-radius:var(--radius); box-shadow:var(--shadow-lg); overflow:hidden;
+    animation:sheet .16s ease;
   }
-  #threadbar button.mini:hover { background:var(--panel-3); color:var(--fg); }
-  #threadbar .count {
-    font-size:10.5px; color:var(--muted-2); padding:0 8px 0 6px;
-    font-family:var(--mono);
-  }
-  @media (max-width: 900px) {
-    #threadbar { position:static; margin-bottom:14px; justify-content:flex-start;
-                 background:none; border:0; box-shadow:none; padding:0; backdrop-filter:none; }
-  }
+  #files-sheet .head { display:flex; align-items:center; gap:10px; padding:14px 18px;
+    border-bottom:1px solid var(--line); background:var(--panel-2); }
+  #files-sheet .head strong { font-size:13px; font-weight:650; }
+  #files-sheet .head .where { font-size:11px; color:var(--muted);
+    font-family:var(--mono); }
+  #files-sheet .head .sp { margin-left:auto; }
+  #files-sheet .head button { padding:6px 13px; border-radius:var(--radius-xs);
+    border:1px solid var(--line-2); background:var(--panel); color:var(--fg-2);
+    font-size:12px; cursor:pointer; box-shadow:none; }
+  #files-sheet .body { padding:18px; overflow:auto; }
+  #files-sheet .drop { border:1.5px dashed var(--line-2); border-radius:var(--radius-sm);
+    padding:26px 18px; text-align:center; color:var(--muted); cursor:pointer;
+    transition:border-color .15s ease, background .15s ease; font-size:13.5px; }
+  #files-sheet .drop:hover, #files-sheet .drop.over { border-color:var(--accent-soft);
+    background:var(--accent-dim); color:var(--fg-2); }
+  #files-sheet .hint { margin-top:10px; font-size:11.5px; color:var(--muted-2); }
+  #files-sheet ul.files { list-style:none; margin:14px 0 0; padding:0; display:flex;
+    flex-direction:column; gap:6px; }
+  #files-sheet ul.files li { display:flex; align-items:center; gap:9px; padding:8px 12px;
+    border-radius:8px; background:var(--panel-2); border:1px solid var(--line);
+    font-size:12.5px; }
+  #files-sheet ul.files li .st { margin-left:auto; font-size:11px; color:var(--muted-2);
+    font-family:var(--mono); }
+  #files-sheet ul.files li.ok { border-color:rgba(21,128,61,.35); }
+  #files-sheet ul.files li.ok .st { color:var(--good); }
+  #files-sheet ul.files li.bad { border-color:rgba(185,28,28,.3); }
+  #files-sheet ul.files li.bad .st { color:var(--bad); }
+  #files-sheet .pipeline { margin-top:14px; font:11.5px/1.7 var(--mono);
+    color:var(--muted); min-height:18px; white-space:pre-wrap; }
+  #files-sheet .done { margin-top:12px; padding:10px 13px; border-radius:9px;
+    font-size:13px; background:var(--accent-dim); color:var(--fg-2); }
+  #files-sheet .done:empty { display:none; }
+  #files-sheet .notice { margin:0 0 12px; padding:10px 13px; border-radius:9px;
+    font-size:12.5px; background:var(--panel-2); color:var(--muted);
+    border:1px solid var(--line); }
+  #files-sheet .cta { margin-top:16px; display:flex; justify-content:flex-end; }
+  #files-sheet .cta button { padding:9px 20px; border-radius:9px; border:0;
+    background:var(--btn-ink); color:#faf9f6; font-weight:600; font-size:13px;
+    cursor:pointer; box-shadow:none; }
+  #files-sheet .cta button:disabled { opacity:.4; cursor:default; }
 
   /* ---- draft box ----------------------------------------------------------------- */
   #draft { display:none; margin-top:30px; }
@@ -250,27 +340,16 @@
                     font:12.5px/1.7 var(--mono); }
   .copied { color:var(--good) !important; border-color:var(--good) !important; }
 
-  /* ---- loading dots ----------------------------------------------------------------- */
-  .bar { display:flex; gap:5px; align-items:center; height:16px; margin-top:14px; }
-  .bar[hidden] { display:none; }
-  .dot { width:5px; height:5px; border-radius:50%; background:var(--accent);
-         animation:p 1s infinite; }
-  .dot:nth-child(2){ animation-delay:.15s } .dot:nth-child(3){ animation-delay:.3s }
-  @keyframes p { 0%,100%{opacity:.2} 50%{opacity:1} }
-
-  footer { margin-top:44px; padding-top:18px; border-top:1px solid var(--line);
-           color:var(--muted-2); font-size:12px; display:flex; flex-wrap:wrap;
-           gap:16px; align-items:center; }
-  .pill { display:inline-flex; align-items:center; gap:6px; }
-  .pill a { border:0; color:var(--muted); }
-  .pill a:hover { color:var(--fg); }
-  .led { width:7px; height:7px; border-radius:50%; background:var(--muted-2); }
-  .led.ok { background:var(--good); } .led.bad { background:var(--bad); }
   code { background:var(--panel-2); padding:2px 6px; border-radius:5px;
          font-size:12px; font-family:var(--mono); }
   a { color:var(--fg); text-decoration:none; }
   a:hover { color:var(--accent); }
-  </style>
+
+  @media (max-width: 820px) {
+    form { left:0; padding:14px 12px 12px; }
+    .bar-btn .bname { max-width:90px; }
+  }
+</style>
 </head>
 <body>
 <div class="app-main">
@@ -280,35 +359,13 @@
     <p class="sub">Company knowledge is scattered across contracts, tickets, meetings and
       chat. Ask one question and get an answer grounded in all of it — with the evidence
       it came from.</p>
-    <div class="brainbar" id="brainbar" hidden>
-      <span class="tag">Asking</span>
-      <span class="bname" id="bname"></span>
-      <a href="/brains">switch brain</a>
-    </div>
+    <div class="facts" id="facts"></div>
   </header>
-
-  <form id="f">
-    <div class="field">
-      <input id="q" placeholder="Ask across every document the company has written…"
-             autocomplete="off" autofocus>
-      <button id="go" type="submit">Ask</button>
-    </div>
-  </form>
 
   <div class="chips" id="chips"></div>
 
   <section>
-    <div id="threadbar">
-      <button class="mini" id="export-md" type="button" title="Export as Markdown">MD</button>
-      <button class="mini" id="export-txt" type="button" title="Export as plain text">TXT</button>
-      <button class="mini" id="export-docx" type="button" title="Export as Word document">DOC</button>
-      <button class="mini" id="export-pdf" type="button" title="Export as PDF">PDF</button>
-      <button class="mini" id="clear-chat" type="button" title="Clear this conversation">✕</button>
-      <span class="count" id="turncount"></span>
-    </div>
-    <div class="label">Conversation</div>
     <div id="thread"><div class="placeholder" id="empty">Ask a question to start. Follow-ups keep the thread.</div></div>
-    <div class="bar" id="bar" hidden><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
   </section>
 
   <section id="draft">
@@ -338,12 +395,66 @@
     </div>
   </div>
 
-  <footer>
-    <span class="pill"><a id="graphlink" href="/graph">Open the graph view →</a></span>
-    <span class="pill"><a href="/health">/health</a></span>
-  </footer>
+  <div id="files-sheet" hidden>
+    <div class="sheet">
+      <div class="head">
+        <strong>Add documents</strong>
+        <span class="where" id="files-target"></span>
+        <span class="sp"><button type="button" id="files-close">Close</button></span>
+      </div>
+      <div class="body">
+        <div class="notice" id="files-notice" hidden></div>
+        <div class="drop" id="drop2">
+          Drop files here or <span style="text-decoration:underline">choose files</span>
+          <div class="hint">PDF, DOCX, TXT, MD, CSV, JSON, code files · up to 5 MB each · 40 max.
+            Added straight into this brain — no restart, immediately answerable.</div>
+        </div>
+        <input type="file" id="file-input" multiple hidden>
+        <ul class="files" id="filelist"></ul>
+        <div class="pipeline" id="pipeline"></div>
+        <div class="done" id="files-done"></div>
+        <div class="cta"><button id="files-go" type="button" disabled>Add to brain</button></div>
+      </div>
+    </div>
+  </div>
 </div>
 </div>
+
+<form id="f">
+  <div class="field">
+    <div class="bar-card bar-anchor">
+      <div class="bar-row">
+        <button type="button" class="bar-btn" id="addfile" title="Add documents to this brain" aria-label="Add documents to this brain">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button type="button" class="bar-btn" id="brainswitch" title="Switch brain" aria-label="Switch brain">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
+          <span class="bname" id="brainname">Demo brain</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <input id="q" placeholder="Ask across every document the company has written…"
+               autocomplete="off" autofocus>
+        <button id="go" type="submit" aria-label="Send" disabled></button>
+      </div>
+      <div class="bar-menu-row" id="barsub" hidden>
+        <button type="button" id="menu2-toggle" title="More">⋯</button>
+        <button type="button" id="quick-md" title="Export as Markdown">Export MD</button>
+        <button type="button" id="clear-chat" title="Clear this conversation">Clear</button>
+        <span class="spacer"></span>
+        <span class="count" id="turncount"></span>
+      </div>
+      <div class="pop" id="menu2" hidden>
+        <button type="button" id="copy-transcript">Copy transcript</button>
+        <div class="pop-sep"></div>
+        <button type="button" id="export-md">Export Markdown</button>
+        <button type="button" id="export-txt">Export plain text</button>
+        <button type="button" id="export-docx">Export Word document</button>
+        <button type="button" id="export-pdf">Export PDF</button>
+      </div>
+      <div class="pop" id="brainmenu" hidden></div>
+    </div>
+  </div>
+</form>
 
 <script>
 // ---------------------------------------------------------------------------
@@ -352,10 +463,8 @@
 // `?brain=<name>` selects a brain somebody uploaded; absent means the pre-built
 // demo brain. Every API call carries it as `dataset=`, which is the whole trick
 // that lets ONE dashboard serve every brain instead of one UI per brain.
-// ---------------------------------------------------------------------------
-// Accept `dataset=` as well as `brain=`. The API speaks `dataset` and the pages
-// speak `brain`; a hand-edited URL using the wrong one must not silently fall
-// back to the demo brain, which is what makes a wrong-brain answer possible.
+// Accept `dataset=` as well as `brain=` so a wrong-key URL cannot silently
+// fall back to the demo brain.
 const BRAIN = (() => {
   const p = new URLSearchParams(location.search);
   return p.get('brain') || p.get('dataset') || '';
@@ -369,39 +478,17 @@ const QUESTIONS = [
 ];
 
 const threadEl = document.getElementById('thread');
-const threadBar = document.getElementById('threadbar');
 const turnCount = document.getElementById('turncount');
-// The whole conversation, kept so follow-ups can be resolved against it and so
-// the transcript can be exported at the end.
+const barsub = document.getElementById('barsub');
 const TURNS = [];
-// Filenames from the most recent answer, used by the action generators. This
-// was lost when the standalone evidence panel was removed, which silently broke
-// every per-answer action.
 let SOURCES = [];
 
-// "draft a mail", "write an email", "compose a note to Dana" - when the question
-// asks for one, the mail is produced automatically rather than making the user
-// hunt for the button.
 const DRAFT_INTENT = /\b(draft|write|compose|reply|email|e-?mail|mail)\b/i;
 
-// Conversations persist per brain as a LIST, the way a chat app keeps them:
-// each has an id, a title, a timestamp and its own turns. Keyed by brain because
-// the demo brain and an uploaded brain are different contexts, and mixing them
-// would show answers from documents the user is not currently looking at.
 const CHATS_KEY = 'kestrel.chats.' + (BRAIN || 'demo');
-const CHAT_MAX = 30;             // conversations kept
-const TURNS_MAX = 60;            // turns kept per conversation
+const CHAT_MAX = 30;
+const TURNS_MAX = 60;
 
-// Resolve the conversation id in this order:
-//   1. an explicit ?chat=<id>            (the sidebar links straight to a chat)
-//   2. the id this tab was already using (so a reload reopens the same one)
-//   3. a new id
-//
-// C1: this used to be step 3 only. The conversation was SAVED under one id and
-// looked up under a freshly generated one, so history never came back — the
-// whole feature silently did nothing and orphaned every conversation in
-// localStorage. `?new=1` is the explicit "start a fresh chat" signal, because
-// without it a New-chat click would just resume the tab's current conversation.
 const CHAT_SESSION_KEY = 'kestrel.currentChat.' + (BRAIN || 'demo');
 const CHAT_ID = (() => {
   const params = new URLSearchParams(location.search);
@@ -417,8 +504,6 @@ const CHAT_ID = (() => {
   return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 })();
 
-// Persist the id for the next load and put it in the URL, so a reload reopens
-// this chat and the sidebar can mark it active.
 function rememberChat() {
   try { sessionStorage.setItem(CHAT_SESSION_KEY, CHAT_ID); } catch (e) {}
   try {
@@ -451,7 +536,6 @@ function saveHistory() {
     });
     localStorage.setItem(CHATS_KEY, JSON.stringify(chats.slice(0, CHAT_MAX)));
     rememberChat();
-    // Tell the sidebar to re-render its list; it was built at load time.
     window.dispatchEvent(new Event('kestrel:chats'));
   } catch (e) { /* private mode or quota - history is a convenience, not state */ }
 }
@@ -460,35 +544,130 @@ function loadHistory() {
   const chat = allChats().find(c => c.id === CHAT_ID);
   return chat ? chat.turns : [];
 }
-const bar      = document.getElementById('bar');
 const go       = document.getElementById('go');
 const input    = document.getElementById('q');
+const chips    = document.getElementById('chips');
 
-// Suggested questions double as a demo safety net: every one of these is
-// known to return a good answer from the pre-built graph. They are specific to
-// the demo corpus though, so showing them for an uploaded brain would invite
-// questions it cannot answer.
-const chips = document.getElementById('chips');
+// ---------------------------------------------------------------------------
+// Icons for the bar's state machine: send (→), stop (■).
+// ---------------------------------------------------------------------------
+const BAR_ICON = {
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0-6 6m6-6 6 6"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+};
+function setGo(mode) {           // 'idle' | 'ready' | 'stop'
+  go.classList.toggle('stop', mode === 'stop');
+  go.innerHTML = mode === 'stop' ? BAR_ICON.stop : BAR_ICON.send;
+  go.setAttribute('aria-label', mode === 'stop' ? 'Stop generating' : 'Send');
+}
+setGo('idle');
+
+// ---------------------------------------------------------------------------
+// The brain switcher — the context picker lives in the bar.
+// Lists every brain from GET /api/brains; the current one is ticked; switching
+// mid-conversation asks, because chats are stored per brain and merging
+// transcripts silently would produce wrong-context answers.
+// ---------------------------------------------------------------------------
+const brainBtn   = document.getElementById('brainswitch');
+const brainMenu  = document.getElementById('brainmenu');
+const brainNameEl = document.getElementById('brainname');
+
+function currentBrainLabel() {
+  brainNameEl.textContent = BRAIN || 'Demo brain';
+}
+currentBrainLabel();
+
+function renderBrainMenu(items) {
+  brainMenu.innerHTML = '<div class="pop-note">Ask in</div>';
+  items.forEach(b => {
+    const isCurrent = (b.name === BRAIN) || (!BRAIN && b.is_demo);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.innerHTML = '<span>' + b.name + (b.is_demo ? ' · demo' : '') + '</span>' +
+                    (isCurrent ? '<span class="tick">✓</span>' : '');
+    btn.addEventListener('click', () => {
+      if (isCurrent) { brainMenu.hidden = true; return; }
+      if (!TURNS.length) { location.href = '/?brain=' + encodeURIComponent(b.name) + '&new=1'; return; }
+      // Two-step confirm: switching mid-conversation starts a fresh chat.
+      if (btn.dataset.armed !== '1') {
+        btn.dataset.armed = '1';
+        btn.innerHTML = '<span>Switch and start a fresh chat?</span>';
+        return;
+      }
+      location.href = '/?brain=' + encodeURIComponent(b.name) + '&new=1';
+    });
+    brainMenu.appendChild(btn);
+  });
+  const sep = document.createElement('div');
+  sep.className = 'pop-sep';
+  brainMenu.appendChild(sep);
+  const newBrain = document.createElement('a');
+  newBrain.className = 'pop-item';
+  newBrain.href = '/upload';
+  newBrain.textContent = '＋ New brain…';
+  brainMenu.appendChild(newBrain);
+}
+
+brainBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  menu2.hidden = true;
+  if (!brainMenu.hidden) { brainMenu.hidden = true; return; }
+  brainMenu.hidden = false;
+  brainMenu.innerHTML = '<div class="pop-note">loading…</div>';
+  fetch('/api/brains').then(r => r.json()).then(d => {
+    const items = (d.brains || []).filter(b => !b.is_system);
+    // demo first, then the rest alphabetically — the same order as /brains
+    items.sort((a, b) => (b.is_demo - a.is_demo) || (a.name || '').localeCompare(b.name || ''));
+    renderBrainMenu(items);
+  }).catch(() => {
+    brainMenu.innerHTML = '<div class="pop-note">could not reach the server</div>';
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The overflow menu (⋯) — conversation-level controls, rehomed from the old
+// floating threadbar.
+// ---------------------------------------------------------------------------
+const menu2 = document.getElementById('menu2');
+document.getElementById('menu2-toggle').addEventListener('click', e => {
+  e.stopPropagation();
+  brainMenu.hidden = true;
+  menu2.hidden = !menu2.hidden;
+});
+document.addEventListener('click', e => {
+  if (!menu2.hidden && !menu2.contains(e.target) && e.target.id !== 'menu2-toggle') menu2.hidden = true;
+  if (!brainMenu.hidden && !brainMenu.contains(e.target) && !brainBtn.contains(e.target)) brainMenu.hidden = true;
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { menu2.hidden = true; brainMenu.hidden = true; }
+});
+
+const QUICK_MD = document.getElementById('quick-md');
+const CLEAR_BTN = document.getElementById('clear-chat');
+
+// ---------------------------------------------------------------------------
+// Live graph facts for the empty state — the page should say what it is.
+// ---------------------------------------------------------------------------
+fetch('/api/stats' + (BRAIN ? '?dataset=' + encodeURIComponent(BRAIN) : ''))
+  .then(r => r.json()).then(d => {
+    if (!d.ok) return;
+    const el = document.getElementById('facts');
+    el.innerHTML = '<b>' + d.nodes + ' nodes</b> · <b>' + d.edges + ' edges</b> of ' +
+      (d.is_demo ? 'planted company knowledge' : 'your documents') +
+      (d.source === 'fixture' ? ' · offline snapshot' : '');
+  }).catch(() => {});
+
 if (BRAIN) {
-  chips.style.display = 'none';
   input.placeholder = 'Ask across the documents you uploaded…';
-  document.getElementById('brainbar').hidden = false;
-  document.getElementById('bname').textContent = BRAIN;
-  // graph.html reads `brain=`, so build the page URL with that key rather than
-  // reusing the API's `dataset=` query string.
-  document.getElementById('graphlink').href = '/graph?brain=' + encodeURIComponent(BRAIN);
   document.title = BRAIN + ' · Kestrel Company Brain';
 } else {
   QUESTIONS.forEach(q => {
     const c = document.createElement('button');
     c.type = 'button'; c.className = 'chip'; c.textContent = q;
-    c.addEventListener('click', () => { input.value = q; ask(q); });
+    c.addEventListener('click', () => { input.value = q; setGo('ready'); ask(q); });
     chips.appendChild(c);
   });
 }
-
-// Health and graph counts now live in the shared sidebar (static/shell.js), so
-// there is one implementation of that logic instead of one per page.
 
 document.getElementById('f').addEventListener('submit', e => {
   e.preventDefault();
@@ -496,14 +675,17 @@ document.getElementById('f').addEventListener('submit', e => {
   if (q) ask(q);
 });
 
+// Send reflects the input; while streaming it is STOP (IN_FLIGHT guard blocks
+// a second ask, so typing during an answer is safe).
+input.addEventListener('input', () => { if (!IN_FLIGHT) setGo(input.value.trim() ? 'ready' : 'idle'); });
+
 // ---------------------------------------------------------------------------
 // Minimal markdown renderer.
 //
 // Cognee returns markdown — bold, headings, bullet lists and often tables.
-// Rendering it as literal text shows a judge "**bold**" and "|---|", which
-// looks broken. We deliberately do NOT pull in a CDN library: the app already
-// needs the network for the tenant, and a second remote dependency is a second
-// way for the demo to fail. This covers exactly what the model emits.
+// We deliberately do NOT pull in a CDN library: the app already needs the
+// network for the tenant, and a second remote dependency is a second way for
+// the demo to fail. This covers exactly what the model emits.
 // ---------------------------------------------------------------------------
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c =>
@@ -514,7 +696,10 @@ function inline(s) {
   return s
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>');
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // Models emit <br> inside table cells; escapeHtml escaped it, resurrect
+    // it here as a real break so a cell can hold a list (audit finding).
+    .replace(/&lt;br\s*\/?&gt;/gi, '<br>');
 }
 
 function renderMarkdown(src) {
@@ -572,10 +757,7 @@ function renderMarkdown(src) {
   return out.join('');
 }
 
-// H1: a restored answer used to come back with its text and source chips but
-// WITHOUT its action row or its suggestions - renderTurn never called those two
-// renderers, so the controls silently vanished on reload. `question` is the
-// user turn this answer replied to, needed to generate the drafts.
+// H1: restored answers must come back with their action row and suggestions.
 function renderTurn(role, text, sources, question) {
   const { turn, bubble } = addTurn(role, text);
   if (role === 'bot') {
@@ -591,18 +773,14 @@ function restoreHistory() {
   const saved = loadHistory();
   if (!saved.length) return;
   TURNS.push(...saved);
-  // Track the question each answer replied to, so restored answers can build
-  // their action row exactly as a live one does.
   let lastQuestion = '';
   saved.forEach(t => {
     if (t.role === 'user') lastQuestion = t.text;
     else renderTurn(t.role, t.text, t.sources, lastQuestion);
     if (t.role === 'user') renderTurn(t.role, t.text, t.sources);
   });
-  threadBar.style.display = 'flex';
+  barsub.hidden = false;
   turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
-  // Prime the action generators from the most recent answer so the buttons work
-  // immediately after a reload, not only after asking something new.
   const lastBot = [...saved].reverse().find(t => t.role === 'bot');
   if (lastBot) {
     SOURCES = (lastBot.sources || []).filter(i => i && i.source).map(i => i.source);
@@ -612,8 +790,6 @@ function restoreHistory() {
 }
 
 function scrollThread() {
-  // Keep the composer's subject in view: without this the new turn lands below
-  // the fold and the page looks like nothing happened.
   requestAnimationFrame(() => window.scrollTo({
     top: document.body.scrollHeight, behavior: 'smooth',
   }));
@@ -636,8 +812,6 @@ function addTurn(role, text) {
 }
 
 // --- icons -------------------------------------------------------------------
-// Signs, not sentences. Each action is recognisable by shape; the label lives in
-// the tooltip, where it costs no space.
 const ICON = {
   copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
   email: '<rect x="2.5" y="4.5" width="19" height="15" rx="2"/><path d="m3 6 9 6.5L21 6"/>',
@@ -650,8 +824,6 @@ function iconSvg(name) {
          'stroke-linecap="round" stroke-linejoin="round">' + (ICON[name] || '') + '</svg>';
 }
 
-// A compact action row under one answer. Each button acts on THAT answer's text,
-// not on whichever answer happened to be last.
 function renderAnswerActions(turn, q, text) {
   const row = document.createElement('div');
   row.className = 'answer-acts';
@@ -681,8 +853,8 @@ function renderAnswerActions(turn, q, text) {
 }
 
 // --- source documents --------------------------------------------------------
-// A citation you cannot open is an assertion. Clicking a source chip fetches the
-// document and shows it, with the cited passage highlighted.
+// A citation you cannot open is an assertion. Clicking a source chip fetches
+// the document and shows it, with the cited passage highlighted.
 let srcText = '';
 
 async function openSource(name, excerpt) {
@@ -705,15 +877,12 @@ async function openSource(name, excerpt) {
       (data.source === 'tenant' ? 'from your upload' : 'from the corpus') +
       ' · ' + srcText.length.toLocaleString() + ' chars';
 
-    // Highlight the cited passage so the claim can be checked at a glance.
     const needle = (excerpt || '').slice(0, 90).replace(/\s+/g, ' ').trim();
     const flat = srcText.replace(/\s+/g, ' ');
     const at = needle ? flat.toLowerCase().indexOf(needle.toLowerCase()) : -1;
 
     body.textContent = '';
     if (at >= 0) {
-      // Rebuild with the match marked. Offsets differ from the original because
-      // whitespace was collapsed, so search the collapsed form and mark by text.
       const before = document.createElement('span');
       before.textContent = srcText.slice(0, Math.max(0, at - 20));
       const mark = document.createElement('mark');
@@ -735,11 +904,8 @@ function closeSource() {
   srcText = '';
 }
 
-// --- suggestions, derived from the answer -----------------------------------
-// Not a fixed list. These are read out of the answer that was just given: the
-// people and organisations it names, the deadlines it mentions, and whether it
-// describes something that still needs approving or doing. A static list of
-// four questions cannot follow a conversation; these can.
+// --- suggestions, derived from the answer ------------------------------------
+// Not a fixed list. These are read out of the answer that was just given.
 function suggestFrom(text) {
   const clean_ = clean(text);
   const out = [];
@@ -751,7 +917,6 @@ function suggestFrom(text) {
     out.push({ label, question: question || label });
   };
 
-  // Action prompts first - these are the ones people actually want.
   if (/\b(approv|sign[- ]?off|signoff|authoris|authoriz|pending|awaiting)\b/i.test(clean_)) {
     push('Draft a mail about this', 'Draft a mail summarising this and what needs approving.');
   }
@@ -760,11 +925,7 @@ function suggestFrom(text) {
   }
   push('List the next steps', 'List the concrete next steps with an owner for each.');
 
-  // People named in the answer. Capitalised words that are not sentence starts.
   const people = new Set();
-  // Two capitalised words is not a person. "Component Action" and "Credit Policy"
-  // both match that shape, and a suggestion asking who they are is obviously
-  // wrong. Reject anything containing a business noun.
   const NOT_A_NAME = /\b(action|component|policy|credit|invoice|contract|agreement|renewal|outage|ticket|meeting|notes?|report|status|date|value|table|summary|issue|process|system|team|service|account|platform|review|approval|deadline|incident|handbook|matrix|threshold|ceiling|plan|draft|update|change|risk|impact|owner|role|step)\b/i;
   const LEADING = /^(The|This|That|These|Those|When|What|Where|Which|While|Their|There|Our|Your|Its|Both|Each|Some|Most|All|No|Not|And|But|For|From|With|Within|After|Before|During|Under|Over|Above|Below)$/;
   const re = /\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b/g;
@@ -780,7 +941,6 @@ function suggestFrom(text) {
     push('Who is ' + name + '?', 'What is ' + name + "'s role and what do they own?");
   });
 
-  // A verification prompt, which is the one a reader most often wants next.
   if (/\b(contract|policy|agreement|msa|handbook)\b/i.test(clean_)) {
     push('Check this against the policy', 'Does this comply with our policy, and which one governs it?');
   } else {
@@ -800,7 +960,6 @@ function renderSuggestions(turn, text) {
     b.type = 'button';
     b.textContent = it.label;
     b.title = it.question;
-    // Action chips drive the same generators as the panel; question chips ask.
     if (/^(Draft|List|Check)/.test(it.label)) b.classList.add('act-chip');
     b.addEventListener('click', () => {
       if (it.label === 'Draft a mail about this') {
@@ -838,11 +997,10 @@ function renderSources(turn, items) {
 }
 
 let IN_FLIGHT = false;
+let CONTROLLER = null;
 
 async function ask(q) {
-  // Re-entry guard. Submitting while an answer is still streaming interleaved
-  // the turns — the second question's user turn landed before the first
-  // question's bot turn, so the transcript read user, user, bot, bot.
+  // Re-entry guard: submitting while an answer streams interleaved the turns.
   if (IN_FLIGHT) return;
   IN_FLIGHT = true;
 
@@ -854,15 +1012,14 @@ async function ask(q) {
   TURNS.push({ role: 'user', text: q });
 
   input.value = '';
-  // The starter chips are only an entry point. Once a conversation starts they
-  // are stale - the answer-derived suggestions are the live ones.
   const starters = document.getElementById('chips');
   if (starters) starters.style.display = 'none';
   addTurn('user', q);
   const { bubble } = addTurn('bot', 'Searching the knowledge graph…');
   bubble.className = 'bubble placeholder';
 
-  bar.hidden = false; go.disabled = true; input.disabled = true;
+  setGo('stop');                          // send becomes stop
+  CONTROLLER = new AbortController();
   let text = '', sources = [], streaming = false;
 
   try {
@@ -870,7 +1027,7 @@ async function ask(q) {
     if (BRAIN) params.set('dataset', BRAIN);
     if (history) params.set('context', history);
 
-    const res = await fetch('/api/ask?' + params.toString());
+    const res = await fetch('/api/ask?' + params.toString(), { signal: CONTROLLER.signal });
     if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
 
     const reader = res.body.getReader();
@@ -889,7 +1046,7 @@ async function ask(q) {
         let ev; try { ev = JSON.parse(line); } catch { continue; }
 
         if (ev.type === 'chunk' || ev.chunk) {
-          if (!streaming) { streaming = true; bubble.className = 'bubble'; }
+          if (!streaming) { streaming = true; bubble.className = 'bubble streaming'; }
           text += (ev.text ?? ev.chunk);
           bubble.textContent = text;
         } else if (ev.type === 'references' && ev.items?.length) {
@@ -898,14 +1055,14 @@ async function ask(q) {
           bubble.className = 'bubble err';
           bubble.textContent = 'Something went wrong: ' + ev.message;
         } else if (ev.stage === 'done' && text) {
+          bubble.className = 'bubble rendered';
           bubble.innerHTML = renderMarkdown(text);
         }
       }
     }
 
-    // M5: whatever is left in `buf` is a final line that never got its newline.
-    // Dropping it loses the last event - including `done`, which is what turns
-    // the raw markdown into rendered markdown. Process the tail explicitly.
+    // M5: process the tail — a final line without its newline still carries
+    // `done`, which turns the raw markdown into rendered markdown.
     if (buf.trim()) {
       let ev; try { ev = JSON.parse(buf); } catch { ev = null; }
       if (ev) {
@@ -922,33 +1079,50 @@ async function ask(q) {
       bubble.textContent = 'No answer returned for that question.';
     } else {
       TURNS.push({ role: 'bot', text, sources });
+      bubble.className = 'bubble rendered';
+      bubble.innerHTML = renderMarkdown(text);
       renderSources(bubble.parentElement, sources);
-      // Actions on THIS answer, so a follow-up is actionable in place.
       renderAnswerActions(bubble.parentElement, q, text);
       renderSuggestions(bubble.parentElement, text);
       SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
       LAST = { q, text };
 
-      // The per-answer action row above is the only place these live. A separate
-      // panel repeating the same four controls was clutter.
-
-      // If the question asked for a mail, produce it there and then rather than
-      // making the user find the button. Copy and Open-in-mail come with it.
       if (DRAFT_INTENT.test(q)) {
         showDraft('email', 'Email draft');
         document.getElementById('draft').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
-      threadBar.style.display = 'flex';
+      barsub.hidden = false;
       turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
       saveHistory();
     }
   } catch (err) {
-    bubble.className = 'bubble err';
-    bubble.textContent = 'Could not reach the server: ' + err.message;
+    if (err.name === 'AbortError') {
+      // Stop pressed: keep the partial answer, honestly labelled.
+      if (text) {
+        text += '\n\n_(stopped.)_';
+        TURNS.push({ role: 'bot', text, sources });
+        bubble.className = 'bubble rendered';
+        bubble.innerHTML = renderMarkdown(text);
+        renderSources(bubble.parentElement, sources);
+        renderAnswerActions(bubble.parentElement, q, text);
+        renderSuggestions(bubble.parentElement, text);
+        SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
+        LAST = { q, text };
+        barsub.hidden = false;
+        turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
+        saveHistory();
+      } else {
+        bubble.className = 'bubble placeholder';
+        bubble.textContent = 'Stopped before any answer arrived.';
+      }
+    } else {
+      bubble.className = 'bubble err';
+      bubble.textContent = 'Could not reach the server: ' + err.message;
+    }
   } finally {
-    bar.hidden = true; go.disabled = false; input.disabled = false;
-    IN_FLIGHT = false;
-    input.focus();          // ready for the follow-up
+    IN_FLIGHT = false; CONTROLLER = null;
+    setGo(input.value.trim() ? 'ready' : 'idle');
+    input.focus();
   }
 }
 
@@ -975,14 +1149,8 @@ function download(name, body, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-document.getElementById('export-md')?.addEventListener('click', () =>
-  download('kestrel-conversation.md', transcript('md')));
-document.getElementById('export-txt')?.addEventListener('click', () =>
-  download('kestrel-conversation.txt', transcript('txt')));
-// --- Word and PDF export ---------------------------------------------------
-// Word: Word-compatible HTML saved as .doc. Word, Pages and Google Docs all open
-// it. (A true .docx is a ZIP archive - building one by hand is not worth the
-// risk, and this is honest about what it is.)
+// Word: Word-compatible HTML saved as .doc — Word, Pages and Google Docs all
+// open it. (A true .docx is a ZIP archive; this is honest about what it is.)
 function exportWord() {
   const md = transcript('md');
   const html = '<html xmlns:w="urn:schemas-microsoft-com:office:word"><head>' +
@@ -994,12 +1162,8 @@ function exportWord() {
   download('kestrel-conversation.doc', html, 'application/msword');
 }
 
-// PDF: the browser's own print-to-PDF, which is lossless and needs no library.
-//
-// Uses a hidden IFRAME, not window.open(). A popup is BLOCKED inside an embedded
-// preview or webview, where window.open returns null and the export silently
-// does nothing - the same failure mode as the native confirm() dialog. An iframe
-// is allowed everywhere.
+// PDF via a hidden IFRAME printing itself: window.open is blocked inside
+// embedded previews and webviews, an iframe is allowed everywhere.
 function exportPdf() {
   const md = transcript('md');
 
@@ -1021,21 +1185,16 @@ function exportPdf() {
     '<pre>' + escapeHtml(md) + '</pre>');
   doc.close();
 
-  // Give the frame a moment to lay out, then print. Removed afterwards so the
-  // DOM does not accumulate a hidden frame per export.
   setTimeout(() => {
     try {
       frame.contentWindow.focus();
       frame.contentWindow.print();
     } catch (err) {
-      const bar = document.getElementById('threadbar');
-      if (bar) {
-        const note = document.createElement('span');
-        note.className = 'count';
-        note.textContent = 'PDF blocked here - use Word or Markdown instead';
-        bar.appendChild(note);
-        setTimeout(() => note.remove(), 4000);
-      }
+      const n = document.createElement('span');
+      n.className = 'count';
+      n.textContent = 'PDF blocked here - use Word or Markdown instead';
+      document.querySelector('.bar-menu-row').appendChild(n);
+      setTimeout(() => n.remove(), 4000);
     }
     setTimeout(() => frame.remove(), 2000);
   }, 400);
@@ -1055,10 +1214,36 @@ document.getElementById('src-copy')?.addEventListener('click', async e => {
   setTimeout(() => { e.target.textContent = 'Copy'; }, 1200);
 });
 
+document.getElementById('export-md')?.addEventListener('click', () =>
+  download('kestrel-conversation.md', transcript('md')));
+document.getElementById('export-txt')?.addEventListener('click', () =>
+  download('kestrel-conversation.txt', transcript('txt')));
 document.getElementById('export-docx')?.addEventListener('click', exportWord);
 document.getElementById('export-pdf')?.addEventListener('click', exportPdf);
+QUICK_MD?.addEventListener('click', () => download('kestrel-conversation.md', transcript('md')));
+document.getElementById('copy-transcript')?.addEventListener('click', async e => {
+  await copyText(transcript('md'));
+  e.target.textContent = 'Copied ✓';
+  setTimeout(() => { e.target.textContent = 'Copy transcript'; }, 1300);
+});
 
-document.getElementById('clear-chat')?.addEventListener('click', () => {
+CLEAR_BTN?.addEventListener('click', () => {
+  // Two-step: the first click arms, the second clears. A destructive control
+  // that fires on one click sits too close to everything else.
+  if (CLEAR_BTN.dataset.armed !== '1') {
+    CLEAR_BTN.dataset.armed = '1';
+    CLEAR_BTN.textContent = 'Really clear?';
+    CLEAR_BTN.classList.add('armed');
+    setTimeout(() => {
+      CLEAR_BTN.dataset.armed = '0';
+      CLEAR_BTN.textContent = 'Clear';
+      CLEAR_BTN.classList.remove('armed');
+    }, 3500);
+    return;
+  }
+  CLEAR_BTN.dataset.armed = '0';
+  CLEAR_BTN.textContent = 'Clear';
+  CLEAR_BTN.classList.remove('armed');
   TURNS.length = 0;
   try {
     // Remove only this conversation. Wiping every chat would be a surprising
@@ -1067,16 +1252,16 @@ document.getElementById('clear-chat')?.addEventListener('click', () => {
     localStorage.setItem(CHATS_KEY, JSON.stringify(rest));
   } catch (e) {}
   threadEl.innerHTML = '<div class="placeholder" id="empty">Ask a question to start. Follow-ups keep the thread.</div>';
-  threadBar.style.display = 'none';
+  barsub.hidden = true;
   document.getElementById('draft').style.display = 'none';
 });
 
 
-// --- actionable layer ----------------------------------------------------
+// --- actionable layer --------------------------------------------------------
 // The answer alone is read-only. These turn it into something the user can act
 // on immediately: a mail they can paste into Gmail, the next steps, and a short
-// update for a chat thread. Generated locally so there is no second wait and no
-// second failure mode.
+// update for a chat thread. Generated locally so there is no second wait and
+// no second failure mode.
 let LAST = { q: '', text: '' };
 
 function clean(text) {
@@ -1085,10 +1270,10 @@ function clean(text) {
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/^\s*[-*]\s+/gm, '• ')
     .replace(/^#{1,4}\s+/gm, '')
-    // Drop table separator rows (|---|---|) entirely. Flattening them to text
-    // leaves a stray "--- ---" line that reads as a typo in an email.
-    // [ \t] rather than \s at the line ends: \s also matches the newline, which
-    // silently glued the header row to the first data row.
+    // Drop table separator rows entirely; flattening them leaves a stray
+    // "--- ---" line that reads as a typo in an email. [ \t] rather than \s
+    // at the line ends: \s also matches the newline, which silently glued the
+    // header row to the first data row.
     .replace(/^[ \t]*\|[\s:|-]+\|[ \t]*$/gm, '')
     .replace(/^[ \t]*\|.*\|[ \t]*$/gm, m => m.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim())
     .replace(/\n{3,}/g, '\n\n')
@@ -1096,27 +1281,20 @@ function clean(text) {
 }
 
 function sentences(text) {
-  // Collapse newlines first. The model hard-wraps its output, so splitting the
-  // raw text produced fragments ("Bluepeak's procurement now") that duplicated
-  // the properly-merged bullet they came from.
+  // Collapse newlines first: the model hard-wraps its output, so splitting the
+  // raw text produced fragments that duplicated properly-merged bullets.
   return clean(text).replace(/\n+/g, ' ').split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
 }
 
 function nextSteps(text) {
-  // Prefixes, NOT whole words. `\bneed\b` does not match "needs" and
-  // `\brequire\b` does not match "requires", so the old pattern missed almost
-  // every real action and an answer with three actions yielded one step.
+  // Prefixes, NOT whole words: \bneed\b does not match "needs", so the old
+  // pattern missed almost every real action.
   const ACT = /\b(must|need|should|requir|approv|sign|escalat|notif|confirm|clos|correct|review|draft|prepar|send|flag|remediat|follow up|blocked|slip|owed|due)/i;
   const DATE = /\b(\d{1,2}\s+\w+\s+\d{4}|\d{4}-\d{2}-\d{2}|by \w+day|within \d+|before \d)/i;
 
-  // Bullets first: in practice these ARE the actionable lines, and
-  // sentence-splitting alone missed most of them (a list of three actions
-  // yielded one step).
-  //
-  // The model hard-wraps its output, so a bullet's text continues on the next
-  // line with no marker. Treating every line as a candidate produced fragments
-  // like "above 20% requires CFO sign-off" — so merge continuations back into
-  // the bullet they belong to before scoring anything.
+  // Bullets first: in practice these ARE the actionable lines. The model
+  // hard-wraps its output, so merge wrapped continuations back into the bullet
+  // they belong to before scoring anything.
   const flat = clean(text);
   const merged = [];
   for (const line of flat.split('\n')) {
@@ -1125,10 +1303,8 @@ function nextSteps(text) {
     const bullet = line.match(/^\s*(?:•|\d+[.)])\s+(.*)$/);
     if (bullet) { merged.push(bullet[1].trim()); continue; }
 
-    // Only a genuine wrapped continuation is merged: the previous entry has not
-    // ended its sentence AND this line starts lowercase. Without both checks a
-    // heading or a following paragraph gets swallowed into one huge bullet,
-    // which then fails the length filter and disappears.
+    // Only a genuine wrapped continuation is merged: the previous entry has
+    // not ended its sentence AND this line starts lowercase.
     const prev = merged[merged.length - 1];
     const prevEndsSentence = prev && /[.!?:]$/.test(prev);
     if (prev && !prevEndsSentence && /^[a-z]/.test(t)) {
@@ -1145,8 +1321,7 @@ function nextSteps(text) {
   const candidates = [];
   for (const c of [...bullets, ...sents]) {
     // Containment, not just equality: a bullet and the sentence inside it are
-    // the same action, and their prefixes differ, so a prefix-keyed Set let
-    // both through and the list showed the same action twice.
+    // the same action, and their prefixes differ.
     const norm = c.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (norm.length < 20) continue;
     if (seen.some(prev => prev.includes(norm) || norm.includes(prev))) continue;
@@ -1170,7 +1345,6 @@ function buildDraft(kind, q, text, sources) {
   if (kind === 'chat') {
     return `*Update — ${q}*\n\n${body}\n\n_Sources: ${src}_`;
   }
-  // email
   return [
     `Subject: ${q}`,
     '',
@@ -1205,8 +1379,6 @@ function showDraft(kind, label, q, text) {
   draftBody.scrollTop = 0;
 }
 
-// The panel is built into whichever element is passed, so it can live inside the
-// first answer instead of at the end of the page.
 async function copyText(value) {
   try {
     await navigator.clipboard.writeText(value);
@@ -1228,14 +1400,169 @@ document.getElementById('copybtn').addEventListener('click', async e => {
 restoreHistory();
 
 document.getElementById('mailbtn').addEventListener('click', () => {
-  // Opens the user's mail client with the draft pre-filled — the "paste into
-  // Gmail" path without making them copy anything manually.
+  // Opens the user's mail client with the draft pre-filled.
   const text = draftBody.value;
   const subject = (text.match(/^Subject:\s*(.*)$/m) || [])[1] || LAST.q;
   const body = text.replace(/^Subject:.*\n?/m, '');
   window.location.href = 'mailto:?subject=' + encodeURIComponent(subject) +
                          '&body=' + encodeURIComponent(body);
 });
+
+// ---------------------------------------------------------------------------
+// Add documents to the CURRENT brain, from the chat. Uses the exact APIs the
+// upload page uses: POST /api/brains (append=true) then the /events NDJSON
+// stream for pipeline progress. No backend changes.
+// ---------------------------------------------------------------------------
+const filesSheet = document.getElementById('files-sheet');
+const fileInput  = document.getElementById('file-input');
+const drop2      = document.getElementById('drop2');
+const fileList   = document.getElementById('filelist');
+const pipelineEl = document.getElementById('pipeline');
+const filesDone  = document.getElementById('files-done');
+const filesGo    = document.getElementById('files-go');
+const filesNotice = document.getElementById('files-notice');
+let picked = [];
+
+const SUPPORTED_HINT = /\.(txt|md|csv|json|pdf|docx|py|js|ts|jsx|tsx|java|go|rs|c|cpp|h|hpp|sh|sql|yaml|yml|toml|ini|cfg|html|css)$/i;
+const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_FILES = 40;
+
+function openFilesSheet() {
+  document.getElementById('files-target').textContent =
+    'into ' + (BRAIN || 'the demo brain (read-only)');
+  filesNotice.hidden = !!BRAIN;
+  if (!BRAIN) filesNotice.textContent =
+    'The demo brain is read-only. Create a brain from "New brain" (sidebar), then add files from its chat.';
+  filesGo.disabled = true;
+  filesDone.textContent = '';
+  pipelineEl.textContent = '';
+  fileList.innerHTML = '';
+  filesSheet.hidden = false;
+}
+document.getElementById('addfile').addEventListener('click', openFilesSheet);
+document.getElementById('files-close').addEventListener('click', () => { filesSheet.hidden = true; });
+filesSheet.addEventListener('click', e => { if (e.target.id === 'files-sheet') filesSheet.hidden = true; });
+
+drop2.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => { addPicked(fileInput.files); fileInput.value = ''; });
+['dragover', 'dragenter'].forEach(ev => drop2.addEventListener(ev, e => {
+  e.preventDefault(); drop2.classList.add('over');
+}));
+['dragleave', 'drop'].forEach(ev => drop2.addEventListener(ev, e => {
+  e.preventDefault(); drop2.classList.remove('over');
+}));
+drop2.addEventListener('drop', e => addPicked(e.dataTransfer.files));
+
+function addPicked(list) {
+  for (const f of list) {
+    if (picked.length >= MAX_FILES) { fileNote('Only the first ' + MAX_FILES + ' files are used.', 'warn'); break; }
+    if (f.size > MAX_BYTES) { fileNote(f.name + ' is over the 5 MB limit.', 'bad'); continue; }
+    if (!SUPPORTED_HINT.test(f.name)) { fileNote(f.name + ' — unsupported format.', 'bad'); continue; }
+    if (picked.some(p => p.name === f.name && p.size === f.size)) continue;
+    picked.push(f);
+  }
+  renderPicked();
+}
+
+function fileNote(text, cls) {
+  const li = document.createElement('li');
+  li.className = cls || '';
+  const st = document.createElement('span');
+  st.className = 'st';
+  st.textContent = text;
+  li.appendChild(st);
+  fileList.appendChild(li);
+}
+
+function renderPicked() {
+  fileList.innerHTML = '';
+  picked.forEach(f => {
+    const li = document.createElement('li');
+    const nm = document.createElement('span');
+    nm.textContent = f.name;
+    const st = document.createElement('span');
+    st.className = 'st';
+    st.textContent = (f.size / 1024).toFixed(0) + ' KB';
+    li.append(nm, st);
+    fileList.appendChild(li);
+  });
+  filesGo.disabled = !picked.length || !BRAIN;
+}
+
+filesGo.addEventListener('click', async () => {
+  if (!picked.length || !BRAIN) return;
+  filesGo.disabled = true;
+  filesDone.textContent = '';
+  pipelineEl.textContent = 'uploading ' + picked.length + ' file(s)…';
+
+  const fd = new FormData();
+  fd.append('name', BRAIN);
+  fd.append('append', 'true');
+  picked.forEach(f => fd.append('files', f));
+
+  try {
+    const res = await fetch('/api/brains', { method: 'POST', body: fd });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // The API's own refusal messages are the honest ones — surface verbatim.
+      pipelineEl.textContent = '';
+      filesDone.textContent = data.detail || ('HTTP ' + res.status);
+      filesGo.disabled = false;
+      return;
+    }
+    renderPicked();
+    (data.ingested || []).forEach(r => {
+      const li = [...fileList.children].find(l => l.firstChild?.textContent === r.name);
+      if (li) { li.classList.add(r.ok ? 'ok' : 'bad');
+                li.querySelector('.st').textContent = r.ok ? 'added' : (r.error || 'failed'); }
+    });
+    (data.skipped || []).forEach(r => fileNote(r.name + ' — ' + (r.error || 'skipped'), 'bad'));
+
+    if (data.ok || data.partial) {
+      pipelineEl.textContent = 'building the knowledge graph…';
+      await streamPipeline(BRAIN);
+      filesDone.textContent =
+        (data.appended ? 'Added to “' + BRAIN + '”' : 'Brain “' + BRAIN + '” updated') +
+        ' — ' + data.documents + ' document(s) in this brain. Ask away.';
+      picked = [];
+    } else {
+      pipelineEl.textContent = '';
+      filesDone.textContent = 'None of the files could be ingested.';
+      filesGo.disabled = false;
+    }
+  } catch (err) {
+    pipelineEl.textContent = '';
+    filesDone.textContent = 'Could not reach the server: ' + err.message;
+    filesGo.disabled = false;
+  }
+});
+
+async function streamPipeline(name) {
+  // Same NDJSON shape as /api/ask; reflects real pipeline states until the
+  // dataset reaches a terminal one (or the sheet closes).
+  try {
+    const res = await fetch('/api/brains/' + encodeURIComponent(name) + '/events?timeout_s=600');
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let ev; try { ev = JSON.parse(line); } catch { continue; }
+        if (ev.stage === 'poll') pipelineEl.textContent = ev.state || 'processing…';
+        else if (ev.stage === 'ready') { pipelineEl.textContent = 'pipeline complete ✓'; return; }
+        else if (ev.stage === 'failed') { pipelineEl.textContent = 'pipeline failed: ' + (ev.detail || ''); return; }
+        else if (ev.stage === 'timeout') { pipelineEl.textContent = 'still building — check back in a minute.'; return; }
+        else if (ev.stage === 'error') { pipelineEl.textContent = 'error: ' + ev.message; return; }
+      }
+    }
+  } catch (e) { /* sheet closed or network dropped - the pipeline continues server-side */ }
+}
 </script>
 <script src="/static/shell.js"></script>
 </body>

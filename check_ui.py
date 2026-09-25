@@ -29,7 +29,7 @@ PAGES = ["/", "/graph", "/brains", "/upload"]
 
 # Buttons that would mutate state or navigate away. Clicking them is either
 # destructive or leaves the page, so they are exercised by hand instead.
-SKIP_CLICK = ("Delete", "Clear", "Export", "Plain text", "New brain", "switch brain", "Choose files", "Browse", "Select")
+SKIP_CLICK = ("Delete", "Clear", "Export", "Plain text", "New brain", "switch brain", "Choose files", "Browse", "Select", "Demo", "Add doc")
 
 FAILED: list[str] = []
 
