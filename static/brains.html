@@ -14,15 +14,20 @@
   main { max-width:820px; margin:0 auto; padding:48px 24px 64px; }
 
   header { margin-bottom:26px; }
-  h1 { font-size:24px; font-weight:650; margin:0 0 6px; letter-spacing:-.01em; }
-  h1 .mark { color:var(--accent); margin-right:8px; }
+  h1 { font-family:var(--serif); font-size:28px; font-weight:590; margin:0 0 8px;
+         letter-spacing:-.022em; line-height:1.12; }
+  h1 .mark { display:none; }
+  header::before { content:"Workspace"; display:block; font-size:10.5px; font-weight:650;
+         letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin:0 0 12px; }
   p.sub { color:var(--muted); margin:0; font-size:14.5px; max-width:64ch; }
 
   .acts .del.armed { color:var(--bad); border-color:var(--bad); font-weight:600; }
 
   .actions { margin:22px 0 26px; }
   .btn { display:inline-block; padding:11px 20px; border-radius:9px; border:0;
-         background:var(--accent); color:#08111f; font-weight:640; font-size:14px;
+         background:linear-gradient(180deg, var(--accent-2), var(--accent));
+         color:var(--accent-ink); font-weight:650; font-size:14px;
+         box-shadow:0 1px 0 rgba(255,255,255,.35) inset, 0 4px 14px rgba(226,164,74,.18);
          text-decoration:none; cursor:pointer; }
   .btn:hover { opacity:.9; text-decoration:none; }
   .btn.ghost { background:transparent; color:var(--muted);
@@ -40,7 +45,7 @@
         word-break:break-all; }
   .badge { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:999px;
            font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
-           background:var(--accent-dim); color:#cfe0ff; vertical-align:middle; }
+           background:var(--accent-dim); color:var(--accent-2); vertical-align:middle; }
   .stats { color:var(--muted); font-size:12.5px; margin-top:4px; }
   .acts { display:flex; gap:8px; flex-wrap:wrap; }
   .acts a, .acts button { padding:8px 14px; border-radius:8px; font-size:13px;
