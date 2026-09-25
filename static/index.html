@@ -10,73 +10,73 @@
 * { box-sizing:border-box; }
   main { max-width:800px; margin:0 auto; padding:40px 24px 64px; }
 
-  /* ---- hero: overline + serif display, no ornament ---------------------- */
+  /* ---- hero ---------------------------------------------------------------- */
   header { margin-bottom:34px; }
   header::before {
     content:"Company Brain"; display:block;
-    font-size:10.5px; font-weight:650; letter-spacing:.18em; text-transform:uppercase;
+    font-size:10px; font-weight:700; letter-spacing:.19em; text-transform:uppercase;
     color:var(--accent); margin:0 0 12px;
   }
-  h1 { font-family:var(--serif); font-size:34px; font-weight:590; margin:0 0 12px;
-       letter-spacing:-.024em; line-height:1.08; }
+  h1 { font-family:var(--serif); font-size:36px; font-weight:560; margin:0 0 12px;
+       letter-spacing:-.024em; line-height:1.06; }
   h1 .mark { display:none; }
   p.sub { color:var(--muted); margin:0; font-size:15px; max-width:56ch; line-height:1.65; }
 
   .brainbar { display:flex; align-items:center; gap:10px; margin-top:20px;
-              padding:8px 6px 10px; border-bottom:1px solid var(--line);
+              padding:8px 2px 10px; border-bottom:1px solid var(--line);
               font-size:12.5px; }
   .brainbar[hidden] { display:none; }
-  .brainbar .tag { color:var(--muted-2); font-weight:650; letter-spacing:.12em;
+  .brainbar .tag { color:var(--muted-2); font-weight:700; letter-spacing:.12em;
                    text-transform:uppercase; font-size:9.5px; }
   .bname { color:var(--accent); font-family:var(--mono); font-size:12px; }
   .brainbar a { margin-left:auto; color:var(--muted); border:0; }
   .brainbar a:hover { color:var(--fg); }
 
-  /* ---- composer: one floating command bar --------------------------------
-     Pinned to the bottom; a follow-up must be typeable without scrolling back
-     up past the conversation. */
+  /* ---- composer: cream command bar, ink button ----------------------------- */
   form { display:flex; gap:10px; position:fixed; left:var(--sb-w); right:0; bottom:0;
          z-index:35; margin:0; padding:26px 44px 20px;
-         background:linear-gradient(180deg, rgba(10,11,13,0), var(--bg) 42%);
+         background:linear-gradient(180deg, rgba(250,249,246,0), var(--bg) 42%);
          backdrop-filter:blur(10px); }
   form .field { flex:1; max-width:772px; margin:0 auto; display:flex; gap:10px;
                 align-items:center; padding:6px 6px 6px 18px;
                 border-radius:14px; border:1px solid var(--line-2);
-                background:linear-gradient(180deg, var(--panel-2), var(--panel));
-                box-shadow:var(--shadow);
+                background:var(--panel);
+                box-shadow:0 1px 2px rgba(28,25,23,.05), 0 10px 30px rgba(28,25,23,.08);
                 transition:border-color .18s ease, box-shadow .18s ease; }
   form .field:focus-within { border-color:var(--accent-soft);
-                box-shadow:var(--shadow), 0 0 0 4px var(--accent-glow); }
+                box-shadow:0 1px 2px rgba(28,25,23,.05), 0 10px 30px rgba(28,25,23,.08), 0 0 0 4px var(--accent-glow); }
   body { padding-bottom:110px; }
   input { flex:1; padding:13px 4px; border:0; background:transparent; color:var(--fg);
           font-size:15px; outline:none; }
   input:focus { border:0; box-shadow:none; }
   input::placeholder { color:var(--muted-2); }
-  button { padding:11px 22px; border-radius:10px; border:0;
-           background:linear-gradient(180deg, var(--accent-2), var(--accent));
-           color:var(--accent-ink); font-weight:650; font-size:14px; cursor:pointer;
+  button { padding:11px 24px; border-radius:10px; border:0;
+           background:var(--btn-ink);
+           color:#faf9f6; font-weight:600; font-size:14px; cursor:pointer;
            letter-spacing:-.01em; white-space:nowrap;
-           box-shadow:0 1px 0 rgba(255,255,255,.35) inset, 0 4px 14px rgba(226,164,74,.18);
-           transition:transform .12s ease, filter .15s ease; }
-  button:hover:not(:disabled) { filter:brightness(1.07); }
+           box-shadow:0 1px 2px rgba(28,25,23,.25);
+           transition:transform .12s ease, opacity .15s ease; }
+  button:hover:not(:disabled) { opacity:.85; }
   button:active:not(:disabled) { transform:translateY(1px); }
   button:disabled { opacity:.45; cursor:default; }
 
-  /* ---- starter prompts: quiet cards, not pills --------------------------- */
-  .chips { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:18px; }
-  .chip { padding:14px 16px 13px; border-radius:var(--radius-sm); border:1px solid var(--line);
+  /* ---- starter prompts: white cards on paper -------------------------------- */
+  .chips { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:10px; margin-top:20px; }
+  .chip { min-width:0; padding:14px 34px 13px 16px; border-radius:var(--radius-sm);
+          border:1px solid var(--line-2);
           background:var(--panel); color:var(--fg-2); font-size:13.5px; cursor:pointer;
-          text-align:left; line-height:1.5;
-          transition:border-color .16s ease, color .16s ease, background .16s ease;
+          text-align:left; line-height:1.5; box-shadow:0 1px 2px rgba(28,25,23,.04);
+          transition:border-color .16s ease, transform .16s ease, box-shadow .16s ease;
           position:relative; }
-  .chip::after { content:"→"; position:absolute; right:14px; top:14px;
-                 color:var(--muted-2); font-size:13px; transition:color .16s ease, transform .16s ease; }
-  .chip:hover { border-color:var(--accent-soft); background:var(--panel-2); color:var(--fg); }
+  .chip::after { content:"→"; position:absolute; right:14px; top:13px;
+                 color:var(--muted-2); font-size:13px; transition:all .16s ease; }
+  .chip:hover { border-color:var(--accent-soft); transform:translateY(-1px);
+                box-shadow:0 3px 10px rgba(28,25,23,.08); color:var(--fg); }
   .chip:hover::after { color:var(--accent); transform:translateX(2px); }
 
-  section { margin-top:34px; }
-  .label { font-size:10px; font-weight:650; letter-spacing:.15em; text-transform:uppercase;
-           color:var(--muted-2); margin-bottom:9px; }
+  section { margin-top:36px; }
+  .label { font-size:10px; font-weight:700; letter-spacing:.15em; text-transform:uppercase;
+           color:var(--muted); margin-bottom:9px; }
 
   #answer { padding:4px 0; border:0; background:none; box-shadow:none; min-height:60px;
             font-size:16px; line-height:1.75; }
@@ -85,91 +85,88 @@
   .placeholder { color:var(--muted-2); font-size:14px; }
   .err { color:var(--bad); }
 
-  /* ---- thread: an editorial transcript, not chat bubbles -----------------
-     The answer IS the page; a box around it would say "widget". User turns sit
-     quiet and small above each answer. */
+  /* ---- thread: the answer is a document ------------------------------------- */
   #thread { display:flex; flex-direction:column; gap:0; max-width:72ch; }
   .turn { display:flex; flex-direction:column; gap:10px; }
-  .turn + .turn { margin-top:30px; }
-  .turn.bot { padding-top:26px; border-top:1px solid var(--line); }
-  .turn .who { font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+  .turn + .turn { margin-top:32px; }
+  .turn.bot { padding-top:28px; border-top:1px solid var(--line); }
+  .turn .who { font-size:9.5px; letter-spacing:.17em; text-transform:uppercase;
                font-weight:700; color:var(--muted-2); display:flex; align-items:center; gap:8px; }
-  .turn.user .who { color:var(--muted-2); }
-  .turn.bot .who::before { content:""; width:14px; height:1px;
+  .turn.bot .who::before { content:""; width:14px; height:1.5px;
                background:var(--accent); display:inline-block; }
-  .turn.user .bubble { font-size:16.5px; color:var(--fg); font-weight:480;
-               font-family:var(--serif); letter-spacing:-.008em; line-height:1.45; }
-  .turn.bot .bubble { font-size:15.5px; line-height:1.78; color:var(--fg-2); }
-  /* while streaming, raw text; then rendered markdown */
+  .turn.user .bubble { font-size:20px; color:var(--fg); font-weight:540;
+               font-family:var(--serif); letter-spacing:-.014em; line-height:1.35; }
+  .turn.bot .bubble { font-size:15.5px; line-height:1.8; color:#292524; }
   .turn.bot .bubble:not(.rendered) { white-space:pre-wrap; }
   .turn.bot .bubble.rendered { white-space:normal; }
   .turn.bot .bubble h3, .turn.bot .bubble h4, .turn.bot .bubble h5 {
-               margin:22px 0 8px; font-size:14px; font-weight:650; color:var(--fg);
+               margin:24px 0 8px; font-size:14px; font-weight:650; color:var(--fg);
                letter-spacing:.01em; font-family:var(--sans); }
   .turn.bot .bubble > *:first-child { margin-top:0; }
-  .turn.bot .bubble p { margin:0 0 11px; }
+  .turn.bot .bubble p { margin:0 0 12px; }
   .turn.bot .bubble p:last-child { margin-bottom:0; }
   .turn.bot .bubble ul, .turn.bot .bubble ol { margin:0 0 12px; padding-left:20px; }
   .turn.bot .bubble li { margin:5px 0; }
-  .turn.bot .bubble li::marker { color:var(--accent-soft); }
-  .turn.bot .bubble strong { color:#fff; font-weight:640; }
+  .turn.bot .bubble li::marker { color:var(--accent); }
+  .turn.bot .bubble strong { color:var(--fg); font-weight:640; }
   .turn.bot .bubble code { background:var(--panel-2); padding:1px 5px; border-radius:4px;
-               font-size:13px; font-family:var(--mono); }
+               font-size:13px; font-family:var(--mono); border:1px solid var(--line); }
   .turn.bot .bubble table { width:100%; border-collapse:collapse; margin:12px 0 16px;
-               font-size:13px; border:1px solid var(--line); border-radius:8px; }
-  .turn.bot .bubble th, .turn.bot .bubble td { border-bottom:1px solid var(--line);
-               padding:8px 12px; text-align:left; vertical-align:top; }
-  .turn.bot .bubble th { background:var(--panel-2); font-weight:620; color:var(--fg);
-               border-bottom:1px solid var(--line-2); }
-  .turn.bot .bubble td { color:var(--muted); }
+               font-size:13px; }
+  .turn.bot .bubble th, .turn.bot .bubble td { border-bottom:1px solid var(--line-2);
+               padding:9px 12px; text-align:left; vertical-align:top; }
+  .turn.bot .bubble th { font-weight:650; color:var(--muted);
+               font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; }
+  .turn.bot .bubble td { color:var(--fg-2); }
   .turn.bot .bubble tr:last-child td { border-bottom:0; }
 
-  /* ---- sources: quiet, monospace, openable -------------------------------- */
-  .turn .srcs { display:flex; flex-wrap:wrap; gap:6px; }
+  /* ---- sources: white cards, openable --------------------------------------- */
+  .turn .srcs { display:flex; flex-wrap:wrap; gap:7px; }
   .turn .srcs span, .turn .srcs button {
-    font-size:11px; color:var(--muted); background:var(--panel);
-    border:1px solid var(--line); padding:4px 10px; border-radius:6px;
+    font-size:11.5px; color:var(--fg-2); background:var(--panel);
+    border:1px solid var(--line-2); padding:5px 11px; border-radius:7px;
     cursor:pointer; transition:all .15s ease;
-    font-family:var(--mono);
+    font-family:var(--mono); box-shadow:0 1px 2px rgba(28,25,23,.04);
   }
-  .turn .srcs button:hover { color:var(--accent-2); border-color:var(--accent-soft);
-                             background:var(--accent-dim); }
+  .turn .srcs button:hover { color:var(--accent); border-color:var(--accent-soft);
+                             transform:translateY(-1px); }
 
-  /* ---- per-answer actions: appear on approach, never shout ---------------- */
-  .answer-acts { display:flex; flex-wrap:wrap; gap:5px; margin-top:14px;
+  /* ---- per-answer actions ---------------------------------------------------- */
+  .answer-acts { display:flex; flex-wrap:wrap; gap:5px; margin-top:16px;
                  padding-top:12px; border-top:1px solid var(--line);
-                 opacity:.45; transition:opacity .18s ease; }
+                 opacity:.55; transition:opacity .18s ease; }
   .turn:hover .answer-acts, .answer-acts:focus-within { opacity:1; }
   .answer-acts button {
     display:inline-flex; align-items:center; justify-content:center;
     width:30px; height:30px; padding:0; border-radius:8px;
     border:1px solid transparent; background:transparent; color:var(--muted);
     cursor:pointer; transition:all .15s ease;
+    box-shadow:none;
   }
   .answer-acts button svg { width:15px; height:15px; }
   .answer-acts button:hover { color:var(--fg); border-color:var(--line-2);
                               background:var(--panel-2); }
   .answer-acts button.copied { color:var(--good); border-color:var(--good); }
 
-  /* ---- follow-ups: ghost prompts with an arrow ---------------------------- */
-  .followups { display:flex; flex-wrap:wrap; gap:4px 18px; margin-top:13px; }
+  /* ---- follow-ups: ink ghost prompts ----------------------------------------- */
+  .followups { display:flex; flex-wrap:wrap; gap:4px 18px; margin-top:14px; }
   .followups button {
     padding:5px 0; border:0; background:none; color:var(--muted); font-size:13px;
     cursor:pointer; text-align:left; transition:color .15s ease; max-width:100%;
+    box-shadow:none;
   }
   .followups button::after { content:"→"; margin-left:7px; color:var(--muted-2);
-                             transition:color .15s ease, transform .15s ease;
-                             display:inline-block; }
+                             transition:all .15s ease; display:inline-block; }
   .followups button:hover { color:var(--fg); }
   .followups button:hover::after { color:var(--accent); transform:translateX(2px); }
-  .followups button.act-chip { color:var(--accent-soft); }
+  .followups button.act-chip { color:var(--accent); }
   .followups button.act-chip:hover { color:var(--accent-2); }
 
-  /* ---- source modal ------------------------------------------------------- */
+  /* ---- source modal: light sheet ---------------------------------------------- */
   #source-modal {
     position:fixed; inset:0; z-index:80; display:flex;
     align-items:center; justify-content:center; padding:40px 24px;
-    background:rgba(5,6,8,.7); backdrop-filter:blur(6px);
+    background:rgba(28,25,23,.4); backdrop-filter:blur(6px);
   }
   #source-modal[hidden] { display:none; }
   #source-modal .sheet {
@@ -184,11 +181,12 @@
   #source-modal .head .nm {
     font-family:var(--mono); font-size:12.5px; color:var(--fg); font-weight:600;
   }
-  #source-modal .head .where { font-size:11px; color:var(--muted-2); }
+  #source-modal .head .where { font-size:11px; color:var(--muted); }
   #source-modal .head .sp { margin-left:auto; display:flex; gap:8px; }
   #source-modal .head button {
     padding:6px 13px; border-radius:var(--radius-xs); border:1px solid var(--line-2);
-    background:transparent; color:var(--fg-2); font-size:12px; cursor:pointer;
+    background:var(--panel); color:var(--fg-2); font-size:12px; cursor:pointer;
+    box-shadow:none;
   }
   #source-modal .head button:hover { border-color:var(--line-3); color:var(--fg); }
   #source-modal pre {
@@ -197,23 +195,24 @@
     color:var(--fg-2); white-space:pre-wrap; word-break:break-word;
   }
   #source-modal mark {
-    background:rgba(226,164,74,.22); color:#ffe9c4;
+    background:rgba(217,119,6,.18); color:#7c3a02;
     border-radius:3px; padding:1px 2px;
   }
   #source-modal .state { padding:22px; color:var(--muted); font-size:13.5px; }
 
-  /* ---- threadbar: glass export cluster ------------------------------------ */
+  /* ---- threadbar: paper glass -------------------------------------------------- */
   #threadbar {
     display:none; position:fixed; top:16px; right:24px; z-index:36;
-    align-items:center; gap:5px;
-    padding:6px 8px; border-radius:10px;
-    background:rgba(17,18,22,.78); border:1px solid var(--line);
+    align-items:center; gap:4px;
+    padding:5px 7px; border-radius:10px;
+    background:rgba(255,255,255,.82); border:1px solid var(--line-2);
     backdrop-filter:blur(14px); box-shadow:var(--shadow);
   }
   #threadbar button.mini {
     min-width:38px; padding:7px 10px; border-radius:7px; border:0;
     background:transparent; color:var(--muted); cursor:pointer; white-space:nowrap;
     font:600 10.5px/1 var(--mono); letter-spacing:.08em; transition:all .15s ease;
+    box-shadow:none;
   }
   #threadbar button.mini:hover { background:var(--panel-3); color:var(--fg); }
   #threadbar .count {
@@ -225,25 +224,26 @@
                  background:none; border:0; box-shadow:none; padding:0; backdrop-filter:none; }
   }
 
-  /* ---- draft box ----------------------------------------------------------- */
+  /* ---- draft box ----------------------------------------------------------------- */
   #draft { display:none; margin-top:30px; }
   #draft .box { border:1px solid var(--line-2); border-radius:var(--radius);
                 background:var(--panel); overflow:hidden; box-shadow:var(--shadow); }
   #draft .head { display:flex; align-items:center; gap:9px; padding:11px 14px;
                  border-bottom:1px solid var(--line); background:var(--panel-2); }
-  #draft .head strong { font-size:12px; letter-spacing:.1em; text-transform:uppercase;
-                        color:var(--muted); font-weight:650; }
+  #draft .head strong { font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+                        color:var(--muted); font-weight:700; }
   #draft .head .sp { margin-left:auto; display:flex; gap:7px; }
-  #draft button.mini { padding:6px 12px; border-radius:var(--radius-xs); border:1px solid var(--line-2);
-                       background:transparent; color:var(--fg-2); font-size:12px;
-                       cursor:pointer; transition:all .15s ease; }
-  #draft button.mini:hover { border-color:var(--line-3); background:var(--panel-2); color:var(--fg); }
+  #draft button.mini { padding:6px 12px; border-radius:var(--radius-xs);
+                       border:1px solid var(--line-2);
+                       background:var(--panel); color:var(--fg-2); font-size:12px;
+                       cursor:pointer; transition:all .15s ease; box-shadow:none; }
+  #draft button.mini:hover { border-color:var(--line-3); color:var(--fg); }
   #draft textarea { width:100%; min-height:260px; border:0; outline:none; resize:vertical;
                     background:var(--panel); color:var(--fg-2); padding:16px;
                     font:12.5px/1.7 var(--mono); }
   .copied { color:var(--good) !important; border-color:var(--good) !important; }
 
-  /* ---- loading dots --------------------------------------------------------- */
+  /* ---- loading dots ----------------------------------------------------------------- */
   .bar { display:flex; gap:5px; align-items:center; height:16px; margin-top:14px; }
   .bar[hidden] { display:none; }
   .dot { width:5px; height:5px; border-radius:50%; background:var(--accent);
@@ -257,12 +257,12 @@
   .pill { display:inline-flex; align-items:center; gap:6px; }
   .pill a { border:0; color:var(--muted); }
   .pill a:hover { color:var(--fg); }
-  .led { width:7px; height:7px; border-radius:50%; background:var(--muted); }
+  .led { width:7px; height:7px; border-radius:50%; background:var(--muted-2); }
   .led.ok { background:var(--good); } .led.bad { background:var(--bad); }
   code { background:var(--panel-2); padding:2px 6px; border-radius:5px;
          font-size:12px; font-family:var(--mono); }
   a { color:var(--fg); text-decoration:none; }
-  a:hover { color:var(--accent-2); }
+  a:hover { color:var(--accent); }
   </style>
 </head>
 <body>
