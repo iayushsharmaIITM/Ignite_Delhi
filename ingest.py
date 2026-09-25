@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -125,10 +126,30 @@ def main():
     ap.add_argument("--no-wait", action="store_true",
                     help="return as soon as documents are queued")
     ap.add_argument("--timeout", type=int, default=1800)
+    # M1.2: target pass-through. Absent = current behavior (env, cloud
+    # default) byte-for-byte; present = point at local OSS without editing
+    # .env. cognee_cloud reads env lazily, so exporting here takes effect.
+    ap.add_argument("--base", default=None,
+                    help="Cognee API base URL (e.g. http://localhost:8888 "
+                         "for local OSS). Defaults to COGNEE_SERVICE_URL.")
+    ap.add_argument("--flavor", choices=["cloud", "oss"], default=None,
+                    help="recall wire flavor. Defaults to COGNEE_FLAVOR "
+                         "(cloud when unset).")
     args = ap.parse_args()
 
-    if not cc.configured():
-        sys.exit("COGNEE_SERVICE_URL and COGNEE_API_KEY must both be set (see .env).")
+    if args.base:
+        os.environ["COGNEE_SERVICE_URL"] = args.base.rstrip("/")
+    if args.flavor:
+        os.environ["COGNEE_FLAVOR"] = args.flavor
+
+    base = cc.service_url()
+    # The cloud tenant always needs a key. Local OSS runs auth-off (M0.2:
+    # both flags false), so loopback targets are key-exempt — and ONLY
+    # loopback targets are.
+    loopback = base.startswith(("http://localhost", "http://127.0.0.1"))
+    if not base or (not cc.api_key() and not loopback):
+        sys.exit("COGNEE_SERVICE_URL and COGNEE_API_KEY must both be set (see .env). "
+                 "Local OSS (localhost) needs no key.")
 
     name = args.dataset or cc.dataset()
     docs = load_documents()

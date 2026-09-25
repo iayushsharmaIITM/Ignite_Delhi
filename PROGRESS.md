@@ -25,6 +25,18 @@ STILL WAITING on actual keys: one LLM key (which provider first?) + Gemini
 embedding key (or say fastembed to go keyless). Nothing proceeds to M1.2
 without `.env.oss` holding working keys.
 
+Structure wired 2026-09-25 (no keys needed, all verified):
+- `ingest.py`: `--base`/`--flavor` pass-through (absent = current env/cloud
+  behavior byte-for-byte); key requirement waived for loopback targets ONLY
+  (local OSS auth-off), cloud still always needs a key. `--help` + import
+  clean, battery green.
+- `.env.oss` (gitignored): full runtime structure, Cerebras-default LLM +
+  Gemini/768 embeddings, both KEY lines blank — two lines to fill on arrival.
+- App→OSS plumbing proven keyless: `PROVIDER=cloud
+  COGNEE_SERVICE_URL=http://localhost:8888 COGNEE_FLAVOR=oss python3 app.py`
+  → `/health` reports `service: localhost:8888, upstream: ready`.
+  (Answers need keys — that execution is M1.2/M1.3.)
+
 ## PHASE 0 GATE — recorded 2026-09-25
 
 Full `./verify.sh` green (documents 25/25, pipe-states 13/13, tenants 10/10,
