@@ -16,6 +16,15 @@ choice (Cerebras `https://api.cerebras.ai/v1` or Groq) + API key,
 fastembed/384). Keys go into gitignored `.env.oss` only, never tracked files.
 M1.2+ wait on this card.
 
+Human answers 2026-09-25: (1) ALL of OpenRouter/Groq/Azure/OpenAI/Anthropic
+must stay compatible — confirmed, all five route via LiteLLM
+(OSS_STACK_AND_COMPETITORS.md §1.3); template now documents one commented
+block per provider (A–F), Azure native via `azure/` prefix. (2) Embeddings =
+doc default: Gemini `gemini-embedding-001`/768.
+STILL WAITING on actual keys: one LLM key (which provider first?) + Gemini
+embedding key (or say fastembed to go keyless). Nothing proceeds to M1.2
+without `.env.oss` holding working keys.
+
 ## PHASE 0 GATE — recorded 2026-09-25
 
 Full `./verify.sh` green (documents 25/25, pipe-states 13/13, tenants 10/10,
