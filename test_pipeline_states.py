@@ -27,6 +27,7 @@ import sys
 
 import app as app_module
 import cognee_cloud
+import memory_layer
 
 PASSED: list[str] = []
 FAILED: list[str] = []
@@ -110,15 +111,22 @@ async def drive(states: list) -> list:
         calls["n"] += 1
         return states[index]
 
-    original = cognee_cloud.status
+    original_status = cognee_cloud.status
+    original_provider = memory_layer.PROVIDER
     cognee_cloud.status = fake_status
+    # The endpoint gates on the provider STRING before reaching the stubbed
+    # status() call. Setting it here keeps the test hermetic — it must not
+    # depend on ambient .env saying PROVIDER=cloud, and it makes no network
+    # call either way.
+    memory_layer.PROVIDER = "cloud"
     try:
         response = await app_module.brain_events("probe")
         chunks = []
         async for chunk in response.body_iterator:
             chunks.append(chunk if isinstance(chunk, str) else chunk.decode())
     finally:
-        cognee_cloud.status = original
+        cognee_cloud.status = original_status
+        memory_layer.PROVIDER = original_provider
 
     return [json.loads(line) for line in "".join(chunks).splitlines() if line.strip()]
 

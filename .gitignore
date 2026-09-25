@@ -33,3 +33,8 @@ screenshots/*.tmp
 
 # playwright CLI
 .playwright-cli/
+
+# OSS migration local state (BUILD_PLAN.md M0.1)
+.env.oss
+compose.oss.yml
+cognee_oss_state/

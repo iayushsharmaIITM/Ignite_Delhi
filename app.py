@@ -648,10 +648,13 @@ def delete_brain(request: Request, name: str):
     Cognee's own internal dataset. The demo guard also lives inside
     cognee_cloud.delete_dataset, so neither layer can be bypassed on its own.
     """
+    # Authorisation is evaluated BEFORE the mode guard: an unauthorized caller
+    # must get 401/403 regardless of provider mode, never a 400 that masks the
+    # authz check. (Found by test_tenants under the mock-forced battery.)
+    require_dataset_access(request, name)
+
     if memory_layer.PROVIDER != "cloud":
         raise HTTPException(status_code=400, detail="Deletion needs PROVIDER=cloud.")
-
-    require_dataset_access(request, name)
 
     # Normalise first, so a case trick such as "Company_Brain" cannot slip past
     # the reserved check and then match an existing dataset.
