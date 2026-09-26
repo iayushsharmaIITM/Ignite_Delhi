@@ -17,6 +17,7 @@ The event contract (so the UI can render citations, not just text):
 import asyncio
 import json
 import os
+import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = os.path.join(HERE, "fixtures", "answers.json")
@@ -151,6 +152,21 @@ async def _mock(query: str, dataset: str | None = None):
         yield {"type": "references", "items": entry["references"]}
 
 
+# Greetings and meta questions: the graph has nothing to say about them, so
+# they are answered WITHOUT citations rather than dressing up unrelated
+# chunks as evidence.
+_SMALLTALK_RE = re.compile(
+    r"^\s*(h+i+|hello+|hey+|yo+|sup|hiya|good\s*(morning|afternoon|evening)|"
+    r"thanks?+(\s+you)?|ty|what'?s\s*up|whats\s*up|how\s*(are|r)\s*(you|u)|"
+    r"who\s*(are|r)\s*(you|u)|what\s*can\s*(you|u)\s*do|help\s*me?|test)\s*[!.?]*\s*$",
+    re.IGNORECASE)
+
+
+def _is_smalltalk(query: str) -> bool:
+    q = (query or "").strip()
+    return bool(q) and len(q.split()) <= 4 and bool(_SMALLTALK_RE.match(q))
+
+
 async def _cloud(query: str, dataset: str | None = None):
     """Real path: the Cognee Cloud tenant does the graph work.
 
@@ -160,8 +176,14 @@ async def _cloud(query: str, dataset: str | None = None):
     """
     import cognee_cloud
 
-    # Second positional arg is `name` — the dataset to query.
-    results = await asyncio.to_thread(cognee_cloud.recall, query, dataset)
+    # A greeting cannot cite a document — asking the graph with references on
+    # for "hii" returns three unrelated chunks dressed as evidence. Smalltalk
+    # is answered with references OFF; only content questions cite.
+    if _is_smalltalk(query):
+        results = await asyncio.to_thread(
+            cognee_cloud.recall, query, dataset, None, None, False)
+    else:
+        results = await asyncio.to_thread(cognee_cloud.recall, query, dataset)
 
     # Cognee returns the evidence block inline in the answer text, so split it
     # out and stream only the prose. The citations get their own panel.
@@ -172,7 +194,7 @@ async def _cloud(query: str, dataset: str | None = None):
         yield {"type": "chunk", "text": word + " "}
         await asyncio.sleep(0.012)
 
-    items = cognee_cloud.references(results) or evidence
+    items = [] if _is_smalltalk(query) else (cognee_cloud.references(results) or evidence)
     if items:
         # Resolve each opaque "chunk 1 of document text_<uuid>" into a real
         # filename plus a verbatim excerpt. Without this the Evidence panel

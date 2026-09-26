@@ -149,14 +149,13 @@
   #rail-tip b { display:block; color:var(--fg); font-weight:600; margin-bottom:2px; }
 
   /* ---------- working status (what is happening right now) -------------------- */
-  .working { display:flex; align-items:center; gap:9px; padding:0 14px 6px;
-          font-size:12px; color:var(--muted); }
+  .working { display:flex; align-items:center; gap:9px; padding:2px 0;
+          font-size:12.5px; color:var(--muted); }
   .working[hidden] { display:none; }
   .working .spin { width:12px; height:12px; border-radius:50%; flex:none;
           border:2px solid var(--line-3); border-top-color:var(--accent);
           animation:spin .8s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
-  body:not(.chatting) .working { display:none; }
 
   .bar-anchor { position:relative; }
 
@@ -176,7 +175,8 @@
 
   /* ==== thread ================================================================
      user turns are cards; assistant turns are plain text with hover controls */
-  #thread-wrap { width:100%; max-width:820px; margin:0 auto; padding:36px 24px 40px; }
+  #thread-wrap { width:100%; max-width:820px; margin:0 auto;
+    padding:36px 24px 210px; }   /* ends well above the docked composer */
   #thread { display:flex; flex-direction:column; }
   .turn { display:flex; flex-direction:column; gap:12px;
           animation:rise .18s ease; }
@@ -256,8 +256,6 @@
                              transition:all .15s ease; display:inline-block; }
   .followups button:hover { color:var(--fg); }
   .followups button:hover::after { color:var(--accent); transform:translateX(2px); }
-  .followups button.act-chip { color:var(--accent); }
-  .followups button.act-chip:hover { color:var(--accent-2); }
 
   /* ---- source modal ---------------------------------------------------------------- */
   #source-modal {
@@ -396,18 +394,7 @@
 
   <div id="thread-wrap"><div class="wrap"><div id="thread"><div class="placeholder" id="empty"></div></div></div></div>
 
-  <section id="draft">
-    <div class="box">
-      <div class="head">
-        <strong id="drafttitle">Draft</strong>
-        <span class="sp">
-          <button class="mini" id="copybtn" type="button">Copy</button>
-          <button class="mini" id="mailbtn" type="button">Open in mail app</button>
-        </span>
-      </div>
-      <textarea id="draftbody" spellcheck="false"></textarea>
-    </div>
-  </section>
+
 
   <div id="source-modal" hidden>
     <div class="sheet">
@@ -458,9 +445,6 @@
         <span class="spacer"></span>
         <button type="button" class="bar-btn" id="menu2-toggle" title="Conversation actions" aria-label="Conversation actions">⋯</button>
       </div>
-      <div class="working" id="working" hidden>
-        <span class="spin"></span><span id="working-text">Searching the knowledge graph…</span>
-      </div>
       <div class="atts" id="pending" hidden></div>
       <textarea id="q" rows="1" placeholder="Ask across every document the company has written…"
                autocomplete="off" autofocus></textarea>
@@ -469,7 +453,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         </button>
         <span class="spacer" style="flex:1"></span>
-        <button id="go" type="submit" aria-label="Send" disabled></button>
+        <button id="go" type="submit" aria-label="Send"></button>
       </div>
       <input type="file" id="chat-file" multiple hidden>
       <div class="pop" id="menu2" hidden>
@@ -527,7 +511,6 @@ const turnCount = document.getElementById('turncount');
 const TURNS = [];
 let SOURCES = [];
 
-const DRAFT_INTENT = /\b(draft|write|compose|reply|email|e-?mail|mail)\b/i;
 
 const CHATS_KEY = 'kestrel.chats.' + (BRAIN || 'demo');
 const CHAT_MAX = 30;
@@ -720,17 +703,25 @@ if (BRAIN) {
 document.getElementById('f').addEventListener('submit', e => {
   e.preventDefault();
   menu2.hidden = true; brainMenu.hidden = true;
+  if (IN_FLIGHT) { if (CONTROLLER) CONTROLLER.abort(); return; }   // send -> stop
   const q = input.value.trim();
   if (q) ask(q);
 });
 
-// Send reflects the input; while streaming it is STOP (IN_FLIGHT guard blocks
-// a second ask, so typing during an answer is safe).
+// Send reflects the input; while streaming it is STOP. The button is never
+// disabled — it was born disabled once and stayed that way, which locked the
+// whole page (textarea Enter does not submit).
 const qel = input;
 qel.addEventListener('input', () => {
   if (!IN_FLIGHT) setGo(qel.value.trim() ? 'ready' : 'idle');
   qel.style.height = 'auto';
   qel.style.height = Math.min(qel.scrollHeight, 140) + 'px';
+});
+qel.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    document.getElementById('f').requestSubmit();
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -904,9 +895,6 @@ function renderAnswerActions(turn, q, text, at) {
     b.classList.add('copied'); b.title = 'Copied';
     setTimeout(() => { b.classList.remove('copied'); b.title = 'Copy this answer'; }, 1300);
   });
-  mk('email', 'Draft an email from this answer', () => showDraft('email', 'Email draft', q, text));
-  mk('steps', 'List the next steps',            () => showDraft('steps', 'Next steps',  q, text));
-  mk('chat',  'Write a chat update',            () => showDraft('chat',  'Chat update', q, text));
   // quiet feedback marks — visual only, like the reference anatomy
   mk('up',   'Good answer',   b => { b.classList.toggle('fb-on');
         b.nextElementSibling.classList.remove('fb-on'); });
@@ -988,14 +976,6 @@ function suggestFrom(text) {
     out.push({ label, question: question || label });
   };
 
-  if (/\b(approv|sign[- ]?off|signoff|authoris|authoriz|pending|awaiting)\b/i.test(clean_)) {
-    push('Draft a mail about this', 'Draft a mail summarising this and what needs approving.');
-  }
-  if (/\b(deadline|due|by \d|before \d|expires?|overdue|passed)\b/i.test(clean_)) {
-    push('What are the next steps?', 'What are the next steps and who owns each one?');
-  }
-  push('List the next steps', 'List the concrete next steps with an owner for each.');
-
   const people = new Set();
   const NOT_A_NAME = /\b(action|component|policy|credit|invoice|contract|agreement|renewal|outage|ticket|meeting|notes?|report|status|date|value|table|summary|issue|process|system|team|service|account|platform|review|approval|deadline|incident|handbook|matrix|threshold|ceiling|plan|draft|update|change|risk|impact|owner|role|step)\b/i;
   const LEADING = /^(The|This|That|These|Those|When|What|Where|Which|While|Their|There|Our|Your|Its|Both|Each|Some|Most|All|No|Not|And|But|For|From|With|Within|After|Before|During|Under|Over|Above|Below)$/;
@@ -1031,18 +1011,7 @@ function renderSuggestions(turn, text) {
     b.type = 'button';
     b.textContent = it.label;
     b.title = it.question;
-    if (/^(Draft|List|Check)/.test(it.label)) b.classList.add('act-chip');
     b.addEventListener('click', () => {
-      if (it.label === 'Draft a mail about this') {
-        showDraft('email', 'Email draft', null, text);
-        document.getElementById('draft').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        return;
-      }
-      if (it.label === 'List the next steps' || it.label === 'What are the next steps?') {
-        showDraft('steps', 'Next steps', null, text);
-        document.getElementById('draft').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        return;
-      }
       input.value = it.question;
       ask(it.question);
     });
@@ -1090,11 +1059,15 @@ async function ask(q) {
   u.turn.dataset.uid = TURNS.length - 1;
   if (atts.length) renderAttRow(u.turn, atts);
   buildRail();
-  const { bubble } = addTurn('bot', '');
-  bubble.className = 'bubble streaming';
+  const { turn, bubble } = addTurn('bot', '');
+  bubble.className = 'bubble streaming rendered';
+  const working = document.createElement('div');
+  working.className = 'working';
+  working.innerHTML = '<span class="spin"></span><span></span>';
+  turn.insertBefore(working, bubble);      // directly below the sent request
+  workStart(working.querySelector('span:last-child'));
 
-  setGo('stop');                          // send becomes stop
-  workStart();
+  setGo('stop');
   CONTROLLER = new AbortController();
   let text = '', sources = [], streaming = false;
 
@@ -1122,9 +1095,9 @@ async function ask(q) {
         let ev; try { ev = JSON.parse(line); } catch { continue; }
 
         if (ev.type === 'chunk' || ev.chunk) {
-          if (!streaming) { streaming = true; bubble.className = 'bubble streaming'; }
+          if (!streaming) { streaming = true; bubble.className = 'bubble streaming rendered'; }
           text += (ev.text ?? ev.chunk);
-          bubble.textContent = text;
+          bubble.innerHTML = renderMarkdown(text);   // direct output — no raw ** phase
         } else if (ev.type === 'references' && ev.items?.length) {
           sources = ev.items;
           workGround(sources.length);
@@ -1165,10 +1138,6 @@ async function ask(q) {
       SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
       LAST = { q, text };
 
-      if (DRAFT_INTENT.test(q)) {
-        showDraft('email', 'Email draft');
-        document.getElementById('draft').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
       turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
       saveHistory();
       buildRail();
@@ -1321,28 +1290,29 @@ function buildRail() {
 }
 
 // --- working status: what is happening right now ------------------------------
-const working = document.getElementById('working');
-const workingText = document.getElementById('working-text');
 const WORK_STEPS = ['Searching the knowledge graph…', 'Retrieving passages…',
                     'Reading the evidence…', 'Cross-checking documents…',
                     'Composing the answer…'];
 let workTimer = null;
-function workStart() {
+function workStart(el) {
   let i = 0;
-  working.hidden = false;
-  workingText.textContent = WORK_STEPS[0];
+  const label = el;
+  label.textContent = WORK_STEPS[0];
   if (workTimer) clearInterval(workTimer);
   workTimer = setInterval(() => {
     i = (i + 1) % WORK_STEPS.length;
-    workingText.textContent = WORK_STEPS[i];
+    label.textContent = WORK_STEPS[i];
   }, 2400);
 }
 function workGround(n) {
-  if (n) workingText.textContent = 'Grounding in ' + n + ' source' + (n > 1 ? 's' : '') + '…';
+  if (n && workTimer) {
+    const el = document.querySelector('.turn .working span:last-child');
+    if (el) el.textContent = 'Grounding in ' + n + ' source' + (n > 1 ? 's' : '') + '…';
+  }
 }
 function workStop() {
-  working.hidden = true;
   if (workTimer) { clearInterval(workTimer); workTimer = null; }
+  document.querySelectorAll('.turn .working').forEach(w => w.remove());
 }
 
 // --- export the conversation ------------------------------------------------
@@ -1477,13 +1447,6 @@ CLEAR_BTN?.addEventListener('click', () => {
 });
 
 
-// --- actionable layer --------------------------------------------------------
-// The answer alone is read-only. These turn it into something the user can act
-// on immediately: a mail they can paste into Gmail, the next steps, and a short
-// update for a chat thread. Generated locally so there is no second wait and
-// no second failure mode.
-let LAST = { q: '', text: '' };
-
 function clean(text) {
   // Strip the markdown the model emits so pasted text reads normally.
   return (text || '')
@@ -1500,133 +1463,24 @@ function clean(text) {
     .trim();
 }
 
-function sentences(text) {
-  // Collapse newlines first: the model hard-wraps its output, so splitting the
-  // raw text produced fragments that duplicated properly-merged bullets.
-  return clean(text).replace(/\n+/g, ' ').split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
-}
-
-function nextSteps(text) {
-  // Prefixes, NOT whole words: \bneed\b does not match "needs", so the old
-  // pattern missed almost every real action.
-  const ACT = /\b(must|need|should|requir|approv|sign|escalat|notif|confirm|clos|correct|review|draft|prepar|send|flag|remediat|follow up|blocked|slip|owed|due)/i;
-  const DATE = /\b(\d{1,2}\s+\w+\s+\d{4}|\d{4}-\d{2}-\d{2}|by \w+day|within \d+|before \d)/i;
-
-  // Bullets first: in practice these ARE the actionable lines. The model
-  // hard-wraps its output, so merge wrapped continuations back into the bullet
-  // they belong to before scoring anything.
-  const flat = clean(text);
-  const merged = [];
-  for (const line of flat.split('\n')) {
-    const t = line.trim();
-    if (!t) continue;
-    const bullet = line.match(/^\s*(?:•|\d+[.)])\s+(.*)$/);
-    if (bullet) { merged.push(bullet[1].trim()); continue; }
-
-    // Only a genuine wrapped continuation is merged: the previous entry has
-    // not ended its sentence AND this line starts lowercase.
-    const prev = merged[merged.length - 1];
-    const prevEndsSentence = prev && /[.!?:]$/.test(prev);
-    if (prev && !prevEndsSentence && /^[a-z]/.test(t)) {
-      merged[merged.length - 1] += ' ' + t;
-    } else {
-      merged.push(t);
-    }
-  }
-  const bullets = merged.filter(l => l.length > 24 && l.length < 320);
-
-  const sents = sentences(text).filter(s => s.length > 30 && s.length < 320);
-
-  const seen = [];
-  const candidates = [];
-  for (const c of [...bullets, ...sents]) {
-    // Containment, not just equality: a bullet and the sentence inside it are
-    // the same action, and their prefixes differ.
-    const norm = c.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (norm.length < 20) continue;
-    if (seen.some(prev => prev.includes(norm) || norm.includes(prev))) continue;
-    seen.push(norm);
-    candidates.push({ s: c, score: (ACT.test(c) ? 2 : 0) + (DATE.test(c) ? 2 : 0) });
-  }
-
-  const hits = candidates.filter(x => x.score > 0).sort((a, b) => b.score - a.score);
-  const picked = (hits.length ? hits : candidates).slice(0, 5).map(x => x.s);
-  return picked.length ? picked : ['No clear actions found in this answer — ask a more specific question.'];
-}
-
-function buildDraft(kind, q, text, sources) {
-  const body = clean(text);
-  const src = sources.length ? sources.join(', ') : 'the company knowledge base';
-  if (kind === 'steps') {
-    return 'NEXT STEPS\n' + '='.repeat(40) + '\n\n' +
-      nextSteps(text).map((s, i) => `${i + 1}. ${s}`).join('\n\n') +
-      `\n\nSources: ${src}`;
-  }
-  if (kind === 'chat') {
-    return `*Update — ${q}*\n\n${body}\n\n_Sources: ${src}_`;
-  }
-  return [
-    `Subject: ${q}`,
-    '',
-    'Hi,',
-    '',
-    'Following the question below, here is what the company knowledge base shows.',
-    '',
-    `Question: ${q}`,
-    '',
-    body,
-    '',
-    'Next steps:',
-    ...nextSteps(text).map((s, i) => `  ${i + 1}. ${s}`),
-    '',
-    `Sources: ${src}`,
-    '',
-    'Thanks',
-  ].join('\n');
-}
-
-const draftSec = document.getElementById('draft');
-const draftBody = document.getElementById('draftbody');
-const draftTitle = document.getElementById('drafttitle');
-
-function showDraft(kind, label, q, text) {
-  // Draft from the answer that was clicked; fall back to the most recent one.
-  const question = q ?? LAST.q;
-  const body = text ?? LAST.text;
-  draftBody.value = buildDraft(kind, question, body, SOURCES);
-  draftTitle.textContent = label;
-  draftSec.style.display = 'block';
-  draftBody.scrollTop = 0;
-}
-
 async function copyText(value) {
   try {
     await navigator.clipboard.writeText(value);
     return true;
   } catch {
     // Clipboard API needs a secure context; fall back to select+execCommand.
-    draftBody.focus(); draftBody.select();
+    const tmp = document.createElement('textarea');
+    tmp.value = value;
+    tmp.style.cssText = 'position:fixed;opacity:0;';
+    document.body.appendChild(tmp); tmp.select();
     try { document.execCommand('copy'); return true; } catch { return false; }
+    finally { tmp.remove(); }
   }
 }
 
-document.getElementById('copybtn').addEventListener('click', async e => {
-  const ok = await copyText(draftBody.value);
-  e.target.textContent = ok ? 'Copied' : 'Press ⌘C';
-  e.target.classList.add('copied');
-  setTimeout(() => { e.target.textContent = 'Copy'; e.target.classList.remove('copied'); }, 1400);
-});
-
 restoreHistory();
 
-document.getElementById('mailbtn').addEventListener('click', () => {
-  // Opens the user's mail client with the draft pre-filled.
-  const text = draftBody.value;
-  const subject = (text.match(/^Subject:\s*(.*)$/m) || [])[1] || LAST.q;
-  const body = text.replace(/^Subject:.*\n?/m, '');
-  window.location.href = 'mailto:?subject=' + encodeURIComponent(subject) +
-                         '&body=' + encodeURIComponent(body);
-});
+
 
 // ---------------------------------------------------------------------------
 // Add documents to the CURRENT brain, from the chat. Uses the exact APIs the

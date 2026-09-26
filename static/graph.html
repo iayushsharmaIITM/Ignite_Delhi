@@ -20,13 +20,13 @@
   .hud p { margin:0; color:var(--muted); font-size:13px; }
 
   .panel { position:fixed; bottom:20px; left:22px; padding:11px 15px;
-           background:rgba(255,255,255,.9); border:1px solid var(--line-2);
+           background:rgba(30,30,30,.92); border:1px solid var(--line-2);
            border-radius:10px; font-size:12.5px; color:var(--muted);
            display:flex; gap:16px; align-items:center; backdrop-filter:blur(8px); }
   .panel b { color:var(--fg); font-weight:600; }
 
   .legend { position:fixed; top:20px; right:22px; padding:11px 15px;
-            background:rgba(255,255,255,.9); border:1px solid var(--line-2);
+            background:rgba(30,30,30,.92); border:1px solid var(--line-2);
             border-radius:10px; font-size:12.5px; backdrop-filter:blur(8px);
             max-height:70vh; overflow:auto; }
   .legend div { display:flex; align-items:center; gap:8px; margin:3px 0;
@@ -153,8 +153,8 @@
 
 <script>
 // Colour by node type so the graph reads as structure, not spaghetti.
-const PALETTE = ['#1c1917','#b45309','#57534e','#d97706','#78716c',
-                 '#92610e','#292524','#a8a29a','#44403c','#c2701c'];
+const PALETTE = ['#e9e9e9','#e8863b','#b9b9b9','#f49d54','#8f8f8f',
+                 '#d97706','#c9c9c9','#6b6b6b','#a3a3a3','#ef8f3d'];
 const typeColor = {};
 function colorFor(type) {
   if (!(type in typeColor)) {
@@ -318,9 +318,9 @@ function draw() {
     const cy = cam.y + sel.y * cam.k;
     const radius = Math.max(W, H) * 0.66;
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    grad.addColorStop(0, '#ffffff');     // faint lift behind the subject
-    grad.addColorStop(0.5, '#f6f4ee');
-    grad.addColorStop(1, '#ece8dd');     // settles into the paper at the edges
+    grad.addColorStop(0, '#242424');     // faint lift behind the subject
+    grad.addColorStop(0.5, '#1c1c1c');
+    grad.addColorStop(1, '#141414');     // settles into the canvas at the edges
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
@@ -337,7 +337,7 @@ function drawLayer(target, wanted) {
   target.scale(cam.k, cam.k);
 
   target.globalAlpha = 1;
-  target.strokeStyle = 'rgba(28,25,23,.30)';
+  target.strokeStyle = 'rgba(255,255,255,.30)';
   target.lineWidth = 1.7 / cam.k;
   for (const e of edges) {
     if (!visibleIds.has(e.source) || !visibleIds.has(e.target)) continue;
@@ -355,7 +355,7 @@ function drawLayer(target, wanted) {
     target.fillStyle = colorFor(nd.type);
     target.fill();
     if (isSel) {
-      target.strokeStyle = '#b45309';
+      target.strokeStyle = '#e8863b';
       target.lineWidth = 2 / cam.k;
       target.stroke();
     }
@@ -368,7 +368,7 @@ function drawLayer(target, wanted) {
     const isSel = nd.id === selected;
     if (!isSel && cam.k <= 0.85) continue;
     if (nd.label.length > 34) continue;
-    target.fillStyle = isSel ? '#b45309' : 'rgba(28,25,23,.62)';
+    target.fillStyle = isSel ? '#e8863b' : 'rgba(255,255,255,.55)';
     target.fillText(nd.label, nd.x, nd.y - nd.r - 5);
   }
 
