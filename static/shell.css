@@ -195,6 +195,8 @@ h1, .display {
 .brain-row .group-del.armed { font-size:11px; }
 .brain-row:hover .group-del { opacity:1; }
 .view-note { padding:10px 12px 2px; font-size:10.5px; color:var(--muted-2); }
+.chat-time { flex:none; font-size:10.5px; color:var(--muted-2);
+  font-family:var(--mono); margin-right:4px; }
 .sb-pop { position:fixed; min-width:200px; right:auto; bottom:auto; }
 .nav-label.brain-head { display:flex; align-items:center; gap:7px; color:var(--muted); }
 .nav-label.brain-head span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

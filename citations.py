@@ -140,14 +140,27 @@ def _fetch_map(dataset: str) -> dict:
     dataset_id = cognee_cloud.resolve_id(dataset)
     items = cognee_cloud.data_items(dataset_id)
 
+    # The raw fetches are the latency here — one HTTP round-trip per document,
+    # all independent. In parallel they finish in the time of the slowest one
+    # instead of their sum, which is what made citations trail the answer.
+    from concurrent.futures import ThreadPoolExecutor
+
+    ids = [item.get("id") for item in items if item.get("id")]
+
+    def fetch_raw(data_id):
+        try:
+            return data_id, cognee_cloud.data_raw(dataset_id, data_id)
+        except Exception:  # noqa: BLE001 - a missing raw must not break the answer
+            return data_id, None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        raws = dict(pool.map(fetch_raw, ids))
+
     for item in items:
         data_id = item.get("id")
         if not data_id:
             continue
-        try:
-            raw = cognee_cloud.data_raw(dataset_id, data_id)
-        except Exception:  # noqa: BLE001 - a missing raw must not break the answer
-            continue
+        raw = raws.get(data_id)
 
         excerpt = re.sub(r"\s+", " ", raw or "").strip()
 

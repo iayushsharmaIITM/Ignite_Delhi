@@ -148,14 +148,17 @@
           display:none; }
   #rail-tip b { display:block; color:var(--fg); font-weight:600; margin-bottom:2px; }
 
-  /* ---------- working status (what is happening right now) -------------------- */
-  .working { display:flex; align-items:center; gap:9px; padding:2px 0;
-          font-size:12.5px; color:var(--muted); }
-  .working[hidden] { display:none; }
-  .working .spin { width:12px; height:12px; border-radius:50%; flex:none;
+  /* ---------- working log: real engine steps with measured durations ----------- */
+  .working { margin:2px 0 12px; font-size:12px; color:var(--muted); }
+  .working-head { display:flex; align-items:center; gap:9px; margin-bottom:4px; }
+  .working-head .w-elapsed { color:var(--fg-2); font-weight:590; }
+  .working .spin { width:11px; height:11px; border-radius:50%; flex:none;
           border:2px solid var(--line-3); border-top-color:var(--accent);
-          animation:spin .8s linear infinite; }
+          animation:spin .8s linear infinite; display:inline-block; }
   @keyframes spin { to { transform:rotate(360deg); } }
+  .w-step { padding:2px 0; }
+  .w-step.done { color:var(--muted-2); }
+  .w-step.spin { color:var(--fg-2); }
 
   .bar-anchor { position:relative; }
 
@@ -178,9 +181,9 @@
   #thread-wrap { width:100%; max-width:820px; margin:0 auto;
     padding:36px 24px 210px; }   /* ends well above the docked composer */
   #thread { display:flex; flex-direction:column; }
-  .turn { display:flex; flex-direction:column; gap:12px;
+  .turn { display:flex; flex-direction:column; gap:9px;
           animation:rise .18s ease; }
-  .turn + .turn { margin-top:34px; }
+  .turn + .turn { margin-top:22px; }
   @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
 
   .turn.user .bubble {
@@ -993,11 +996,7 @@ async function ask(q) {
   buildRail();
   const { turn, bubble } = addTurn('bot', '');
   bubble.className = 'bubble streaming rendered';
-  const working = document.createElement('div');
-  working.className = 'working';
-  working.innerHTML = '<span class="spin"></span><span></span>';
-  turn.insertBefore(working, bubble);      // directly below the sent request
-  workStart(working.querySelector('span:last-child'));
+  const work = workStart(turn);            // real engine steps, below the request
 
   setGo('stop');
   CONTROLLER = new AbortController();
@@ -1014,7 +1013,7 @@ async function ask(q) {
       si = (si + 1) % steps.length;
     }, 100);
     void stepTick;
-    workGroundText('Reading attached files…');
+    work.step('Reading attached files…');
     const TEXTY = /\.(txt|md|csv|json|py|js|ts|jsx|tsx|java|go|rs|c|cpp|h|hpp|sh|sql|yaml|yml|toml|ini|cfg|html|css)$/i;
     let fed = 0;
     for (const f of files) {
@@ -1030,7 +1029,7 @@ async function ask(q) {
     if (BRAIN) {
       const ingestible = files.filter(f => !((f.type || '').startsWith('image/')));
       if (ingestible.length) {
-        workGroundText('Adding ' + ingestible.length + ' file(s) to ' + BRAIN + '…');
+        work.step('Adding ' + ingestible.length + ' file(s) to ' + BRAIN + '…');
         const fd = new FormData();
         fd.append('name', BRAIN);
         fd.append('append', 'true');
@@ -1041,7 +1040,7 @@ async function ask(q) {
           }).catch(() => { /* failures surface on /brains, not in the ask path */ });
       }
     }
-    if (fed) workGroundText('Attached content in context — ' + fed + ' file(s)');
+    if (fed) work.step('Attached content in context — ' + fed + ' file(s)');
   }
   context = context.slice(0, 6000);
 
@@ -1072,10 +1071,10 @@ async function ask(q) {
           if (!streaming) { streaming = true; bubble.className = 'bubble streaming rendered'; }
           text += (ev.text ?? ev.chunk);
           bubble.innerHTML = renderMarkdown(text);   // direct output — no raw ** phase
+        } else if (ev.stage === 'step') {
+          work.step(ev.label, ev.ms);
         } else if (ev.type === 'references' && ev.items?.length) {
-          sources = ev.items;
-          if (workTimer) { clearInterval(workTimer); workTimer = null; }
-          workGround(sources.length);
+          sources = ev.items;   // the grounding step is logged by the engine
         } else if (ev.stage === 'error') {
           bubble.className = 'bubble err';
           bubble.textContent = 'Something went wrong: ' + ev.message;
@@ -1142,7 +1141,7 @@ async function ask(q) {
     }
   } finally {
     IN_FLIGHT = false; CONTROLLER = null;
-    workStop();
+    work.stop();
     setGo(input.value.trim() ? 'ready' : 'idle');
     input.focus();
   }
@@ -1265,50 +1264,60 @@ function buildRail() {
 }
 
 // --- working status: what is happening right now ------------------------------
-const WORK_STEPS = ['Searching the knowledge graph…', 'Retrieving passages…',
-                    'Reading the evidence…', 'Cross-checking documents…',
-                    'Composing the answer…'];
-let workTimer = null;
-let workTimers = [];
-function workStart(el) {
-  let i = 0;
-  const label = el;
-  label.textContent = WORK_STEPS[0];
-  const row = el.parentElement;
-  const elapsed = document.createElement('span');
-  elapsed.className = 'w-elapsed';
+// --- working log: REAL engine steps, each with its measured duration ---------
+// Steps arrive as {stage:"step", label, ms} events from /api/ask — the query,
+// the answer, the citation resolution — plus client-side ones (reading and
+// ingesting attachments). Nothing here is simulated.
+function workStart(turn) {
+  const box = document.createElement('div');
+  box.className = 'working';
+  const head = document.createElement('div');
+  head.className = 'working-head';
+  const spin = document.createElement('span'); spin.className = 'spin';
+  const elapsed = document.createElement('span'); elapsed.className = 'w-elapsed';
   elapsed.textContent = 'Working · 0s';
-  row.insertBefore(elapsed, el);
-  const sep = document.createElement('span');
-  sep.className = 'w-sep'; sep.textContent = '·';
-  row.insertBefore(sep, el);
+  head.append(spin, elapsed);
+  box.append(head);
+  turn.insertBefore(box, turn.querySelector('.bubble'));
+
   const t0 = Date.now();
   const tick = setInterval(() => {
-    elapsed.textContent = 'Working · ' + Math.round((Date.now() - t0) / 1000) + 's';
-  }, 1000);
-  if (workTimer) clearInterval(workTimer);
-  workTimer = setInterval(() => {
-    i = (i + 1) % WORK_STEPS.length;
-    label.textContent = WORK_STEPS[i];
-  }, 2600);
-  workTimers.push(tick);
-}
-function workGround(n) {
-  if (n && workTimer) {
-    const el = document.querySelector('.turn .working span:last-child');
-    if (el) el.textContent = 'Grounding in ' + n + ' source' + (n > 1 ? 's' : '') + '…';
-  }
-}
-function workGroundText(s) {
-  const el = document.querySelector('.turn .working span:last-child');
-  if (el) el.textContent = s;
-}
-function workStop() {
-  if (workTimer) { clearInterval(workTimer); workTimer = null; }
-  workTimers.forEach(clearInterval); workTimers = [];
-  document.querySelectorAll('.turn .working').forEach(w => w.remove());
-}
+    elapsed.textContent = 'Working · ' + ((Date.now() - t0) / 1000).toFixed(1) + 's';
+  }, 100);
+  let current = null, currentT0 = 0;
 
+  return {
+    // close the previous step with its duration, start the next one
+    step(label, ms) {
+      if (current) {
+        const dur = ms != null ? (ms / 1000).toFixed(1) + 's'
+                               : ((Date.now() - currentT0) / 1000).toFixed(1) + 's';
+        current.classList.remove('spin');
+        current.classList.add('done');
+        current.textContent = '✓ ' + current.dataset.label + ' · ' + dur;
+      }
+      const row = document.createElement('div');
+      row.className = 'w-step spin';
+      row.dataset.label = label;
+      row.textContent = label;
+      box.appendChild(row);
+      current = row; currentT0 = Date.now();
+    },
+    stop() {
+      clearInterval(tick);
+      if (current) {
+        const dur = ((Date.now() - currentT0) / 1000).toFixed(1) + 's';
+        current.classList.remove('spin');
+        current.classList.add('done');
+        current.textContent = '✓ ' + current.dataset.label + ' · ' + dur;
+        current = null;
+      }
+      const sp = head.querySelector('.spin');
+      if (sp) sp.remove();
+      elapsed.textContent = 'Worked · ' + ((Date.now() - t0) / 1000).toFixed(1) + 's';
+    },
+  };
+}
 // --- export the conversation ------------------------------------------------
 function transcript(format) {
   const lines = ['# Kestrel Company Brain — conversation', ''];

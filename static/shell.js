@@ -130,19 +130,32 @@
       return html;
     }
 
-    const chatRow = (b, c) => {
+    const chatRow = (b, c, timeLabel) => {
       const active = c.id === currentChat && b === (brain || 'demo');
       const title = esc(c.title || 'Untitled');
       const csep = b !== 'demo' ? '?brain=' + encodeURIComponent(b) + '&chat=' : '?chat=';
       return '<div class="nav-item chat-item' + (active ? ' active' : '') + '" data-chat-row>' +
         '<a class="chat-link" href="/' + csep + encodeURIComponent(c.id) + '" title="' + title + '">' +
         '<span class="chat-title">' + esc(title.slice(0, 30)) + '</span></a>' +
+        (timeLabel ? '<span class="chat-time">' + timeLabel + '</span>' : '') +
         '<button type="button" class="row-del" data-action="chat-del" data-brain="' + esc(b) +
         '" data-id="' + esc(c.id) + '" title="Delete chat" aria-label="Delete chat">' + TRASH + '</button></div>';
     };
 
+    function sortKey(e) { return view.sort === 'created' ? (e.chat.created || e.chat.at || 0) : (e.chat.at || 0); }
+    function relTime(ts) {
+      if (!ts) return '';
+      const s = Math.max(0, (Date.now() - ts) / 1000);
+      if (s < 60) return 'now';
+      if (s < 3600) return Math.round(s / 60) + 'm';
+      if (s < 86400) return Math.round(s / 3600) + 'h';
+      return Math.round(s / 86400) + 'd';
+    }
+
     if (view.mode === 'timeline') {
-      entries.slice(0, 14).forEach(e => { html += chatRow(e.brain, e.chat); });
+      entries.slice(0, 14).forEach(e => {
+        html += chatRow(e.brain, e.chat, relTime(sortKey(e)));
+      });
       html += viewFooter();
       return html;
     }
@@ -184,19 +197,30 @@
   // would be rebuilt (and lost) on every render.
   document.addEventListener('click', e => {
     const box = document.getElementById('sb-chats');
-    if (!box || !box.contains(e.target)) { closeViewMenu(); return; }
+    const menu = document.getElementById('sb-viewmenu');
+    const inList = box && box.contains(e.target);
+    const inMenu = menu && menu.contains(e.target);
+    if (!inList && !inMenu) { closeViewMenu(); return; }
     const btn = e.target.closest('[data-action]');
-    if (!btn) { closeViewMenu(); return; }
+    if (!btn) { if (inList) closeViewMenu(); return; }
     e.preventDefault();
     const action = btn.dataset.action;
     const view = chatView();
 
     if (action === 'view-toggle') { openViewMenu(btn); return; }
     if (action === 'view-mode') {
-      view.mode = btn.dataset.value; saveView(view); closeViewMenu(); renderChats(); return;
+      view.mode = btn.dataset.value; saveView(view); renderChats();
+      // renderChats replaced the list — the old button node is detached, and a
+      // detached node's rect is (0,0), which threw the menu to the top-left.
+      const live = document.querySelector('[data-action=view-toggle]');
+      if (live) openViewMenu(live);
+      return;
     }
     if (action === 'view-sort') {
-      view.sort = btn.dataset.value; saveView(view); closeViewMenu(); renderChats(); return;
+      view.sort = btn.dataset.value; saveView(view); renderChats();
+      const live = document.querySelector('[data-action=view-toggle]');
+      if (live) openViewMenu(live);
+      return;
     }
     if (action === 'group-toggle') {
       if (e.target.closest('.row-del')) return;   // the ⋯/trash has its own action

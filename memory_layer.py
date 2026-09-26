@@ -18,6 +18,7 @@ import asyncio
 import json
 import os
 import re
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = os.path.join(HERE, "fixtures", "answers.json")
@@ -179,22 +180,27 @@ async def _cloud(query: str, dataset: str | None = None):
     # A greeting cannot cite a document — asking the graph with references on
     # for "hii" returns three unrelated chunks dressed as evidence. Smalltalk
     # is answered with references OFF; only content questions cite.
+    # Every yield with stage:"step" is a REAL engine step; the UI reports each
+    # with its measured duration instead of a cosmetic spinner text.
+    t0 = time.time()
+    yield {"stage": "step", "label": "Querying the knowledge graph"}
+
     if _is_smalltalk(query):
         results = await asyncio.to_thread(
             cognee_cloud.recall, query, dataset, None, None, False)
     else:
         results = await asyncio.to_thread(cognee_cloud.recall, query, dataset)
 
+    yield {"stage": "step", "label": "Answer generated",
+           "ms": int((time.time() - t0) * 1000)}
+
     # Cognee returns the evidence block inline in the answer text, so split it
     # out and stream only the prose. The citations get their own panel.
     raw = cognee_cloud.answer_text(results)
     answer, evidence = cognee_cloud.split_evidence(raw)
 
-    for word in answer.split(" "):
-        yield {"type": "chunk", "text": word + " "}
-        await asyncio.sleep(0.012)
-
     items = [] if _is_smalltalk(query) else (cognee_cloud.references(results) or evidence)
+    refs_task = None
     if items:
         # Resolve each opaque "chunk 1 of document text_<uuid>" into a real
         # filename plus a verbatim excerpt. Without this the Evidence panel
@@ -203,7 +209,21 @@ async def _cloud(query: str, dataset: str | None = None):
         # reader could check. Runs in a thread because it makes HTTP calls.
         import citations
 
-        enriched = await asyncio.to_thread(
-            citations.enrich, items, dataset or default_dataset()
+        yield {"stage": "step", "label": "Resolving " + str(len(items)) + " citations"}
+        rt0 = time.time()
+        # started NOW, overlapped with the word-streaming below — the sources
+        # are ready the moment the text finishes instead of seconds later
+        refs_task = asyncio.ensure_future(
+            asyncio.to_thread(citations.enrich, items, dataset or default_dataset())
         )
+
+    for word in answer.split(" "):
+        yield {"type": "chunk", "text": word + " "}
+        await asyncio.sleep(0.008)
+
+    if refs_task is not None:
+        enriched = await refs_task
+        grounded = sum(1 for e in enriched if e.get("source"))
+        yield {"stage": "step", "label": "Grounded in " + str(grounded) + " sources",
+               "ms": int((time.time() - rt0) * 1000)}
         yield {"type": "references", "items": enriched}
