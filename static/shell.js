@@ -27,16 +27,19 @@
 
   const path = location.pathname.replace(/\/+$/, '') || '/';
   const PAGES = [
-    { href: '/',        key: 'ask',    label: 'Ask' },
+    // "New chat" REPLACES the old Ask entry: same route, but it always starts
+    // a fresh conversation (the chat itself lives under Chats).
+    { href: '/',        key: 'ask',    label: 'New chat', fresh: true },
     { href: '/upload',  key: 'upload', label: 'New brain' },
     { href: '/brains',  key: 'brains', label: 'Brains' },
     { href: '/graph',   key: 'graph',  label: 'Graph' },
   ];
 
   const links = PAGES.map(p => {
-    const active = path === p.href;
-    return '<a class="nav-item' + (active ? ' active' : '') + '" href="' +
-           p.href + qs + '">' + icon(p.key) + '<span>' + p.label + '</span></a>';
+    const active = path === p.href && !p.fresh;
+    const href = p.fresh ? '/' + (qs ? qs + '&new=1' : '?new=1') : p.href + qs;
+    return '<a class="nav-item' + (active ? ' active' : '') + '" href="' + href + '">' +
+           icon(p.key) + '<span>' + p.label + '</span></a>';
   }).join('');
 
 
@@ -107,6 +110,7 @@
 
   function chatGroup() {
     const view = chatView();
+    const sep0 = qs ? '&' : '?';
     const entries = chatList(view);
     const sep = qs ? '&' : '?';
     // ?new=1 tells the ask page to start a fresh conversation. Without it the
@@ -119,11 +123,7 @@
 
     let html =
       '<div class="chats-head"><span class="nav-label">Chats</span>' +
-      '<button type="button" class="head-btn" data-action="view-toggle" title="View and sort" aria-label="View and sort">' + FILTER + '</button></div>' +
-      '<a class="nav-item" href="' + newHref + '">' +
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
-      'stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>' +
-      '<span>New chat</span></a>';
+      '<button type="button" class="head-btn" data-action="view-toggle" title="View and sort" aria-label="View and sort">' + FILTER + '</button></div>';
 
     if (!entries.length) {
       html += '<div class="chat-empty">No saved chats yet</div>';
@@ -173,7 +173,7 @@
       const isCollapsed = collapsed.indexOf(b) >= 0;
       const label = b === 'demo' ? 'Demo brain' : b;
       html += '<div class="brain-row" data-action="group-toggle" data-brain="' + esc(b) + '" title="Expand or collapse">' +
-        CARET + FOLDER + '<span class="brain-name">' + esc(label) + '</span>' +
+        CARET + FOLDER + '<span class="brain-name" data-newchat-brain="' + esc(b) + '">' + esc(label) + '</span>' +
         '<button type="button" class="row-del group-del" data-action="group-del" data-brain="' + esc(b) +
         '" title="Delete all chats in this brain" aria-label="Delete all chats in this brain">' + TRASH + '</button></div>';
       if (isCollapsed) continue;

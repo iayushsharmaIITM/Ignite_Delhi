@@ -29,6 +29,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CORPUS = os.path.join(HERE, "corpus")
@@ -43,6 +44,10 @@ _TTL_SECONDS = 300
 
 _cache: dict[str, tuple[float, dict]] = {}
 _lock = threading.Lock()
+_id_cache: dict = {}        # {dataset: {data_id: {source, excerpt}}} — persistent
+_items_cache: dict = {}     # {dataset: (ts, {id: name})}
+_prewarm_events: dict = {}  # {dataset: Event} — set when the dataset is cached
+_prewarm_lock = threading.Lock()
 
 # "chunk 1 of document text_abc (data_id: xyz, chunk_id: 123)"
 _DATA_ID_RE = re.compile(r"data_id:\s*([0-9a-fA-F-]{8,})")
@@ -143,7 +148,6 @@ def _fetch_map(dataset: str) -> dict:
     # The raw fetches are the latency here — one HTTP round-trip per document,
     # all independent. In parallel they finish in the time of the slowest one
     # instead of their sum, which is what made citations trail the answer.
-    from concurrent.futures import ThreadPoolExecutor
 
     ids = [item.get("id") for item in items if item.get("id")]
 
@@ -196,6 +200,79 @@ def for_dataset(dataset: str) -> dict:
     return resolved
 
 
+def _data_items_cached(dataset: str) -> dict:
+    """{data_id: stored-name} for one dataset, TTL-cached."""
+    import cognee_cloud
+
+    now = time.time()
+    hit = _items_cache.get(dataset)
+    if hit and now - hit[0] < _TTL_SECONDS:
+        return hit[1]
+    dataset_id = cognee_cloud.resolve_id(dataset)
+    m = {
+        i.get("id"): (i.get("name") or "").strip()
+        for i in cognee_cloud.data_items(dataset_id)
+        if i.get("id")
+    }
+    _items_cache[dataset] = (now, m)
+    return m
+
+
+def prewarm(dataset: str) -> None:
+    """Resolve every document in a dataset into the persistent cache.
+
+    Exactly ONE caller per dataset does the fetching; concurrent callers
+    (the orchestrator's prewarmer, an enrich()) wait on the same event and
+    then read the finished store. This is what makes citations cost 0s after
+    the answer: the fetches overlapped the retrieval instead of trailing it.
+    """
+    dataset = dataset or "default"
+    with _prewarm_lock:
+        ev = _prewarm_events.get(dataset)
+        if ev is None:
+            ev = threading.Event()
+            _prewarm_events[dataset] = ev
+            owner = True
+        else:
+            owner = False
+    if not owner:
+        ev.wait(timeout=60)
+        return
+    try:
+        _prewarm_fill(dataset)
+    finally:
+        ev.set()
+
+
+def _prewarm_fill(dataset: str) -> None:
+    items_map = _data_items_cached(dataset)
+    store = _id_cache.setdefault(dataset, {})
+    missing = [d for d in items_map if d not in store]
+    if not missing:
+        return
+    import cognee_cloud
+
+    dataset_id = cognee_cloud.resolve_id(dataset)
+    corpus = _corpus_fingerprints()
+    corpus.update(_upload_fingerprints(dataset))
+
+    def fetch(did):
+        try:
+            raw = cognee_cloud.data_raw(dataset_id, did)
+        except Exception:  # noqa: BLE001
+            raw = None
+        excerpt = re.sub(r"\s+", " ", raw or "").strip()
+        named = (items_map.get(did) or "").strip()
+        named = None if _GENERATED_NAME_RE.match(named) else (named or None)
+        store[did] = {
+            "source": named or corpus.get(_fingerprint(raw)),
+            "excerpt": excerpt[:220],
+        }
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(fetch, missing))
+
+
 def data_id_from(reference) -> str | None:
     """Pull a data_id out of a Cognee evidence string."""
     match = _DATA_ID_RE.search(str(reference))
@@ -205,30 +282,72 @@ def data_id_from(reference) -> str | None:
 def enrich(references: list, dataset: str) -> list:
     """Attach source + excerpt to each evidence string.
 
-    Returns a list of dicts so the UI can render a filename and a quote instead
-    of a UUID. Falls back to the raw string when nothing can be resolved.
+    Latency-critical: this runs while the answer streams. Only the CITED
+    documents are fetched (never the whole dataset), each resolved document is
+    cached for the process lifetime, and the fetches run in parallel — repeat
+    questions resolve in 0s, first ones in about one round-trip.
     """
     if not references:
         return []
-    mapping = for_dataset(dataset)
+    dataset = dataset or "default"
+    items_map = _data_items_cached(dataset)
+    store = _id_cache.setdefault(dataset, {})
+
+    cited = []
+    seen = set()
+    for ref in references:
+        did = data_id_from(ref)
+        if did and did not in seen:
+            seen.add(did)
+            cited.append(did)
+
+    # if a prewarm for this dataset is running (the orchestrator started it
+    # when the question arrived), join it — its fetches overlapped the
+    # retrieval, so this wait is usually 0s
+    ev = _prewarm_events.get(dataset)
+    if ev and not ev.is_set():
+        ev.wait(timeout=60)
+
+    missing = [d for d in cited if d not in store]
+    if missing:
+        import cognee_cloud
+
+        dataset_id = cognee_cloud.resolve_id(dataset)
+        corpus = _corpus_fingerprints()
+        corpus.update(_upload_fingerprints(dataset))
+
+        def fetch(did):
+            try:
+                raw = cognee_cloud.data_raw(dataset_id, did)
+            except Exception:  # noqa: BLE001 - a missing raw must not break the answer
+                raw = None
+            excerpt = re.sub(r"\s+", " ", raw or "").strip()
+            named = (items_map.get(did) or "").strip()
+            named = None if _GENERATED_NAME_RE.match(named) else (named or None)
+            store[did] = {
+                "source": named or corpus.get(_fingerprint(raw)),
+                "excerpt": excerpt[:220],
+            }
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(fetch, missing))
 
     out = []
     for ref in references:
-        text = str(ref)
-        data_id = data_id_from(text)
-        found = mapping.get(data_id) if data_id else None
-        if found:
+        did = data_id_from(ref)
+        info = store.get(did) if did else None
+        if info and info.get("source"):
             out.append(
                 {
-                    "source": found["source"],
-                    "excerpt": found["excerpt"],
-                    "raw": text,
+                    "source": info["source"],
+                    "excerpt": info["excerpt"],
+                    "raw": str(ref),
                 }
             )
         else:
             # Include the string so the panel is never empty, but mark it as
             # unresolved rather than pretending it is a source.
-            out.append({"source": None, "excerpt": None, "raw": text})
+            out.append({"source": None, "excerpt": None, "raw": str(ref)})
     return out
 
 

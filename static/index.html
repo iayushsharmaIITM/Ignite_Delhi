@@ -158,7 +158,10 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   .w-step { padding:2px 0; }
   .w-step.done { color:var(--muted-2); }
-  .w-step.spin { color:var(--fg-2); }
+  .w-step.live { color:var(--fg-2); }
+  /* the rotation is ONLY for the spinner dot, never for text */
+  .w-step.live::before { content:"◌"; display:inline-block; margin-right:7px;
+    color:var(--accent); animation:spin .8s linear infinite; }
 
   .bar-anchor { position:relative; }
 
@@ -183,7 +186,7 @@
   #thread { display:flex; flex-direction:column; }
   .turn { display:flex; flex-direction:column; gap:9px;
           animation:rise .18s ease; }
-  .turn + .turn { margin-top:22px; }
+  .turn + .turn { margin-top:12px; }
   @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
 
   .turn.user .bubble {
@@ -230,7 +233,7 @@
   /* ---- hover-only message controls (ZCode anatomy) -----------------------------
      copy · email · steps · chat · thumbs up/down · time — invisible until the
      message is approached; always visible for keyboard focus. */
-  .msg-acts { display:flex; align-items:center; gap:2px; margin-top:8px;
+  .msg-acts { display:flex; align-items:center; gap:2px; margin-top:6px; height:26px;
               opacity:0; transition:opacity .16s ease; }
   .turn:hover .msg-acts, .msg-acts:focus-within { opacity:1; }
   .msg-acts button {
@@ -997,10 +1000,33 @@ async function ask(q) {
   const { turn, bubble } = addTurn('bot', '');
   bubble.className = 'bubble streaming rendered';
   const work = workStart(turn);            // real engine steps, below the request
+// The answer is the deliverable: the moment its text is complete the turn is
+// finished and the composer is free — even while citations resolve in the
+// background stream and render into the turn as they land.
+function finalize(bubble, q, text, sources) {
+  if (finalized) return;
+  finalized = true;
+  bubble.className = 'bubble rendered';
+  bubble.innerHTML = renderMarkdown(text);
+  const at = Date.now();
+  TURNS.push({ role: 'bot', text, sources, at });
+  renderAnswerActions(bubble.parentElement, q, text, at);
+  if (sources.length) renderSources(bubble.parentElement, sources);
+  SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
+  LAST = { q, text };
+  turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
+  saveHistory();
+  buildRail();
+  work.stop();
+  IN_FLIGHT = false;
+  setGo(input.value.trim() ? 'ready' : 'idle');
+  input.focus();
+}
+
 
   setGo('stop');
   CONTROLLER = new AbortController();
-  let text = '', sources = [], streaming = false;
+  let text = '', sources = [], streaming = false, finalized = false;
 
   // Attachments are not decoration. Text-like files are read into the ask
   // context so THIS answer can use them, and every ingestible file is added
@@ -1074,51 +1100,43 @@ async function ask(q) {
         } else if (ev.stage === 'step') {
           work.step(ev.label, ev.ms);
         } else if (ev.type === 'references' && ev.items?.length) {
-          sources = ev.items;   // the grounding step is logged by the engine
+          sources = ev.items;
+          if (finalized) { renderSources(bubble.parentElement, sources); saveHistory(); }
         } else if (ev.stage === 'error') {
           bubble.className = 'bubble err';
           bubble.textContent = 'Something went wrong: ' + ev.message;
-        } else if (ev.stage === 'done' && text) {
-          bubble.className = 'bubble rendered';
-          bubble.innerHTML = renderMarkdown(text);
+        } else if (ev.stage === 'done' && text && !finalized) {
+          finalize(bubble, q, text, sources);
         }
       }
     }
 
     // M5: process the tail — a final line without its newline still carries
-    // `done`, which turns the raw markdown into rendered markdown.
+    // `done`, which finalizes the answer.
     if (buf.trim()) {
       let ev; try { ev = JSON.parse(buf); } catch { ev = null; }
       if (ev) {
         if (ev.type === 'chunk' || ev.chunk) {
           text += (ev.text ?? ev.chunk);
+          bubble.innerHTML = renderMarkdown(text);
         } else if (ev.type === 'references' && ev.items?.length) {
           sources = ev.items;
+          if (finalized) { renderSources(bubble.parentElement, sources); saveHistory(); }
+        } else if (ev.stage === 'done' && text && !finalized) {
+          finalize(bubble, q, text, sources);
         }
       }
     }
 
-    if (!text) {
+    if (!text && !finalized) {
       bubble.className = 'bubble placeholder';
       bubble.textContent = 'No answer returned for that question.';
-    } else {
-      const at = Date.now();
-      TURNS.push({ role: 'bot', text, sources, at });
-      bubble.className = 'bubble rendered';
-      bubble.innerHTML = renderMarkdown(text);
-      renderSources(bubble.parentElement, sources);
-      renderAnswerActions(bubble.parentElement, q, text, at);
-      SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
-      LAST = { q, text };
-
-      turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
-      saveHistory();
-      buildRail();
     }
   } catch (err) {
     if (err.name === 'AbortError') {
       // Stop pressed: keep the partial answer, honestly labelled.
-      if (text) {
+      if (finalized) { /* the answer already landed; nothing to stop */ }
+      else if (text) {
         text += '\n\n_(stopped.)_';
         const at = Date.now();
         TURNS.push({ role: 'bot', text, sources, at });
@@ -1135,15 +1153,18 @@ async function ask(q) {
         bubble.className = 'bubble placeholder';
         bubble.textContent = 'Stopped before any answer arrived.';
       }
-    } else {
+    } else if (!finalized) {
       bubble.className = 'bubble err';
       bubble.textContent = 'Could not reach the server: ' + err.message;
     }
   } finally {
-    IN_FLIGHT = false; CONTROLLER = null;
-    work.stop();
-    setGo(input.value.trim() ? 'ready' : 'idle');
-    input.focus();
+    if (!finalized) work.stop();
+    IN_FLIGHT = finalized ? IN_FLIGHT : false;
+    CONTROLLER = null;
+    if (!finalized) {
+      setGo(input.value.trim() ? 'ready' : 'idle');
+      input.focus();
+    }
   }
 }
 
@@ -1292,12 +1313,12 @@ function workStart(turn) {
       if (current) {
         const dur = ms != null ? (ms / 1000).toFixed(1) + 's'
                                : ((Date.now() - currentT0) / 1000).toFixed(1) + 's';
-        current.classList.remove('spin');
+        current.classList.remove('live');
         current.classList.add('done');
         current.textContent = '✓ ' + current.dataset.label + ' · ' + dur;
       }
       const row = document.createElement('div');
-      row.className = 'w-step spin';
+      row.className = 'w-step live';
       row.dataset.label = label;
       row.textContent = label;
       box.appendChild(row);
@@ -1307,7 +1328,7 @@ function workStart(turn) {
       clearInterval(tick);
       if (current) {
         const dur = ((Date.now() - currentT0) / 1000).toFixed(1) + 's';
-        current.classList.remove('spin');
+        current.classList.remove('live');
         current.classList.add('done');
         current.textContent = '✓ ' + current.dataset.label + ' · ' + dur;
         current = null;
