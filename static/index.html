@@ -541,10 +541,12 @@ function saveHistory() {
   try {
     const chats = allChats().filter(c => c.id !== CHAT_ID);
     const firstUser = TURNS.find(t => t.role === 'user');
+    const previous = allChats().find(c => c.id === CHAT_ID);
     chats.unshift({
       id: CHAT_ID,
       title: (firstUser?.text || 'Untitled').slice(0, 60),
       at: Date.now(),
+      created: previous?.created || Date.now(),   // preserved across saves: the Created sort
       turns: TURNS.slice(-TURNS_MAX),
     });
     localStorage.setItem(CHATS_KEY, JSON.stringify(chats.slice(0, CHAT_MAX)));
