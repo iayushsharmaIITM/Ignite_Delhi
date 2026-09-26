@@ -139,8 +139,13 @@
   body.chatting #rail { display:flex; }
   #rail .tick { width:16px; height:2.5px; border-radius:2px; border:0;
           background:var(--line-3); cursor:pointer; padding:0;
-          transition:background .15s ease, width .15s ease; }
-  #rail .tick:hover, #rail .tick.here { background:var(--accent); width:22px; }
+          transition:background .25s ease, width .25s ease, transform .25s ease,
+                     box-shadow .25s ease; }
+  #rail .tick:hover { background:var(--fg); width:22px; }
+  #rail .tick.here { background:var(--accent); width:26px;
+          box-shadow:0 0 8px rgba(226,164,74,.35); transform:translateX(2px); }
+  @keyframes railIn { from { opacity:0; transform:translateX(-6px); }
+          to { opacity:1; transform:none; } }
 
   #rail-tip { position:fixed; z-index:60; max-width:300px; padding:10px 13px;
           border-radius:10px; background:var(--panel-2); border:1px solid var(--line-2);
@@ -1255,15 +1260,19 @@ function renderAttRow(turn, atts) {
 // --- left rail: one tick per user message; hover previews, click jumps -------
 const rail = document.getElementById('rail');
 const railTip = document.getElementById('rail-tip');
+let railTicks = [];
 
 function buildRail() {
   rail.innerHTML = '';
+  railTicks = [];
   if (!TURNS.length) { railTip.style.display = 'none'; return; }
   TURNS.forEach((t, i) => {
     if (t.role !== 'user') return;
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'tick';
+    b.style.animation = 'railIn .3s ease ' + (railTicks.length * 40) + 'ms backwards';
+    b.dataset.uid = i;
     b.setAttribute('aria-label', 'Jump to: ' + (t.text || 'message').slice(0, 40));
     b.addEventListener('click', () => {
       const el = threadEl.querySelector('[data-uid="' + i + '"]');
@@ -1281,8 +1290,34 @@ function buildRail() {
     });
     b.addEventListener('mouseleave', () => { railTip.style.display = 'none'; });
     rail.appendChild(b);
+    railTicks.push({ el: b, uid: i });
   });
+  updateRailHere();
 }
+
+// The scroll-linked part: the tick nearest the reading line lights up and
+// widens, sliding the "you are here" marker down the rail as you scroll.
+function updateRailHere() {
+  if (!railTicks.length) return;
+  const focus = window.innerHeight * 0.35;
+  let best = null, bestDist = Infinity;
+  for (const pair of railTicks) {
+    const el = threadEl.querySelector('[data-uid="' + pair.uid + '"]');
+    if (!el) continue;
+    const r = el.getBoundingClientRect();
+    const dist = Math.abs(r.top + r.height / 2 - focus);
+    if (dist < bestDist) { bestDist = dist; best = pair; }
+  }
+  railTicks.forEach(p => p.el.classList.toggle('here', p === best));
+}
+
+let railScrollQueued = false;
+window.addEventListener('scroll', () => {
+  if (railScrollQueued) return;
+  railScrollQueued = true;
+  requestAnimationFrame(() => { railScrollQueued = false; updateRailHere(); });
+}, { passive: true });
+window.addEventListener('resize', updateRailHere);
 
 // --- working status: what is happening right now ------------------------------
 // --- working log: REAL engine steps, each with its measured duration ---------
