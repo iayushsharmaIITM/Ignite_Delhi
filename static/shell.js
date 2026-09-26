@@ -39,21 +39,23 @@
            p.href + qs + '">' + icon(p.key) + '<span>' + p.label + '</span></a>';
   }).join('');
 
-  const brainRow = brain
-    ? '<div class="nav-label">Current brain</div>' +
-      '<div class="nav-item active" style="cursor:default">' +
-      '<span class="badge" style="margin:0 0 0 2px">' + brain + '</span></div>'
-    : '';
 
-  // Conversation list. Stored by index.html under kestrel.chats.<brain>; read
-  // here so the sidebar can list and switch between past chats the way a chat
-  // app does. Failures are swallowed - the sidebar must never break a page.
+  // Conversation list across ALL brains. Each chat remembers the brain it was
+  // built in; opening one navigates with ?brain=<its brain>, so the composer
+  // always switches to the brain that chat belongs to — the way a chat app
+  // switches project context when you open an old conversation.
   function chatList() {
+    const out = [];
     try {
-      const raw = localStorage.getItem('kestrel.chats.' + (brain || 'demo'));
-      const all = raw ? JSON.parse(raw) : [];
-      return all.slice().sort((a, b) => (b.at || 0) - (a.at || 0));
-    } catch (e) { return []; }
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || key.indexOf('kestrel.chats.') !== 0) continue;
+        const chatBrain = key.slice('kestrel.chats.'.length);
+        const all = JSON.parse(localStorage.getItem(key) || '[]');
+        all.forEach(c => out.push({ brain: chatBrain, chat: c }));
+      }
+    } catch (e) { /* storage unavailable - history is a convenience */ }
+    return out.sort((a, b) => (b.chat.at || 0) - (a.chat.at || 0));
   }
 
   function renderChats() {
@@ -62,7 +64,7 @@
   }
 
   function chatGroup() {
-    const chats = chatList();
+    const entries = chatList();
     const sep = qs ? '&' : '?';
     // ?new=1 tells the ask page to start a fresh conversation. Without it the
     // link would resume whatever chat this tab already had open.
@@ -73,16 +75,21 @@
       'stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>' +
       '<span>New chat</span></a>';
 
-    if (!chats.length) {
+    if (!entries.length) {
       html += '<div class="chat-empty">No saved chats yet</div>';
       return html;
     }
-    chats.slice(0, 12).forEach(c => {
-      const active = c.id === currentChat ? ' active' : '';
+    entries.slice(0, 12).forEach(e => {
+      const c = e.chat;
+      const active = c.id === currentChat && e.brain === (brain || 'demo');
       const title = (c.title || 'Untitled').replace(/[<>&"]/g, '');
-      html += '<a class="nav-item chat-item' + active + '" href="/' + (qs || '?') +
-              sep + 'chat=' + encodeURIComponent(c.id) + '" title="' + title + '">' +
-              '<span class="chat-title">' + title.slice(0, 30) + '</span></a>';
+      const csep = e.brain && e.brain !== 'demo' ? '?brain=' + encodeURIComponent(e.brain) + '&chat=' : '?chat=';
+      html += '<a class="nav-item chat-item' + (active ? ' active' : '') + '" href="/' + csep +
+              encodeURIComponent(c.id) + '" title="' + title + '">' +
+              '<span class="chat-title">' + title.slice(0, 26) + '</span>' +
+              (e.brain && e.brain !== 'demo'
+                ? '<span class="badge">' + e.brain + '</span>' : '') +
+              '</a>';
     });
     return html;
   }
@@ -96,7 +103,7 @@
       '<div class="sub">Company Brain</div></div>' +
     '</div>' +
     '<nav class="nav">' +
-      '<div class="nav-label">Workspace</div>' + links + brainRow +
+      '<div class="nav-label">Workspace</div>' + links +
       '<div id="sb-chats"></div>' +
     '</nav>' +
     '<div class="sb-foot">' +

@@ -243,19 +243,12 @@
   .msg-acts .time { font-size:11px; color:var(--muted-2);
                     font-family:var(--mono); padding:0 6px 0 6px; }
 
-  /* ---- follow-ups ---------------------------------------------------------------- */
-  .followups { display:flex; flex-wrap:wrap; gap:4px 16px; margin-top:10px;
                opacity:0; transition:opacity .16s ease; }
-  .turn:hover .followups, .followups:focus-within { opacity:1; }
-  .followups button {
     padding:4px 0; border:0; background:none; color:var(--muted); font-size:12.5px;
     cursor:pointer; text-align:left; transition:color .15s ease; max-width:100%;
     box-shadow:none;
   }
-  .followups button::after { content:"→"; margin-left:7px; color:var(--muted-2);
                              transition:all .15s ease; display:inline-block; }
-  .followups button:hover { color:var(--fg); }
-  .followups button:hover::after { color:var(--accent); transform:translateX(2px); }
 
   /* ---- source modal ---------------------------------------------------------------- */
   #source-modal {
@@ -809,7 +802,6 @@ function renderTurn(role, text, sources, question, at) {
     bubble.innerHTML = renderMarkdown(text);
     if (sources && sources.length) renderSources(turn, sources);
     renderAnswerActions(turn, question || '', text, at);
-    renderSuggestions(turn, text);
   }
   return turn;
 }
@@ -963,63 +955,6 @@ function closeSource() {
   srcText = '';
 }
 
-// --- suggestions, derived from the answer ------------------------------------
-// Not a fixed list. These are read out of the answer that was just given.
-function suggestFrom(text) {
-  const clean_ = clean(text);
-  const out = [];
-  const seen = new Set();
-  const push = (label, question) => {
-    const key = label.toLowerCase();
-    if (seen.has(key) || out.length >= 4) return;
-    seen.add(key);
-    out.push({ label, question: question || label });
-  };
-
-  const people = new Set();
-  const NOT_A_NAME = /\b(action|component|policy|credit|invoice|contract|agreement|renewal|outage|ticket|meeting|notes?|report|status|date|value|table|summary|issue|process|system|team|service|account|platform|review|approval|deadline|incident|handbook|matrix|threshold|ceiling|plan|draft|update|change|risk|impact|owner|role|step)\b/i;
-  const LEADING = /^(The|This|That|These|Those|When|What|Where|Which|While|Their|There|Our|Your|Its|Both|Each|Some|Most|All|No|Not|And|But|For|From|With|Within|After|Before|During|Under|Over|Above|Below)$/;
-  const re = /\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b/g;
-  let m;
-  while ((m = re.exec(clean_))) {
-    const full = m[0];
-    const [first, last] = m.slice(1);
-    if (LEADING.test(first) || LEADING.test(last)) continue;
-    if (NOT_A_NAME.test(full)) continue;
-    people.add(full);
-  }
-  [...people].slice(0, 2).forEach(name => {
-    push('Who is ' + name + '?', 'What is ' + name + "'s role and what do they own?");
-  });
-
-  if (/\b(contract|policy|agreement|msa|handbook)\b/i.test(clean_)) {
-    push('Check this against the policy', 'Does this comply with our policy, and which one governs it?');
-  } else {
-    push('Is this consistent across documents?', 'Is this consistent across all our documents?');
-  }
-
-  return out.slice(0, 4);
-}
-
-function renderSuggestions(turn, text) {
-  const items = suggestFrom(text);
-  if (!items.length) return;
-  const row = document.createElement('div');
-  row.className = 'followups';
-  items.forEach(it => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = it.label;
-    b.title = it.question;
-    b.addEventListener('click', () => {
-      input.value = it.question;
-      ask(it.question);
-    });
-    row.appendChild(b);
-  });
-  turn.appendChild(row);
-}
-
 function renderSources(turn, items) {
   const named = items.filter(i => i && i.source);
   if (!named.length) return;
@@ -1134,7 +1069,6 @@ async function ask(q) {
       bubble.innerHTML = renderMarkdown(text);
       renderSources(bubble.parentElement, sources);
       renderAnswerActions(bubble.parentElement, q, text, at);
-      renderSuggestions(bubble.parentElement, text);
       SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
       LAST = { q, text };
 
@@ -1153,7 +1087,6 @@ async function ask(q) {
         bubble.innerHTML = renderMarkdown(text);
         renderSources(bubble.parentElement, sources);
         renderAnswerActions(bubble.parentElement, q, text, at);
-        renderSuggestions(bubble.parentElement, text);
         SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
         LAST = { q, text };
         turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
