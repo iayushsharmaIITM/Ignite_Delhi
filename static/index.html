@@ -129,7 +129,7 @@
          border-radius:5px; border:0; background:rgba(0,0,0,.6); color:#ddd;
          font-size:10px; line-height:1; cursor:pointer; display:grid; place-items:center; }
   .att .x:hover { background:rgba(0,0,0,.85); color:#fff; }
-  .turn .atts { padding:2px 0 0; }
+  .turn.user .bubble .atts { margin:0 0 10px; }
   .turn .att { cursor:zoom-in; }
 
   /* ---------- left rail: jump to user message (ZCode scrubber) --------------- */
@@ -242,13 +242,6 @@
   .msg-acts button.fb-on { color:var(--accent); }
   .msg-acts .time { font-size:11px; color:var(--muted-2);
                     font-family:var(--mono); padding:0 6px 0 6px; }
-
-               opacity:0; transition:opacity .16s ease; }
-    padding:4px 0; border:0; background:none; color:var(--muted); font-size:12.5px;
-    cursor:pointer; text-align:left; transition:color .15s ease; max-width:100%;
-    box-shadow:none;
-  }
-                             transition:all .15s ease; display:inline-block; }
 
   /* ---- source modal ---------------------------------------------------------------- */
   #source-modal {
@@ -986,6 +979,7 @@ async function ask(q) {
     .join('\n');
   document.body.classList.add('chatting');
   const atts = PENDING.map(a => ({ name: a.name, kind: a.kind, size: a.size, url: a.url }));
+  const files = PENDING.map(a => a.file);
   TURNS.push({ role: 'user', text: q, at: Date.now(), attachments: atts.length ? atts : undefined });
 
   input.value = '';
@@ -993,6 +987,7 @@ async function ask(q) {
   const u = addTurn('user', q);
   u.turn.dataset.uid = TURNS.length - 1;
   if (atts.length) renderAttRow(u.turn, atts);
+  PENDING = []; renderPending();            // thumbs move to the sent message
   buildRail();
   const { turn, bubble } = addTurn('bot', '');
   bubble.className = 'bubble streaming rendered';
@@ -1006,10 +1001,52 @@ async function ask(q) {
   CONTROLLER = new AbortController();
   let text = '', sources = [], streaming = false;
 
+  // Attachments are not decoration. Text-like files are read into the ask
+  // context so THIS answer can use them, and every ingestible file is added
+  // to the current brain so every FUTURE question cites it.
+  let context = history;
+  if (files.length) {
+    const steps = ['Reading attached files…'];
+    let si = 0;
+    const stepTick = setInterval(() => {
+      si = (si + 1) % steps.length;
+    }, 100);
+    void stepTick;
+    workGroundText('Reading attached files…');
+    const TEXTY = /\.(txt|md|csv|json|py|js|ts|jsx|tsx|java|go|rs|c|cpp|h|hpp|sh|sql|yaml|yml|toml|ini|cfg|html|css)$/i;
+    let fed = 0;
+    for (const f of files) {
+      const texty = (f.type || '').startsWith('text/') || TEXTY.test(f.name);
+      if (texty && context.length < 5200) {
+        try {
+          const content = (await f.slice(0, 16 * 1024).text()).slice(0, 2400);
+          context = 'Attached file "' + f.name + '":\n' + content + '\n\n' + context;
+          fed += 1;
+        } catch (e) { /* unreadable - the name still rides along */ }
+      }
+    }
+    if (BRAIN) {
+      const ingestible = files.filter(f => !((f.type || '').startsWith('image/')));
+      if (ingestible.length) {
+        workGroundText('Adding ' + ingestible.length + ' file(s) to ' + BRAIN + '…');
+        const fd = new FormData();
+        fd.append('name', BRAIN);
+        fd.append('append', 'true');
+        ingestible.forEach(f => fd.append('files', f));
+        fetch('/api/brains', { method: 'POST', body: fd })
+          .then(r => r.json()).then(d => {
+            if (d.ok || d.partial) window.dispatchEvent(new Event('kestrel:brain-updated'));
+          }).catch(() => { /* failures surface on /brains, not in the ask path */ });
+      }
+    }
+    if (fed) workGroundText('Attached content in context — ' + fed + ' file(s)');
+  }
+  context = context.slice(0, 6000);
+
   try {
     const params = new URLSearchParams({ q });
     if (BRAIN) params.set('dataset', BRAIN);
-    if (history) params.set('context', history);
+    if (context) params.set('context', context);
 
     const res = await fetch('/api/ask?' + params.toString(), { signal: CONTROLLER.signal });
     if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
@@ -1035,6 +1072,7 @@ async function ask(q) {
           bubble.innerHTML = renderMarkdown(text);   // direct output — no raw ** phase
         } else if (ev.type === 'references' && ev.items?.length) {
           sources = ev.items;
+          if (workTimer) { clearInterval(workTimer); workTimer = null; }
           workGround(sources.length);
         } else if (ev.stage === 'error') {
           bubble.className = 'bubble err';
@@ -1186,8 +1224,10 @@ function renderAttRow(turn, atts) {
     if (a.url) d.addEventListener('click', () => window.open(a.url, '_blank'));
     row.appendChild(d);
   });
-  // attachments render above the answer-controls of the USER turn
-  turn.insertBefore(row, turn.querySelector('.msg-acts'));
+  // attachments ride INSIDE the message card, above its text (reference UX)
+  const bubble = turn.querySelector('.bubble');
+  if (bubble) bubble.insertBefore(row, bubble.firstChild);
+  else turn.insertBefore(row, turn.firstChild);
 }
 
 // --- left rail: one tick per user message; hover previews, click jumps -------
@@ -1227,15 +1267,29 @@ const WORK_STEPS = ['Searching the knowledge graph…', 'Retrieving passages…'
                     'Reading the evidence…', 'Cross-checking documents…',
                     'Composing the answer…'];
 let workTimer = null;
+let workTimers = [];
 function workStart(el) {
   let i = 0;
   const label = el;
   label.textContent = WORK_STEPS[0];
+  const row = el.parentElement;
+  const elapsed = document.createElement('span');
+  elapsed.className = 'w-elapsed';
+  elapsed.textContent = 'Working · 0s';
+  row.insertBefore(elapsed, el);
+  const sep = document.createElement('span');
+  sep.className = 'w-sep'; sep.textContent = '·';
+  row.insertBefore(sep, el);
+  const t0 = Date.now();
+  const tick = setInterval(() => {
+    elapsed.textContent = 'Working · ' + Math.round((Date.now() - t0) / 1000) + 's';
+  }, 1000);
   if (workTimer) clearInterval(workTimer);
   workTimer = setInterval(() => {
     i = (i + 1) % WORK_STEPS.length;
     label.textContent = WORK_STEPS[i];
-  }, 2400);
+  }, 2600);
+  workTimers.push(tick);
 }
 function workGround(n) {
   if (n && workTimer) {
@@ -1243,8 +1297,13 @@ function workGround(n) {
     if (el) el.textContent = 'Grounding in ' + n + ' source' + (n > 1 ? 's' : '') + '…';
   }
 }
+function workGroundText(s) {
+  const el = document.querySelector('.turn .working span:last-child');
+  if (el) el.textContent = s;
+}
 function workStop() {
   if (workTimer) { clearInterval(workTimer); workTimer = null; }
+  workTimers.forEach(clearInterval); workTimers = [];
   document.querySelectorAll('.turn .working').forEach(w => w.remove());
 }
 

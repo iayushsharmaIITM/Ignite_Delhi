@@ -79,18 +79,30 @@
       html += '<div class="chat-empty">No saved chats yet</div>';
       return html;
     }
-    entries.slice(0, 12).forEach(e => {
-      const c = e.chat;
-      const active = c.id === currentChat && e.brain === (brain || 'demo');
-      const title = (c.title || 'Untitled').replace(/[<>&"]/g, '');
-      const csep = e.brain && e.brain !== 'demo' ? '?brain=' + encodeURIComponent(e.brain) + '&chat=' : '?chat=';
-      html += '<a class="nav-item chat-item' + (active ? ' active' : '') + '" href="/' + csep +
-              encodeURIComponent(c.id) + '" title="' + title + '">' +
-              '<span class="chat-title">' + title.slice(0, 26) + '</span>' +
-              (e.brain && e.brain !== 'demo'
-                ? '<span class="badge">' + e.brain + '</span>' : '') +
-              '</a>';
+    // Grouped by brain, the way a chat app groups by project: a folder row
+    // per brain (most recent first), its chats nested beneath it.
+    const groups = new Map();
+    entries.forEach(e => {
+      if (!groups.has(e.brain)) groups.set(e.brain, []);
+      groups.get(e.brain).push(e.chat);
     });
+    const FOLDER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+    let shown = 0;
+    for (const [b, chats] of groups) {
+      if (shown >= 14) break;
+      const label = b === 'demo' ? 'Demo brain' : b;
+      html += '<div class="nav-label brain-head">' + FOLDER + '<span>' + label + '</span></div>';
+      chats.slice(0, 5).forEach(c => {
+        if (shown >= 14) return;
+        shown += 1;
+        const active = c.id === currentChat && b === (brain || 'demo');
+        const title = (c.title || 'Untitled').replace(/[<>&"]/g, '');
+        const csep = b !== 'demo' ? '?brain=' + encodeURIComponent(b) + '&chat=' : '?chat=';
+        html += '<a class="nav-item chat-item' + (active ? ' active' : '') + '" href="/' + csep +
+                encodeURIComponent(c.id) + '" title="' + title + '">' +
+                '<span class="chat-title">' + title.slice(0, 30) + '</span></a>';
+      });
+    }
     return html;
   }
 

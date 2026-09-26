@@ -157,7 +157,9 @@ h1, .display {
 .led.bad { background: var(--bad); }
 
 /* saved conversations */
-.nav-item.chat-item { padding-left: 24px; }
+.nav-item.chat-item { padding-left: 34px; }
+.nav-label.brain-head { display:flex; align-items:center; gap:7px; color:var(--muted); }
+.nav-label.brain-head span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .nav-item.chat-item::before {
   content: ""; position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
   width: 4px; height: 4px; border-radius: 50%; background: var(--muted-2);
