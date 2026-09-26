@@ -10,85 +10,83 @@
 * { box-sizing:border-box; }
   main { max-width:800px; margin:0 auto; padding:40px 24px 64px; }
 
-  /* ---- hero ---------------------------------------------------------------- */
-  header { margin-bottom:34px; }
-  h1 { font-family:var(--serif); font-size:36px; font-weight:560; margin:0 0 10px;
-       letter-spacing:-.024em; line-height:1.06; }
-  h1 .mark { display:none; }
-  p.sub { color:var(--muted); margin:0; font-size:15px; max-width:56ch; line-height:1.65; }
+  /* ==== TWO MODES ==========================================================
+     home:    centered watermark + greeting + composer + suggestion chips
+     chatting: transcript + the composer docked bottom, slim and quiet       */
 
-  .brainbar { display:flex; align-items:center; gap:10px; margin-top:20px;
-              padding:8px 2px 10px; border-bottom:1px solid var(--line);
-              font-size:12.5px; }
-  .brainbar[hidden] { display:none; }
-  .brainbar .tag { color:var(--muted-2); font-weight:700; letter-spacing:.12em;
-                   text-transform:uppercase; font-size:9.5px; }
-  .bname { color:var(--accent); font-family:var(--mono); font-size:12px; }
-  .brainbar a { margin-left:auto; color:var(--muted); border:0; }
-  .brainbar a:hover { color:var(--fg); }
+  .app-main { padding-bottom:0; }
+  body:not(.chatting) .app-main {
+    justify-content:center; align-items:center; padding:40px 24px 60px; }
+  body:not(.chatting) #home { display:flex; flex-direction:column; align-items:center;
+    width:100%; max-width:680px; order:1; }
+  body:not(.chatting) #thread-wrap, body:not(.chatting) #draft { display:none; }
+  body:not(.chatting) #f { position:static; order:2; width:100%; max-width:680px;
+    margin:0 auto; padding:26px 0 0; background:none; backdrop-filter:none; }
+  body:not(.chatting) #chips { display:flex; order:3; width:100%; max-width:680px;
+    margin:16px auto 0; }
+  body.chatting #home { display:none; }
+  body.chatting #chips { display:none; }
+  body.chatting #thread-wrap { display:block; }
 
-  /* ---- composer: the one bar that rules the page ----------------------------
-     Row 1: [+ file] [brain ▾] input [send/stop]
-     Row 2 (when a thread exists): ⋯ menu · quick export · clear · turn count  */
-  form { display:flex; gap:10px; position:fixed; left:var(--sb-w); right:0; bottom:0;
-         z-index:35; margin:0; padding:26px 44px 20px;
-         background:linear-gradient(180deg, rgba(250,249,246,0), var(--bg) 42%);
-         backdrop-filter:blur(10px); }
-  form .field { flex:1; max-width:772px; margin:0 auto; }
-  body { padding-bottom:130px; }
-  .bar-card { border-radius:16px; border:1px solid var(--line-2);
+  /* ==== home ================================================================ */
+  .watermark { font-size:150px; line-height:1; color:rgba(255,255,255,.045);
+    user-select:none; margin-bottom:6px; }
+  .greeting { font-size:30px; font-weight:550; letter-spacing:-.02em;
+    color:var(--fg); text-align:center; margin-bottom:26px; }
+
+  /* ==== the composer card ====================================================
+     top row: [brain] ..... [⋯]   ·   input   ·   bottom row: [+ …] [send]    */
+  #f { position:fixed; left:var(--sb-w); right:0; bottom:0; z-index:35;
+       margin:0; padding:22px 44px 18px;
+       background:linear-gradient(180deg, rgba(22,22,22,0), var(--bg) 40%);
+       backdrop-filter:blur(10px); }
+  #f .field { flex:1; max-width:780px; margin:0 auto; }
+  body { padding-bottom:120px; }
+  body:not(.chatting) { padding-bottom:0; }
+
+  .bar-card { position:relative; display:flex; flex-direction:column;
+              border-radius:16px; border:1px solid var(--line-2);
               background:var(--panel);
-              box-shadow:0 1px 2px rgba(28,25,23,.05), 0 10px 30px rgba(28,25,23,.08);
-              transition:border-color .18s ease, box-shadow .18s ease; }
-  .bar-card:focus-within { border-color:var(--accent-soft);
-              box-shadow:0 1px 2px rgba(28,25,23,.05), 0 10px 30px rgba(28,25,23,.08), 0 0 0 4px var(--accent-glow); }
-  .bar-row { display:flex; align-items:center; gap:8px; padding:8px 8px 8px 10px; }
-  input { flex:1; padding:11px 4px; border:0; background:transparent; color:var(--fg);
-          font-size:15px; outline:none; min-width:0; }
-  input:focus { border:0; box-shadow:none; }
-  input::placeholder { color:var(--muted-2); }
+              box-shadow:0 1px 2px rgba(0,0,0,.3), 0 12px 36px rgba(0,0,0,.25);
+              transition:border-color .18s ease; }
+  .bar-card:focus-within { border-color:var(--line-3); }
+  .bar-top { display:flex; align-items:center; gap:4px; padding:8px 10px 0; }
+  .bar-top .spacer { flex:1; }
+  .bar-row { display:flex; align-items:center; gap:8px; padding:2px 10px 10px; }
+  .bar-row .spacer { flex:1; }
+  textarea#q { width:100%; padding:12px 14px; border:0; background:transparent;
+          color:var(--fg); font-size:15px; line-height:1.55; outline:none;
+          min-width:0; resize:none; max-height:140px; font-family:var(--sans); }
+  textarea#q:focus { border:0; box-shadow:none; }
+  textarea#q::placeholder { color:var(--muted-2); }
 
   .bar-btn { display:inline-flex; align-items:center; gap:6px; flex:none;
-             padding:9px 11px; border-radius:9px; border:0; background:transparent;
-             color:var(--muted); cursor:pointer; font-size:13px; font-weight:590;
+             padding:7px 10px; border-radius:8px; border:0; background:transparent;
+             color:var(--muted); cursor:pointer; font-size:12.5px; font-weight:590;
              transition:background .15s ease, color .15s ease; }
   .bar-btn:hover { background:var(--panel-2); color:var(--fg); }
-  .bar-btn svg { width:16px; height:16px; }
-  .bar-btn .bname { color:var(--fg-2); font-family:var(--sans); font-size:13px;
+  .bar-btn svg { width:15px; height:15px; }
+  .bar-btn .bname { color:var(--fg-2); font-family:var(--sans); font-size:12.5px;
                     max-width:150px; overflow:hidden; text-overflow:ellipsis;
                     white-space:nowrap; }
-  .bar-btn.chev svg, .bar-btn svg.chev { width:12px; height:12px; }
+  .bar-btn svg.chev { width:11px; height:11px; }
 
   #go { display:inline-flex; align-items:center; justify-content:center; flex:none;
-        width:38px; height:38px; padding:0; border-radius:11px; border:0;
-        background:var(--btn-ink); color:#faf9f6; cursor:pointer;
+        width:34px; height:34px; padding:0; border-radius:50%; border:0;
+        background:var(--btn-ink); color:#161616; cursor:pointer;
         transition:transform .12s ease, opacity .15s ease, background .18s ease; }
   #go svg { width:16px; height:16px; }
-  #go:hover:not(:disabled) { opacity:.85; }
-  #go:active:not(:disabled) { transform:translateY(1px); }
-  #go:disabled { opacity:.35; cursor:default; }
-  #go.stop { background:var(--bad); }
-
-  /* row 2 — conversation controls, quiet, only once a thread exists */
-  .bar-menu-row { display:flex; align-items:center; gap:2px; padding:0 8px 8px 10px; }
-  .bar-menu-row[hidden] { display:none; }
-  .bar-menu-row button, .bar-menu-row .mi {
-    padding:5px 9px; border-radius:7px; border:0; background:transparent;
-    color:var(--muted); font-size:12px; cursor:pointer;
-    transition:background .15s ease, color .15s ease; font-family:var(--sans); }
-  .bar-menu-row button:hover { background:var(--panel-2); color:var(--fg); }
-  .bar-menu-row button.armed { color:var(--bad); background:rgba(185,28,28,.07);
-                               font-weight:600; }
-  .bar-menu-row .spacer { flex:1; }
-  .bar-menu-row .count { font-size:10.5px; color:var(--muted-2);
-                         font-family:var(--mono); padding-right:4px; }
+  #go:hover:not(:disabled) { opacity:.88; }
+  #go:active:not(:disabled) { transform:scale(.96); }
+  #go:disabled { opacity:.3; cursor:default; background:var(--panel-3); color:var(--muted); }
+  #go.stop { background:var(--bad); color:#161616; }
 
   /* pop-up menus open UP from the bar */
-  .pop { position:absolute; bottom:calc(100% + 8px); left:10px; z-index:50;
+  .pop { position:absolute; bottom:calc(100% + 8px); right:10px; z-index:50;
          min-width:230px; padding:6px; border-radius:12px;
-         background:var(--panel); border:1px solid var(--line-2);
+         background:var(--panel-2); border:1px solid var(--line-2);
          box-shadow:var(--shadow-lg);
-         transform-origin:bottom left;
+         transform-origin:bottom right;
          animation:pop .16s ease; }
   .pop[hidden] { display:none; }
   @keyframes pop { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
@@ -96,66 +94,58 @@
                 padding:8px 10px; border-radius:8px; border:0; background:transparent;
                 color:var(--fg-2); font-size:13px; cursor:pointer; white-space:nowrap;
                 box-shadow:none; }
-  .pop button:hover { background:var(--panel-2); color:var(--fg); }
+  .pop button:hover { background:var(--panel-3); color:var(--fg); }
   .pop button .tick { margin-left:auto; color:var(--accent); font-weight:700; }
-  .pop button.armed { color:var(--bad); background:rgba(185,28,28,.07); font-weight:600; }
+  .pop button.armed { color:var(--bad); background:rgba(240,112,112,.08); font-weight:600; }
   .pop .pop-sep { height:1px; background:var(--line); margin:6px 4px; }
   .pop .pop-note { padding:7px 10px 4px; font-size:10px; letter-spacing:.12em;
                    text-transform:uppercase; color:var(--muted-2); font-weight:700; }
   .pop a.pop-item { display:flex; align-items:center; gap:9px; width:100%; text-align:left;
                 padding:8px 10px; border-radius:8px; border:0;
                 color:var(--fg-2); font-size:13px; text-decoration:none; }
-  .pop a.pop-item:hover { background:var(--panel-2); color:var(--fg); }
+  .pop a.pop-item:hover { background:var(--panel-3); color:var(--fg); }
+  .pop .count { padding:2px 10px 6px; font-size:10.5px; color:var(--muted-2);
+                font-family:var(--mono); }
 
-  /* relative anchor so .pop menus can position against their row */
   .bar-anchor { position:relative; }
 
-  /* ---- starter prompts ------------------------------------------------------- */
-  .chips { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:10px; margin-top:20px; }
-  .chip { min-width:0; padding:14px 34px 13px 16px; border-radius:var(--radius-sm);
-          border:1px solid var(--line-2);
-          background:var(--panel); color:var(--fg-2); font-size:13.5px; cursor:pointer;
-          text-align:left; line-height:1.5; box-shadow:0 1px 2px rgba(28,25,23,.04);
-          transition:border-color .16s ease, transform .16s ease, box-shadow .16s ease;
-          position:relative; }
-  .chip::after { content:"→"; position:absolute; right:14px; top:13px;
-                 color:var(--muted-2); font-size:13px; transition:all .16s ease; }
-  .chip:hover { border-color:var(--accent-soft); transform:translateY(-1px);
-                box-shadow:0 3px 10px rgba(28,25,23,.08); color:var(--fg); }
-  .chip:hover::after { color:var(--accent); transform:translateX(2px); }
+  /* ==== suggestion chips (home only) ========================================= */
+  #chips { flex-wrap:wrap; gap:9px; justify-content:center; }
+  .chip { display:inline-flex; align-items:center; gap:8px;
+          padding:9px 16px; border-radius:999px; border:1px solid var(--line-2);
+          background:transparent; color:var(--fg-2); font-size:13px; cursor:pointer;
+          transition:all .16s ease; }
+  .chip svg { width:14px; height:14px; color:var(--muted); transition:color .16s ease; }
+  .chip:hover { border-color:var(--line-3); background:var(--panel); color:var(--fg); }
+  .chip:hover svg { color:var(--accent); }
 
-  section { margin-top:36px; }
-
-  #answer { padding:4px 0; border:0; background:none; box-shadow:none; min-height:60px;
-            font-size:16px; line-height:1.75; }
-  #answer:not(.rendered) { white-space:pre-wrap; }
-  #answer.rendered { white-space:normal; }
+  section { margin-top:0; }
   .placeholder { color:var(--muted-2); font-size:14px; }
   .err { color:var(--bad); }
 
-  /* ---- thread: the answer is a document ------------------------------------- */
-  #thread { display:flex; flex-direction:column; gap:0; max-width:72ch; }
-  .turn { display:flex; flex-direction:column; gap:10px;
+  /* ==== thread ================================================================
+     user turns are cards; assistant turns are plain text with hover controls */
+  #thread-wrap { width:100%; max-width:820px; margin:0 auto; padding:36px 24px 40px; }
+  #thread { display:flex; flex-direction:column; }
+  .turn { display:flex; flex-direction:column; gap:12px;
           animation:rise .18s ease; }
-  .turn + .turn { margin-top:32px; }
-  .turn.bot { padding-top:28px; border-top:1px solid var(--line); }
+  .turn + .turn { margin-top:34px; }
   @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
-  .turn .who { font-size:9.5px; letter-spacing:.17em; text-transform:uppercase;
-               font-weight:700; color:var(--muted-2); display:flex; align-items:center; gap:8px; }
-  .turn.bot .who::before { content:""; width:14px; height:1.5px;
-               background:var(--accent); display:inline-block; }
-  .turn.user .bubble { font-size:20px; color:var(--fg); font-weight:540;
-               font-family:var(--serif); letter-spacing:-.014em; line-height:1.35; }
-  .turn.bot .bubble { font-size:15.5px; line-height:1.8; color:#292524; }
-  .turn.bot .bubble:not(.rendered) { white-space:pre-wrap; }
+
+  .turn.user .bubble {
+    align-self:flex-end; max-width:85%;
+    padding:13px 18px; border-radius:16px 16px 6px 16px;
+    background:var(--panel-2); border:1px solid var(--line);
+    font-size:14.5px; line-height:1.6; color:var(--fg); white-space:pre-wrap; }
+  .turn.bot .bubble { font-size:15.5px; line-height:1.8; color:var(--fg-2);
+                      white-space:pre-wrap; }
   .turn.bot .bubble.rendered { white-space:normal; }
-  /* the streaming caret lives at the end of the text while it arrives */
   .bubble.streaming::after { content:"▍"; color:var(--accent);
                              animation:blink 1s steps(2) infinite; }
   @keyframes blink { 50% { opacity:0; } }
   .turn.bot .bubble h3, .turn.bot .bubble h4, .turn.bot .bubble h5 {
-               margin:24px 0 8px; font-size:14px; font-weight:650; color:var(--fg);
-               letter-spacing:.01em; font-family:var(--sans); }
+               margin:24px 0 8px; font-size:14.5px; font-weight:650; color:var(--fg);
+               letter-spacing:.005em; }
   .turn.bot .bubble > *:first-child { margin-top:0; }
   .turn.bot .bubble p { margin:0 0 12px; }
   .turn.bot .bubble p:last-child { margin-bottom:0; }
@@ -177,35 +167,37 @@
   /* ---- sources ---------------------------------------------------------------- */
   .turn .srcs { display:flex; flex-wrap:wrap; gap:7px; }
   .turn .srcs span, .turn .srcs button {
-    font-size:11.5px; color:var(--fg-2); background:var(--panel);
-    border:1px solid var(--line-2); padding:5px 11px; border-radius:7px;
+    font-size:11px; color:var(--fg-2); background:var(--panel);
+    border:1px solid var(--line-2); padding:4px 10px; border-radius:7px;
     cursor:pointer; transition:all .15s ease;
-    font-family:var(--mono); box-shadow:0 1px 2px rgba(28,25,23,.04);
-  }
-  .turn .srcs button:hover { color:var(--accent); border-color:var(--accent-soft);
-                             transform:translateY(-1px); }
+    font-family:var(--mono); }
+  .turn .srcs button:hover { color:var(--accent-2); border-color:var(--accent-soft); }
 
-  /* ---- per-answer actions ------------------------------------------------------ */
-  .answer-acts { display:flex; flex-wrap:wrap; gap:5px; margin-top:16px;
-                 padding-top:12px; border-top:1px solid var(--line);
-                 opacity:.55; transition:opacity .18s ease; }
-  .turn:hover .answer-acts, .answer-acts:focus-within { opacity:1; }
-  .answer-acts button {
+  /* ---- hover-only message controls (ZCode anatomy) -----------------------------
+     copy · email · steps · chat · thumbs up/down · time — invisible until the
+     message is approached; always visible for keyboard focus. */
+  .msg-acts { display:flex; align-items:center; gap:2px; margin-top:8px;
+              opacity:0; transition:opacity .16s ease; }
+  .turn:hover .msg-acts, .msg-acts:focus-within { opacity:1; }
+  .msg-acts button {
     display:inline-flex; align-items:center; justify-content:center;
-    width:30px; height:30px; padding:0; border-radius:8px;
-    border:1px solid transparent; background:transparent; color:var(--muted);
-    cursor:pointer; transition:all .15s ease;
-    box-shadow:none;
+    width:28px; height:28px; padding:0; border-radius:7px;
+    border:0; background:transparent; color:var(--muted-2);
+    cursor:pointer; transition:all .15s ease; box-shadow:none;
   }
-  .answer-acts button svg { width:15px; height:15px; }
-  .answer-acts button:hover { color:var(--fg); border-color:var(--line-2);
-                              background:var(--panel-2); }
-  .answer-acts button.copied { color:var(--good); border-color:var(--good); }
+  .msg-acts button svg { width:14.5px; height:14.5px; }
+  .msg-acts button:hover { color:var(--fg); background:var(--panel-2); }
+  .msg-acts button.copied { color:var(--good); }
+  .msg-acts button.fb-on { color:var(--accent); }
+  .msg-acts .time { font-size:11px; color:var(--muted-2);
+                    font-family:var(--mono); padding:0 6px 0 6px; }
 
   /* ---- follow-ups ---------------------------------------------------------------- */
-  .followups { display:flex; flex-wrap:wrap; gap:4px 18px; margin-top:14px; }
+  .followups { display:flex; flex-wrap:wrap; gap:4px 16px; margin-top:10px;
+               opacity:0; transition:opacity .16s ease; }
+  .turn:hover .followups, .followups:focus-within { opacity:1; }
   .followups button {
-    padding:5px 0; border:0; background:none; color:var(--muted); font-size:13px;
+    padding:4px 0; border:0; background:none; color:var(--muted); font-size:12.5px;
     cursor:pointer; text-align:left; transition:color .15s ease; max-width:100%;
     box-shadow:none;
   }
@@ -220,7 +212,7 @@
   #source-modal {
     position:fixed; inset:0; z-index:80; display:flex;
     align-items:center; justify-content:center; padding:40px 24px;
-    background:rgba(28,25,23,.4); backdrop-filter:blur(6px);
+    background:rgba(0,0,0,.55); backdrop-filter:blur(6px);
   }
   #source-modal[hidden] { display:none; }
   #source-modal .sheet {
@@ -251,16 +243,16 @@
     color:var(--fg-2); white-space:pre-wrap; word-break:break-word;
   }
   #source-modal mark {
-    background:rgba(217,119,6,.18); color:#7c3a02;
+    background:rgba(226,164,74,.25); color:var(--accent-2);
     border-radius:3px; padding:1px 2px;
   }
   #source-modal .state { padding:22px; color:var(--muted); font-size:13.5px; }
 
-  /* ---- add-files sheet (add to the current brain from the chat) ---------------- */
+  /* ---- add-files sheet ----------------------------------------------------------- */
   #files-sheet {
     position:fixed; inset:0; z-index:80; display:flex;
     align-items:center; justify-content:center; padding:40px 24px;
-    background:rgba(28,25,23,.4); backdrop-filter:blur(6px);
+    background:rgba(0,0,0,.55); backdrop-filter:blur(6px);
   }
   #files-sheet[hidden] { display:none; }
   #files-sheet .sheet {
@@ -292,9 +284,9 @@
     font-size:12.5px; }
   #files-sheet ul.files li .st { margin-left:auto; font-size:11px; color:var(--muted-2);
     font-family:var(--mono); }
-  #files-sheet ul.files li.ok { border-color:rgba(21,128,61,.35); }
+  #files-sheet ul.files li.ok { border-color:rgba(74,222,128,.35); }
   #files-sheet ul.files li.ok .st { color:var(--good); }
-  #files-sheet ul.files li.bad { border-color:rgba(185,28,28,.3); }
+  #files-sheet ul.files li.bad { border-color:rgba(240,112,112,.3); }
   #files-sheet ul.files li.bad .st { color:var(--bad); }
   #files-sheet .pipeline { margin-top:14px; font:11.5px/1.7 var(--mono);
     color:var(--muted); min-height:18px; white-space:pre-wrap; }
@@ -306,12 +298,12 @@
     border:1px solid var(--line); }
   #files-sheet .cta { margin-top:16px; display:flex; justify-content:flex-end; }
   #files-sheet .cta button { padding:9px 20px; border-radius:9px; border:0;
-    background:var(--btn-ink); color:#faf9f6; font-weight:600; font-size:13px;
+    background:var(--btn-ink); color:#161616; font-weight:650; font-size:13px;
     cursor:pointer; box-shadow:none; }
   #files-sheet .cta button:disabled { opacity:.4; cursor:default; }
 
   /* ---- draft box ----------------------------------------------------------------- */
-  #draft { display:none; margin-top:30px; }
+  #draft { display:none; margin-top:34px; }
   #draft .box { border:1px solid var(--line-2); border-radius:var(--radius);
                 background:var(--panel); overflow:hidden; box-shadow:var(--shadow); }
   #draft .head { display:flex; align-items:center; gap:9px; padding:11px 14px;
@@ -335,24 +327,21 @@
   a:hover { color:var(--accent); }
 
   @media (max-width: 820px) {
-    form { left:0; padding:14px 12px 12px; }
+    #f { left:0; padding:12px 12px 12px; }
     .bar-btn .bname { max-width:90px; }
+    .turn.user .bubble { max-width:100%; }
   }
 </style>
 </head>
 <body>
 <div class="app-main">
-<div class="wrap">
-  <header>
-    <h1><span class="mark">◆</span>Kestrel Company Brain</h1>
-    <p class="sub">One question, one answer — grounded in every document the company has written, with the evidence it came from.</p>
-  </header>
+  <h1 class="sr-only">Kestrel Company Brain</h1>
+  <div id="home">
+    <div class="watermark">◆</div>
+    <div class="greeting" id="greeting">How can I help?</div>
+  </div>
 
-  <div class="chips" id="chips"></div>
-
-  <section>
-    <div id="thread"><div class="placeholder" id="empty"></div></div>
-  </section>
+  <div id="thread-wrap"><div class="wrap"><div id="thread"><div class="placeholder" id="empty"></div></div></div></div>
 
   <section id="draft">
     <div class="box">
@@ -409,38 +398,41 @@
 <form id="f">
   <div class="field">
     <div class="bar-card bar-anchor">
-      <div class="bar-row">
-        <button type="button" class="bar-btn" id="addfile" title="Add documents to this brain" aria-label="Add documents to this brain">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        </button>
+      <div class="bar-top">
         <button type="button" class="bar-btn" id="brainswitch" title="Switch brain" aria-label="Switch brain">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
           <span class="bname" id="brainname">Demo brain</span>
           <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
         </button>
-        <input id="q" placeholder="Ask across every document the company has written…"
-               autocomplete="off" autofocus>
+        <span class="spacer"></span>
+        <button type="button" class="bar-btn" id="menu2-toggle" title="Conversation actions" aria-label="Conversation actions">⋯</button>
+      </div>
+      <textarea id="q" rows="1" placeholder="Ask across every document the company has written…"
+               autocomplete="off" autofocus></textarea>
+      <div class="bar-row">
+        <button type="button" class="bar-btn" id="addfile" title="Add documents to this brain" aria-label="Add documents to this brain">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <span class="spacer" style="flex:1"></span>
         <button id="go" type="submit" aria-label="Send" disabled></button>
       </div>
-      <div class="bar-menu-row" id="barsub" hidden>
-        <button type="button" id="menu2-toggle" title="More">⋯</button>
-        <button type="button" id="quick-md" title="Export as Markdown">Export MD</button>
-        <button type="button" id="clear-chat" title="Clear this conversation">Clear</button>
-        <span class="spacer"></span>
-        <span class="count" id="turncount"></span>
-      </div>
       <div class="pop" id="menu2" hidden>
+        <div class="count" id="turncount"></div>
         <button type="button" id="copy-transcript">Copy transcript</button>
         <div class="pop-sep"></div>
         <button type="button" id="export-md">Export Markdown</button>
         <button type="button" id="export-txt">Export plain text</button>
         <button type="button" id="export-docx">Export Word document</button>
         <button type="button" id="export-pdf">Export PDF</button>
+        <div class="pop-sep"></div>
+        <button type="button" id="clear-chat">Clear conversation</button>
       </div>
       <div class="pop" id="brainmenu" hidden></div>
     </div>
   </div>
 </form>
+
+<div class="chips" id="chips"></div>
 
 <script>
 // ---------------------------------------------------------------------------
@@ -456,16 +448,21 @@ const BRAIN = (() => {
   return p.get('brain') || p.get('dataset') || '';
 })();
 
-const QUESTIONS = [
-  "Why is the Bluepeak renewal at risk, and what have we promised them?",
-  "What service credit do we owe Bluepeak, and who approved it?",
-  "Who owns the Bluepeak renewal, and who owns the root cause analysis?",
-  "Is the Bluepeak renewal date consistent across our documents?"
+const STARTERS_DEMO = [
+  { icon: 'doc',   label: 'Why is the Bluepeak renewal at risk?', q: 'Why is the Bluepeak renewal at risk, and what have we promised them?' },
+  { icon: 'scale', label: 'What credit do we owe, and who approved it?', q: 'What service credit do we owe Bluepeak, and who approved it?' },
+  { icon: 'owner', label: 'Who owns the renewal and the RCA?', q: 'Who owns the Bluepeak renewal, and who owns the root cause analysis?' },
+  { icon: 'check', label: 'Is the renewal date consistent?', q: 'Is the Bluepeak renewal date consistent across our documents?' },
+];
+const STARTERS_GENERIC = [
+  { icon: 'doc',   label: 'Summarise what is in this brain', q: 'Summarise what this brain knows — its main documents and topics.' },
+  { icon: 'steps', label: 'What are the next steps?', q: 'What are the next steps across my documents, and who owns each one?' },
+  { icon: 'mail',  label: 'Draft a mail from the latest answer', q: 'Draft a mail summarising the most recent answer.' },
+  { icon: 'check', label: 'Is everything consistent?', q: 'Is everything in this brain consistent with each other?' },
 ];
 
 const threadEl = document.getElementById('thread');
 const turnCount = document.getElementById('turncount');
-const barsub = document.getElementById('barsub');
 const TURNS = [];
 let SOURCES = [];
 
@@ -628,19 +625,35 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { menu2.hidden = true; brainMenu.hidden = true; }
 });
 
-const QUICK_MD = document.getElementById('quick-md');
 const CLEAR_BTN = document.getElementById('clear-chat');
 
+const CHIP_ICON = {
+  doc:  '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  scale:'<path d="M12 3v18M5 7l7-4 7 4"/><path d="M3 13l2-6 2 6a2 2 0 0 1-4 0zM17 13l2-6 2 6a2 2 0 0 1-4 0z"/>',
+  owner:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>',
+  check:'<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+  steps:'<path d="M4 6h16M4 12h10M4 18h13"/>',
+  mail: '<rect x="2.5" y="4.5" width="19" height="15" rx="2"/><path d="m3 6 9 6.5L21 6"/>',
+};
+function chipSvg(name) {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+         'stroke-linecap="round" stroke-linejoin="round">' + (CHIP_ICON[name] || '') + '</svg>';
+}
+(function greet() {
+  const h = new Date().getHours();
+  document.getElementById('greeting').textContent =
+    h < 12 ? 'Morning, how can I help?' : h < 17 ? 'Afternoon, how can I help?' : 'Evening, how can I help?';
+})();
+(BRAIN ? STARTERS_GENERIC : STARTERS_DEMO).forEach(s => {
+  const c = document.createElement('button');
+  c.type = 'button'; c.className = 'chip';
+  c.innerHTML = chipSvg(s.icon) + '<span>' + s.label + '</span>';
+  c.addEventListener('click', () => { input.value = s.q; setGo('ready'); ask(s.q); });
+  chips.appendChild(c);
+});
 if (BRAIN) {
   input.placeholder = 'Ask across the documents you uploaded…';
   document.title = BRAIN + ' · Kestrel Company Brain';
-} else {
-  QUESTIONS.forEach(q => {
-    const c = document.createElement('button');
-    c.type = 'button'; c.className = 'chip'; c.textContent = q;
-    c.addEventListener('click', () => { input.value = q; setGo('ready'); ask(q); });
-    chips.appendChild(c);
-  });
 }
 
 document.getElementById('f').addEventListener('submit', e => {
@@ -651,7 +664,12 @@ document.getElementById('f').addEventListener('submit', e => {
 
 // Send reflects the input; while streaming it is STOP (IN_FLIGHT guard blocks
 // a second ask, so typing during an answer is safe).
-input.addEventListener('input', () => { if (!IN_FLIGHT) setGo(input.value.trim() ? 'ready' : 'idle'); });
+const qel = input;
+qel.addEventListener('input', () => {
+  if (!IN_FLIGHT) setGo(qel.value.trim() ? 'ready' : 'idle');
+  qel.style.height = 'auto';
+  qel.style.height = Math.min(qel.scrollHeight, 140) + 'px';
+});
 
 // ---------------------------------------------------------------------------
 // Minimal markdown renderer.
@@ -732,12 +750,12 @@ function renderMarkdown(src) {
 }
 
 // H1: restored answers must come back with their action row and suggestions.
-function renderTurn(role, text, sources, question) {
+function renderTurn(role, text, sources, question, at) {
   const { turn, bubble } = addTurn(role, text);
   if (role === 'bot') {
     bubble.innerHTML = renderMarkdown(text);
     if (sources && sources.length) renderSources(turn, sources);
-    renderAnswerActions(turn, question || '', text);
+    renderAnswerActions(turn, question || '', text, at);
     renderSuggestions(turn, text);
   }
   return turn;
@@ -746,14 +764,14 @@ function renderTurn(role, text, sources, question) {
 function restoreHistory() {
   const saved = loadHistory();
   if (!saved.length) return;
+  document.body.classList.add('chatting');
   TURNS.push(...saved);
   let lastQuestion = '';
   saved.forEach(t => {
     if (t.role === 'user') lastQuestion = t.text;
-    else renderTurn(t.role, t.text, t.sources, lastQuestion);
+    else renderTurn(t.role, t.text, t.sources, lastQuestion, t.at);
     if (t.role === 'user') renderTurn(t.role, t.text, t.sources);
   });
-  barsub.hidden = false;
   turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
   const lastBot = [...saved].reverse().find(t => t.role === 'bot');
   if (lastBot) {
@@ -773,9 +791,6 @@ function addTurn(role, text) {
   document.getElementById('empty')?.remove();
   const turn = document.createElement('div');
   turn.className = 'turn ' + role;
-  const who = document.createElement('div');
-  who.className = 'who'; who.textContent = role === 'user' ? 'You' : 'Kestrel';
-  turn.appendChild(who);
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
   bubble.textContent = text;
@@ -791,6 +806,8 @@ const ICON = {
   email: '<rect x="2.5" y="4.5" width="19" height="15" rx="2"/><path d="m3 6 9 6.5L21 6"/>',
   steps: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1.4 1.4L8 4.6"/><path d="M4 12l1.4 1.4L8 10.6"/><path d="M4 18l1.4 1.4L8 16.6"/>',
   chat: '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.9-.9L3 21l1.9-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/>',
+  up:   '<path d="M7 11v9M7 11l4-7c1.2 0 2 .9 2 2v4h5.2a1.8 1.8 0 0 1 1.8 2.1l-1 5.5A2 2 0 0 1 17 19H7"/>',
+  down: '<path d="M17 13V4M17 13l-4 7c-1.2 0-2-.9-2-2v-4H5.8a1.8 1.8 0 0 1-1.8-2.1l1-5.5A2 2 0 0 1 7 5h10"/>',
 };
 
 function iconSvg(name) {
@@ -798,9 +815,9 @@ function iconSvg(name) {
          'stroke-linecap="round" stroke-linejoin="round">' + (ICON[name] || '') + '</svg>';
 }
 
-function renderAnswerActions(turn, q, text) {
+function renderAnswerActions(turn, q, text, at) {
   const row = document.createElement('div');
-  row.className = 'answer-acts';
+  row.className = 'msg-acts';
 
   const mk = (icon, title, fn) => {
     const b = document.createElement('button');
@@ -821,6 +838,17 @@ function renderAnswerActions(turn, q, text) {
   mk('email', 'Draft an email from this answer', () => showDraft('email', 'Email draft', q, text));
   mk('steps', 'List the next steps',            () => showDraft('steps', 'Next steps',  q, text));
   mk('chat',  'Write a chat update',            () => showDraft('chat',  'Chat update', q, text));
+  // quiet feedback marks — visual only, like the reference anatomy
+  mk('up',   'Good answer',   b => { b.classList.toggle('fb-on');
+        b.nextElementSibling.classList.remove('fb-on'); });
+  mk('down', 'Needs work',    b => { b.classList.toggle('fb-on');
+        b.previousElementSibling.classList.remove('fb-on'); });
+
+  const time = document.createElement('span');
+  time.className = 'time';
+  const d = at ? new Date(at) : new Date();
+  time.textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  row.appendChild(time);
 
   turn.appendChild(row);
   return row;
@@ -983,11 +1011,11 @@ async function ask(q) {
   const history = TURNS.slice(-3)
     .map(t => (t.role === 'user' ? 'Earlier question: ' : 'Earlier answer: ') + t.text.slice(0, 700))
     .join('\n');
-  TURNS.push({ role: 'user', text: q });
+  document.body.classList.add('chatting');
+  TURNS.push({ role: 'user', text: q, at: Date.now() });
 
   input.value = '';
-  const starters = document.getElementById('chips');
-  if (starters) starters.style.display = 'none';
+  qel.style.height = 'auto';
   addTurn('user', q);
   const { bubble } = addTurn('bot', 'Searching the knowledge graph…');
   bubble.className = 'bubble placeholder';
@@ -1052,11 +1080,12 @@ async function ask(q) {
       bubble.className = 'bubble placeholder';
       bubble.textContent = 'No answer returned for that question.';
     } else {
-      TURNS.push({ role: 'bot', text, sources });
+      const at = Date.now();
+      TURNS.push({ role: 'bot', text, sources, at });
       bubble.className = 'bubble rendered';
       bubble.innerHTML = renderMarkdown(text);
       renderSources(bubble.parentElement, sources);
-      renderAnswerActions(bubble.parentElement, q, text);
+      renderAnswerActions(bubble.parentElement, q, text, at);
       renderSuggestions(bubble.parentElement, text);
       SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
       LAST = { q, text };
@@ -1065,7 +1094,6 @@ async function ask(q) {
         showDraft('email', 'Email draft');
         document.getElementById('draft').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
-      barsub.hidden = false;
       turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
       saveHistory();
     }
@@ -1074,15 +1102,15 @@ async function ask(q) {
       // Stop pressed: keep the partial answer, honestly labelled.
       if (text) {
         text += '\n\n_(stopped.)_';
-        TURNS.push({ role: 'bot', text, sources });
+        const at = Date.now();
+        TURNS.push({ role: 'bot', text, sources, at });
         bubble.className = 'bubble rendered';
         bubble.innerHTML = renderMarkdown(text);
         renderSources(bubble.parentElement, sources);
-        renderAnswerActions(bubble.parentElement, q, text);
+        renderAnswerActions(bubble.parentElement, q, text, at);
         renderSuggestions(bubble.parentElement, text);
         SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
         LAST = { q, text };
-        barsub.hidden = false;
         turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
         saveHistory();
       } else {
@@ -1194,7 +1222,6 @@ document.getElementById('export-txt')?.addEventListener('click', () =>
   download('kestrel-conversation.txt', transcript('txt')));
 document.getElementById('export-docx')?.addEventListener('click', exportWord);
 document.getElementById('export-pdf')?.addEventListener('click', exportPdf);
-QUICK_MD?.addEventListener('click', () => download('kestrel-conversation.md', transcript('md')));
 document.getElementById('copy-transcript')?.addEventListener('click', async e => {
   await copyText(transcript('md'));
   e.target.textContent = 'Copied ✓';
@@ -1226,8 +1253,9 @@ CLEAR_BTN?.addEventListener('click', () => {
     localStorage.setItem(CHATS_KEY, JSON.stringify(rest));
   } catch (e) {}
   threadEl.innerHTML = '<div class="placeholder" id="empty"></div>';
-  barsub.hidden = true;
+  document.body.classList.remove('chatting');
   document.getElementById('draft').style.display = 'none';
+  input.focus();
 });
 
 
