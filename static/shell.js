@@ -312,6 +312,10 @@
     if (!e.key || e.key.indexOf('kestrel.chats.') === 0) renderChats();
   });
 
+  document.getElementById('jump-latest')?.addEventListener('click', () => {
+    window.dispatchEvent(new Event('kestrel:jump-latest'));
+  });
+
   // Status LED. "healthy" alone is not enough — the tenant's /health is
   // unauthenticated, so only claim ok when the authenticated probe passed.
   fetch('/health').then(r => r.json()).then(d => {

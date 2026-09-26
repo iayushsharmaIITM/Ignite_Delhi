@@ -382,6 +382,9 @@
 <body>
 <div id="rail"></div>
 <div id="rail-tip"></div>
+<button type="button" id="jump-latest" title="Jump to latest" aria-label="Jump to latest">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14m0 0-6-6m6 6 6-6"/></svg>
+</button>
 <div class="app-main">
   <h1 class="sr-only">Kestrel Company Brain</h1>
   <div id="home">
@@ -839,11 +842,18 @@ function restoreHistory() {
   window.scrollTo(0, document.body.scrollHeight);
 }
 
-function scrollThread() {
-  requestAnimationFrame(() => window.scrollTo({
-    top: document.body.scrollHeight, behavior: 'smooth',
-  }));
+// Stick-to-bottom streaming: while the answer grows, keep the newest text in
+// view — unless the user scrolled up to read, in which case we never yank
+// them down (a pill offers the way back).
+let stick = true;
+function scrollToBottom(smooth) {
+  window.scrollTo({ top: document.body.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
 }
+window.addEventListener('scroll', () => {
+  stick = window.innerHeight + window.scrollY >= document.body.scrollHeight - 160;
+  document.body.classList.toggle('detached', !stick && document.body.classList.contains('chatting'));
+}, { passive: true });
+function scrollThread() { if (stick) scrollToBottom(false); }
 
 function addTurn(role, text) {
   document.getElementById('empty')?.remove();
@@ -991,6 +1001,8 @@ async function ask(q) {
     .map(t => (t.role === 'user' ? 'Earlier question: ' : 'Earlier answer: ') + t.text.slice(0, 700))
     .join('\n');
   document.body.classList.add('chatting');
+  stick = true;
+  document.body.classList.remove('detached');
   const atts = PENDING.map(a => ({ name: a.name, kind: a.kind, size: a.size, url: a.url }));
   const files = PENDING.map(a => a.file);
   TURNS.push({ role: 'user', text: q, at: Date.now(), attachments: atts.length ? atts : undefined });
@@ -1025,6 +1037,9 @@ function finalize(bubble, q, text, sources) {
   work.stop();
   IN_FLIGHT = false;
   setGo(input.value.trim() ? 'ready' : 'idle');
+  stick = true;
+  document.body.classList.remove('detached');
+  scrollToBottom(true);
   input.focus();
 }
 
@@ -1102,8 +1117,10 @@ function finalize(bubble, q, text, sources) {
           if (!streaming) { streaming = true; bubble.className = 'bubble streaming rendered'; }
           text += (ev.text ?? ev.chunk);
           bubble.innerHTML = renderMarkdown(text);   // direct output — no raw ** phase
+          if (stick) scrollToBottom(false);
         } else if (ev.stage === 'step') {
           work.step(ev.label, ev.ms);
+          if (stick) scrollToBottom(false);
         } else if (ev.type === 'references' && ev.items?.length) {
           sources = ev.items;
           if (finalized) { renderSources(bubble.parentElement, sources); saveHistory(); }
@@ -1318,6 +1335,12 @@ window.addEventListener('scroll', () => {
   requestAnimationFrame(() => { railScrollQueued = false; updateRailHere(); });
 }, { passive: true });
 window.addEventListener('resize', updateRailHere);
+window.addEventListener('kestrel:jump-latest', () => {
+  stick = true;
+  document.body.classList.remove('detached');
+  scrollToBottom(true);
+  input?.focus();
+});
 
 // --- working status: what is happening right now ------------------------------
 // --- working log: REAL engine steps, each with its measured duration ---------

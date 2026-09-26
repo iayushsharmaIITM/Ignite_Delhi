@@ -194,7 +194,17 @@ h1, .display {
   white-space:nowrap; }
 .brain-row .group-del.armed { font-size:11px; }
 .brain-row:hover .group-del { opacity:1; }
-.view-note { padding:10px 12px 2px; font-size:10.5px; color:var(--muted-2); }
+  .view-note { padding:10px 12px 2px; font-size:10.5px; color:var(--muted-2); }
+
+  /* jump-to-latest pill: visible only while scrolled away during a chat */
+  #jump-latest { position:fixed; right:28px; bottom:150px; z-index:36;
+    width:38px; height:38px; border-radius:50%; border:1px solid var(--line-2);
+    background:var(--panel); color:var(--fg); cursor:pointer;
+    display:none; align-items:center; justify-content:center;
+    box-shadow:var(--shadow); transition:opacity .15s ease, transform .15s ease; }
+  #jump-latest svg { width:15px; height:15px; }
+  #jump-latest:hover { transform:translateY(-2px); border-color:var(--accent-soft); }
+  body.chatting.detached #jump-latest { display:flex; }
 .chat-time { flex:none; font-size:10.5px; color:var(--muted-2);
   font-family:var(--mono); margin-right:4px; }
 .sb-pop { position:fixed; min-width:200px; right:auto; bottom:auto; }
