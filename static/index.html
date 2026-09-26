@@ -106,6 +106,57 @@
   .pop a.pop-item:hover { background:var(--panel-3); color:var(--fg); }
   .pop .count { padding:2px 10px 6px; font-size:10.5px; color:var(--muted-2);
                 font-family:var(--mono); }
+  /* each menu anchors above the control that opens it */
+  #brainmenu { left:10px; right:auto; }
+  #menu2 { right:10px; left:auto; }
+
+  /* ---------- attachments (chat-scoped files) --------------------------------
+     Files attached with + ride the MESSAGE: thumbnails in the composer, then
+     on the sent turn, persisted with the chat. Knowledge-adding to the brain
+     stays a separate, explicit action in the ⋯ menu. */
+  .atts { display:flex; flex-wrap:wrap; gap:8px; padding:2px 10px 8px; }
+  .atts[hidden] { display:none; }
+  .att { position:relative; width:64px; height:64px; border-radius:10px;
+         overflow:hidden; border:1px solid var(--line-2); background:var(--panel-2);
+         cursor:pointer; }
+  .att img { width:100%; height:100%; object-fit:cover; display:block; }
+  .att .att-file { width:100%; height:100%; display:flex; flex-direction:column;
+         align-items:center; justify-content:center; gap:3px; padding:4px; }
+  .att .att-file svg { width:16px; height:16px; color:var(--muted); }
+  .att .att-file span { font-size:8.5px; color:var(--muted); max-width:100%;
+         overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .att .x { position:absolute; top:2px; right:2px; width:16px; height:16px;
+         border-radius:5px; border:0; background:rgba(0,0,0,.6); color:#ddd;
+         font-size:10px; line-height:1; cursor:pointer; display:grid; place-items:center; }
+  .att .x:hover { background:rgba(0,0,0,.85); color:#fff; }
+  .turn .atts { padding:2px 0 0; }
+  .turn .att { cursor:zoom-in; }
+
+  /* ---------- left rail: jump to user message (ZCode scrubber) --------------- */
+  #rail { position:fixed; left:calc(var(--sb-w) + 8px); top:50%;
+          transform:translateY(-50%); z-index:30;
+          display:none; flex-direction:column; gap:10px; }
+  body.chatting #rail { display:flex; }
+  #rail .tick { width:16px; height:2.5px; border-radius:2px; border:0;
+          background:var(--line-3); cursor:pointer; padding:0;
+          transition:background .15s ease, width .15s ease; }
+  #rail .tick:hover, #rail .tick.here { background:var(--accent); width:22px; }
+
+  #rail-tip { position:fixed; z-index:60; max-width:300px; padding:10px 13px;
+          border-radius:10px; background:var(--panel-2); border:1px solid var(--line-2);
+          box-shadow:var(--shadow); font-size:12.5px; color:var(--fg-2);
+          display:none; }
+  #rail-tip b { display:block; color:var(--fg); font-weight:600; margin-bottom:2px; }
+
+  /* ---------- working status (what is happening right now) -------------------- */
+  .working { display:flex; align-items:center; gap:9px; padding:0 14px 6px;
+          font-size:12px; color:var(--muted); }
+  .working[hidden] { display:none; }
+  .working .spin { width:12px; height:12px; border-radius:50%; flex:none;
+          border:2px solid var(--line-3); border-top-color:var(--accent);
+          animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  body:not(.chatting) .working { display:none; }
 
   .bar-anchor { position:relative; }
 
@@ -334,6 +385,8 @@
 </style>
 </head>
 <body>
+<div id="rail"></div>
+<div id="rail-tip"></div>
 <div class="app-main">
   <h1 class="sr-only">Kestrel Company Brain</h1>
   <div id="home">
@@ -392,10 +445,8 @@
       </div>
     </div>
   </div>
-</div>
-</div>
 
-<form id="f">
+  <form id="f">
   <div class="field">
     <div class="bar-card bar-anchor">
       <div class="bar-top">
@@ -407,18 +458,24 @@
         <span class="spacer"></span>
         <button type="button" class="bar-btn" id="menu2-toggle" title="Conversation actions" aria-label="Conversation actions">⋯</button>
       </div>
+      <div class="working" id="working" hidden>
+        <span class="spin"></span><span id="working-text">Searching the knowledge graph…</span>
+      </div>
+      <div class="atts" id="pending" hidden></div>
       <textarea id="q" rows="1" placeholder="Ask across every document the company has written…"
                autocomplete="off" autofocus></textarea>
       <div class="bar-row">
-        <button type="button" class="bar-btn" id="addfile" title="Add documents to this brain" aria-label="Add documents to this brain">
+        <button type="button" class="bar-btn" id="attach" title="Attach files to this message" aria-label="Attach files to this message">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         </button>
         <span class="spacer" style="flex:1"></span>
         <button id="go" type="submit" aria-label="Send" disabled></button>
       </div>
+      <input type="file" id="chat-file" multiple hidden>
       <div class="pop" id="menu2" hidden>
         <div class="count" id="turncount"></div>
         <button type="button" id="copy-transcript">Copy transcript</button>
+        <button type="button" id="menu-addbrain">Add documents to this brain…</button>
         <div class="pop-sep"></div>
         <button type="button" id="export-md">Export Markdown</button>
         <button type="button" id="export-txt">Export plain text</button>
@@ -432,7 +489,11 @@
   </div>
 </form>
 
-<div class="chips" id="chips"></div>
+  <div class="chips" id="chips"></div>
+</div>
+</div>
+
+
 
 <script>
 // ---------------------------------------------------------------------------
@@ -658,6 +719,7 @@ if (BRAIN) {
 
 document.getElementById('f').addEventListener('submit', e => {
   e.preventDefault();
+  menu2.hidden = true; brainMenu.hidden = true;
   const q = input.value.trim();
   if (q) ask(q);
 });
@@ -767,11 +829,18 @@ function restoreHistory() {
   document.body.classList.add('chatting');
   TURNS.push(...saved);
   let lastQuestion = '';
-  saved.forEach(t => {
-    if (t.role === 'user') lastQuestion = t.text;
-    else renderTurn(t.role, t.text, t.sources, lastQuestion, t.at);
-    if (t.role === 'user') renderTurn(t.role, t.text, t.sources);
+  saved.forEach((t, i) => {
+    if (t.role === 'user') {
+      lastQuestion = t.text;
+      renderTurn(t.role, t.text, t.sources);
+      const el = threadEl.lastElementChild;
+      if (el) el.dataset.uid = i;
+      if (t.attachments) renderAttRow(el, t.attachments);
+    } else {
+      renderTurn(t.role, t.text, t.sources, lastQuestion, t.at);
+    }
   });
+  buildRail();
   turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
   const lastBot = [...saved].reverse().find(t => t.role === 'bot');
   if (lastBot) {
@@ -1012,15 +1081,20 @@ async function ask(q) {
     .map(t => (t.role === 'user' ? 'Earlier question: ' : 'Earlier answer: ') + t.text.slice(0, 700))
     .join('\n');
   document.body.classList.add('chatting');
-  TURNS.push({ role: 'user', text: q, at: Date.now() });
+  const atts = PENDING.map(a => ({ name: a.name, kind: a.kind, size: a.size, url: a.url }));
+  TURNS.push({ role: 'user', text: q, at: Date.now(), attachments: atts.length ? atts : undefined });
 
   input.value = '';
   qel.style.height = 'auto';
-  addTurn('user', q);
-  const { bubble } = addTurn('bot', 'Searching the knowledge graph…');
-  bubble.className = 'bubble placeholder';
+  const u = addTurn('user', q);
+  u.turn.dataset.uid = TURNS.length - 1;
+  if (atts.length) renderAttRow(u.turn, atts);
+  buildRail();
+  const { bubble } = addTurn('bot', '');
+  bubble.className = 'bubble streaming';
 
   setGo('stop');                          // send becomes stop
+  workStart();
   CONTROLLER = new AbortController();
   let text = '', sources = [], streaming = false;
 
@@ -1053,6 +1127,7 @@ async function ask(q) {
           bubble.textContent = text;
         } else if (ev.type === 'references' && ev.items?.length) {
           sources = ev.items;
+          workGround(sources.length);
         } else if (ev.stage === 'error') {
           bubble.className = 'bubble err';
           bubble.textContent = 'Something went wrong: ' + ev.message;
@@ -1096,6 +1171,7 @@ async function ask(q) {
       }
       turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
       saveHistory();
+      buildRail();
     }
   } catch (err) {
     if (err.name === 'AbortError') {
@@ -1113,6 +1189,7 @@ async function ask(q) {
         LAST = { q, text };
         turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
         saveHistory();
+        buildRail();
       } else {
         bubble.className = 'bubble placeholder';
         bubble.textContent = 'Stopped before any answer arrived.';
@@ -1123,9 +1200,149 @@ async function ask(q) {
     }
   } finally {
     IN_FLIGHT = false; CONTROLLER = null;
+    workStop();
     setGo(input.value.trim() ? 'ready' : 'idle');
     input.focus();
   }
+}
+
+// --- chat attachments: files that ride THIS message ---------------------------
+// The + button attaches to the message (thumbnails in the composer, then on
+// the sent turn, persisted with the chat). Adding files to the BRAIN remains
+// a separate, explicit action in the ⋯ menu — knowledge and attachments are
+// different things and must not blur.
+const chatFile   = document.getElementById('chat-file');
+const pendingEl  = document.getElementById('pending');
+let PENDING = [];
+
+document.getElementById('attach').addEventListener('click', () => chatFile.click());
+chatFile.addEventListener('change', () => { addPending(chatFile.files); chatFile.value = ''; });
+
+function addPending(list) {
+  for (const f of list) {
+    if (PENDING.length >= 6) break;
+    if (f.size > 8 * 1024 * 1024) continue;   // >8 MB: silently refused
+    const a = { file: f, name: f.name, kind: (f.type || '').startsWith('image/') ? 'image' : 'file',
+                size: f.size, url: URL.createObjectURL(f), dataUrl: null };
+    // small files persist as data URLs so they survive a reload; bigger ones
+    // are honest about being session-only
+    if (f.size <= 1.5 * 1024 * 1024) {
+      const r = new FileReader();
+      r.onload = () => { a.dataUrl = r.result; a.url = r.result; };
+      r.readAsDataURL(f);
+    }
+    PENDING.push(a);
+  }
+  renderPending();
+}
+
+function renderPending() {
+  pendingEl.innerHTML = '';
+  pendingEl.hidden = !PENDING.length;
+  PENDING.forEach((a, i) => {
+    const d = document.createElement('div');
+    d.className = 'att';
+    if (a.kind === 'image' && a.url) {
+      const img = document.createElement('img');
+      img.src = a.url; img.alt = a.name;
+      d.appendChild(img);
+    } else {
+      const w = document.createElement('div');
+      w.className = 'att-file';
+      w.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg><span></span>';
+      w.querySelector('span').textContent = a.name;
+      d.appendChild(w);
+    }
+    const x = document.createElement('button');
+    x.type = 'button'; x.className = 'x'; x.textContent = '×';
+    x.title = 'Remove attachment';
+    x.addEventListener('click', e => { e.stopPropagation(); PENDING.splice(i, 1); renderPending(); });
+    d.appendChild(x);
+    pendingEl.appendChild(d);
+  });
+}
+
+function renderAttRow(turn, atts) {
+  if (!atts || !atts.length) return;
+  const row = document.createElement('div');
+  row.className = 'atts';
+  atts.forEach(a => {
+    const d = document.createElement('div');
+    d.className = 'att';
+    d.title = a.url ? 'Open ' + a.name : a.name + ' — available in the original session only';
+    if (a.kind === 'image' && a.url) {
+      const img = document.createElement('img');
+      img.src = a.url; img.alt = a.name;
+      d.appendChild(img);
+    } else {
+      const w = document.createElement('div');
+      w.className = 'att-file';
+      w.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg><span></span>';
+      w.querySelector('span').textContent = a.name;
+      d.appendChild(w);
+    }
+    if (a.url) d.addEventListener('click', () => window.open(a.url, '_blank'));
+    row.appendChild(d);
+  });
+  // attachments render above the answer-controls of the USER turn
+  turn.insertBefore(row, turn.querySelector('.msg-acts'));
+}
+
+// --- left rail: one tick per user message; hover previews, click jumps -------
+const rail = document.getElementById('rail');
+const railTip = document.getElementById('rail-tip');
+
+function buildRail() {
+  rail.innerHTML = '';
+  if (!TURNS.length) { railTip.style.display = 'none'; return; }
+  TURNS.forEach((t, i) => {
+    if (t.role !== 'user') return;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tick';
+    b.setAttribute('aria-label', 'Jump to: ' + (t.text || 'message').slice(0, 40));
+    b.addEventListener('click', () => {
+      const el = threadEl.querySelector('[data-uid="' + i + '"]');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    b.addEventListener('mouseenter', () => {
+      const answer = (TURNS[i + 1] && TURNS[i + 1].role === 'bot')
+        ? clean(TURNS[i + 1].text).slice(0, 110) : '';
+      railTip.innerHTML = '<b></b>' + (answer ? answer + '…' : '');
+      railTip.querySelector('b').textContent = (t.text || 'message').slice(0, 64);
+      railTip.style.display = 'block';
+      const r = b.getBoundingClientRect();
+      railTip.style.left = (r.right + 12) + 'px';
+      railTip.style.top = Math.max(12, r.top - 14) + 'px';
+    });
+    b.addEventListener('mouseleave', () => { railTip.style.display = 'none'; });
+    rail.appendChild(b);
+  });
+}
+
+// --- working status: what is happening right now ------------------------------
+const working = document.getElementById('working');
+const workingText = document.getElementById('working-text');
+const WORK_STEPS = ['Searching the knowledge graph…', 'Retrieving passages…',
+                    'Reading the evidence…', 'Cross-checking documents…',
+                    'Composing the answer…'];
+let workTimer = null;
+function workStart() {
+  let i = 0;
+  working.hidden = false;
+  workingText.textContent = WORK_STEPS[0];
+  if (workTimer) clearInterval(workTimer);
+  workTimer = setInterval(() => {
+    i = (i + 1) % WORK_STEPS.length;
+    workingText.textContent = WORK_STEPS[i];
+  }, 2400);
+}
+function workGround(n) {
+  if (n) workingText.textContent = 'Grounding in ' + n + ' source' + (n > 1 ? 's' : '') + '…';
+}
+function workStop() {
+  working.hidden = true;
+  if (workTimer) { clearInterval(workTimer); workTimer = null; }
 }
 
 // --- export the conversation ------------------------------------------------
@@ -1253,6 +1470,7 @@ CLEAR_BTN?.addEventListener('click', () => {
     localStorage.setItem(CHATS_KEY, JSON.stringify(rest));
   } catch (e) {}
   threadEl.innerHTML = '<div class="placeholder" id="empty"></div>';
+  buildRail();
   document.body.classList.remove('chatting');
   document.getElementById('draft').style.display = 'none';
   input.focus();
@@ -1441,7 +1659,7 @@ function openFilesSheet() {
   fileList.innerHTML = '';
   filesSheet.hidden = false;
 }
-document.getElementById('addfile').addEventListener('click', openFilesSheet);
+document.getElementById('menu-addbrain').addEventListener('click', () => { menu2.hidden = true; openFilesSheet(); });
 document.getElementById('files-close').addEventListener('click', () => { filesSheet.hidden = true; });
 filesSheet.addEventListener('click', e => { if (e.target.id === 'files-sheet') filesSheet.hidden = true; });
 
