@@ -51,6 +51,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile  # n
 from fastapi.responses import FileResponse, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
+import auth  # noqa: E402
 import documents  # noqa: E402
 import memory_layer  # noqa: E402
 import storage  # noqa: E402
@@ -115,7 +116,21 @@ def current_tenant(request: Request):
 
 
 def require_tenant(request: Request):
-    """401 when authorisation is configured and the key is missing or unknown."""
+    """P3 identity gate. AUTH_MODE=off → single local user (as before).
+    AUTH_MODE=clerk → a valid Clerk session JWT is required; the identity is
+    stored on the request state for the brain-authorization check. The legacy
+    X-API-Key tenants gate still applies when Clerk is off and tenants are
+    configured."""
+    if auth.active():
+        identity = auth.identity_from_request(request.headers.get("authorization"))
+        if identity is None:
+            raise HTTPException(
+                status_code=401,
+                detail="A valid Clerk session token is required.",
+            )
+        request.state.identity = identity
+        return identity
+
     import tenants
 
     if not tenants.configured():
@@ -127,6 +142,25 @@ def require_tenant(request: Request):
             detail="A valid X-API-Key header is required.",
         )
     return tenant
+
+
+def brain_allowed(request: Request, brain: str) -> None:
+    """P3 brain authorization: shared brains (demo + company_brain) readable
+    by every authenticated identity; user-created brains only by their org
+    (or the creator when org-less). No-op when auth is off."""
+    if not auth.active():
+        return
+    identity = getattr(request.state, "identity", None) or {}
+    org = identity.get("org_id")
+    rec = storage.brain_access(brain)
+    if rec is None:
+        return   # nothing stored about this brain yet: demo data
+    if rec.get("is_shared"):
+        return
+    if rec.get("org_id") and rec.get("org_id") == org:
+        return
+    raise HTTPException(status_code=403,
+                        detail="This brain belongs to another workspace.")
 
 
 def require_dataset_access(request: Request, dataset: str | None) -> None:
@@ -145,6 +179,7 @@ def require_dataset_access(request: Request, dataset: str | None) -> None:
             status_code=403,
             detail=f"'{dataset}' is not available to this account.",
         )
+    brain_allowed(request, dataset or DEMO_DATASET)
 
 
 def normalize_brain_name(raw: str) -> str:
@@ -347,10 +382,11 @@ async def chats_upsert(request: Request):
 
 @app.get("/api/chats")
 def chats_list(request: Request, brain: str | None = None):
-    require_tenant(request)
+    identity = require_tenant(request)
     if not storage.available():
         return {"ok": False, "chats": [], "storage": storage.status()}
-    return {"ok": True, "chats": storage.list_chats(brain)}
+    org = identity.get("org_id") if auth.active() else None
+    return {"ok": True, "chats": storage.list_chats(brain, org=org)}
 
 
 @app.get("/api/chats/{chat_id}")

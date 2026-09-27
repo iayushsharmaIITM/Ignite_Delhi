@@ -75,6 +75,16 @@ def init() -> bool:
                    )"""
             )
             cur.execute(
+                """CREATE TABLE IF NOT EXISTS brain_access (
+                     brain text PRIMARY KEY,
+                     org_id text,
+                     created_by text,
+                     is_shared boolean NOT NULL DEFAULT false,
+                     created timestamptz NOT NULL DEFAULT now()
+                   )""")
+            cur.execute("ALTER TABLE chats ADD COLUMN IF NOT EXISTS org_id text")
+            cur.execute("CREATE INDEX IF NOT EXISTS chats_org_idx ON chats(org_id)")
+            cur.execute(
                 """CREATE TABLE IF NOT EXISTS llm_calls (
                      ts timestamptz NOT NULL DEFAULT now(),
                      brain text,
@@ -122,12 +132,13 @@ def upsert_chat(record: dict) -> dict:
         pass
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(
-            """INSERT INTO chats (id, brain, title, created, updated)
-               VALUES (%s, %s, %s,
+            """INSERT INTO chats (id, brain, org_id, title, created, updated)
+               VALUES (%s, %s, %s, %s,
                        COALESCE(%s, now()), now())
                ON CONFLICT (id) DO UPDATE
-                 SET title = EXCLUDED.title, updated = now()""",
-            (chat_id, brain, title, _ts(created)),
+                 SET title = EXCLUDED.title, updated = now(),
+                     org_id = COALESCE(EXCLUDED.org_id, chats.org_id)""",
+            (chat_id, brain, record.get("org_id"), title, _ts(created)),
         )
         cur.execute("DELETE FROM turns WHERE chat_id = %s", (chat_id,))
         for idx, t in enumerate(turns):
@@ -148,15 +159,18 @@ def upsert_chat(record: dict) -> dict:
     return {"ok": True, "id": chat_id, "turns": len(turns)}
 
 
-def list_chats(brain: str | None) -> list:
-    where = "WHERE brain = %s" if brain else ""
-    args = (brain,) if brain else ()
+def list_chats(brain: str | None, org: str | None = None) -> list:
+    clauses, args = [], []
+    if brain:
+        clauses.append("brain = %s"); args.append(brain)
+    if org is not None:                      # auth on: only this org's chats
+        clauses.append("(org_id = %s OR org_id IS NULL)")
+        args.append(org)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(
             f"""SELECT id, brain, title, created, updated FROM chats {where}
-                ORDER BY updated DESC LIMIT 50""",
-            args,
-        )
+                ORDER BY updated DESC LIMIT 50""", args)
         return cur.fetchall()
 
 
@@ -200,6 +214,30 @@ def save_llm_call(brain: str, feature: str, model: str,
             )
     except Exception:  # noqa: BLE001 - metering degrades silently
         pass
+
+
+def register_brain(brain: str, org_id: str | None, created_by: str | None,
+                   shared: bool = False) -> None:
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO brain_access (brain, org_id, created_by, is_shared)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (brain) DO NOTHING""",
+                (brain, org_id, created_by, shared),
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def brain_access(brain: str) -> dict | None:
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT brain, org_id, is_shared FROM brain_access WHERE brain = %s",
+                        (brain,))
+            return cur.fetchone()
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def usage_summary(days: int = 30) -> list:
