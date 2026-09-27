@@ -80,6 +80,8 @@
   }
 
   function deleteChat(chatBrain, chatId) {
+    // server-side deletion first (Postgres), then the local copy
+    fetch('/api/chats/' + encodeURIComponent(chatId), { method: 'DELETE' }).catch(() => {});
     try {
       const key = 'kestrel.chats.' + chatBrain;
       const rest = JSON.parse(localStorage.getItem(key) || '[]').filter(c => c.id !== chatId);
@@ -94,7 +96,13 @@
   }
 
   function deleteBrainChats(chatBrain) {
-    try { localStorage.removeItem('kestrel.chats.' + chatBrain); } catch (e) {}
+    // every chat of this brain is removed server-side AND locally
+    try {
+      const raw = localStorage.getItem('kestrel.chats.' + chatBrain) || '[]';
+      JSON.parse(raw).forEach(c =>
+        fetch('/api/chats/' + encodeURIComponent(c.id), { method: 'DELETE' }).catch(() => {}));
+      localStorage.removeItem('kestrel.chats.' + chatBrain);
+    } catch (e) {}
     renderChats();
     if ((brain || 'demo') === chatBrain) {
       location.href = '/' + (chatBrain !== 'demo' ? '?brain=' + encodeURIComponent(chatBrain) + '&new=1' : '?new=1');

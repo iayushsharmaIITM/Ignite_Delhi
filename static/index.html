@@ -566,6 +566,13 @@ function saveHistory() {
     localStorage.setItem(CHATS_KEY, JSON.stringify(chats.slice(0, CHAT_MAX)));
     rememberChat();
     window.dispatchEvent(new Event('kestrel:chats'));
+    // P2: mirror to the server (Postgres source of truth); local remains the
+    // offline fallback. Fire-and-forget - never block the answer on sync.
+    const me = chats.find(c => c.id === CHAT_ID);
+    if (me) fetch('/api/chats', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: CHAT_ID, brain: BRAIN || 'demo', ...me })
+    }).catch(() => {});
   } catch (e) { /* private mode or quota - history is a convenience, not state */ }
 }
 
@@ -815,8 +822,21 @@ function renderTurn(role, text, sources, question, at) {
   return turn;
 }
 
-function restoreHistory() {
-  const saved = loadHistory();
+async function restoreHistory() {
+  // Server (Postgres) is the source of truth when reachable; localStorage is
+  // the offline fallback. Both carry the same TURNS shape.
+  let saved = [];
+  try {
+    const res = await fetch('/api/chats/' + encodeURIComponent(CHAT_ID));
+    if (res.ok) {
+      const data = await res.json();
+      if (data.chat) saved = (data.chat.turns || []).map(x => ({
+        role: x.role, text: x.text, sources: x.sources || [],
+        attachments: x.attachments || [], at: x.at ? new Date(x.at).getTime() : undefined,
+      }));
+    }
+  } catch (e) { /* offline - fall through to localStorage */ }
+  if (!saved.length) saved = loadHistory();
   if (!saved.length) return;
   document.body.classList.add('chatting');
   TURNS.push(...saved);
@@ -1520,6 +1540,7 @@ CLEAR_BTN?.addEventListener('click', () => {
     // amount of destruction for a button that sits inside one chat.
     const rest = allChats().filter(c => c.id !== CHAT_ID);
     localStorage.setItem(CHATS_KEY, JSON.stringify(rest));
+    fetch('/api/chats/' + encodeURIComponent(CHAT_ID), { method: 'DELETE' }).catch(() => {});
   } catch (e) {}
   threadEl.innerHTML = '<div class="placeholder" id="empty"></div>';
   buildRail();
@@ -1560,7 +1581,7 @@ async function copyText(value) {
   }
 }
 
-restoreHistory();
+restoreHistory().catch(() => {});
 
 
 

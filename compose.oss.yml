@@ -27,5 +27,18 @@ services:
     volumes:
       - cognee_oss_state:/app/.cognee
 
+  postgres:
+    image: postgres:17-alpine
+    container_name: kestrel-db
+    environment:
+      POSTGRES_USER: kestrel
+      POSTGRES_PASSWORD: kestrel
+      POSTGRES_DB: kestrel
+    ports:
+      - "5433:5432"
+    volumes:
+      - kestrel_db:/var/lib/postgresql/data
+
 volumes:
   cognee_oss_state:
+  kestrel_db:

@@ -42,6 +42,8 @@ try:
     from dotenv import load_dotenv
 
     load_dotenv(os.path.join(HERE, ".env"))
+    # the summarizer uses the platform LLM key (same key as the local brain)
+    load_dotenv(os.path.join(HERE, ".env.oss"))
 except ImportError:  # dotenv is optional; env vars still work
     pass
 
@@ -51,7 +53,9 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 import documents  # noqa: E402
 import memory_layer  # noqa: E402
+import storage  # noqa: E402
 from memory_layer import recall  # noqa: E402
+from summarizer import summarize_history  # noqa: E402
 
 app = FastAPI(title="Kestrel Company Brain")
 
@@ -73,6 +77,8 @@ class NoCacheStaticFiles(StaticFiles):
 
 
 app.mount("/static", NoCacheStaticFiles(directory=os.path.join(HERE, "static")), name="static")
+
+storage.init()   # Postgres persistence (P2): degrades to unavailable
 
 GRAPH_FIXTURE = os.path.join(HERE, "fixtures", "graph.json")
 # Per-brain snapshots, written by snapshot.py. Committed, so a deployment with
@@ -289,6 +295,7 @@ def health():
         "provider": memory_layer.PROVIDER,
         "dataset": DEMO_DATASET,
         "service": os.getenv("COGNEE_SERVICE_URL", ""),
+        "storage": storage.status(),
     }
     # Prove the tenant instance is actually reachable, not just configured.
     if payload["provider"] == "cloud":
@@ -322,6 +329,72 @@ def health():
 # read path — every route accepts an optional dataset
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# server-side chat persistence (P2) — Postgres is the source of truth when
+# available; the UI keeps localStorage as its offline fallback
+# --------------------------------------------------------------------------
+
+@app.post("/api/chats")
+async def chats_upsert(request: Request):
+    require_tenant(request)
+    record = await request.json()
+    if not record.get("id"):
+        raise HTTPException(status_code=422, detail="chat id required")
+    if not storage.available():
+        raise HTTPException(status_code=503, detail="storage unavailable")
+    return storage.upsert_chat(record)
+
+
+@app.get("/api/chats")
+def chats_list(request: Request, brain: str | None = None):
+    require_tenant(request)
+    if not storage.available():
+        return {"ok": False, "chats": [], "storage": storage.status()}
+    return {"ok": True, "chats": storage.list_chats(brain)}
+
+
+@app.get("/api/chats/{chat_id}")
+def chats_get(request: Request, chat_id: str):
+    require_tenant(request)
+    if not storage.available():
+        raise HTTPException(status_code=503, detail="storage unavailable")
+    # a miss is a normal sync probe (stale local ids), not an error — the UI
+    # falls back to localStorage; 404 here would spam the browser console
+    return {"chat": storage.get_chat(chat_id)}
+
+
+@app.delete("/api/chats/{chat_id}")
+def chats_delete(request: Request, chat_id: str):
+    require_tenant(request)
+    if not storage.available():
+        raise HTTPException(status_code=503, detail="storage unavailable")
+    return {"ok": storage.delete_chat(chat_id)}
+
+
+@app.get("/api/usage")
+def usage(request: Request, days: int = 30):
+    require_tenant(request)
+    days = max(1, min(days, 365))
+    if not storage.available():
+        return {"ok": False, "usage": []}
+    return {"ok": True, "usage": storage.usage_summary(days)}
+
+
+@app.post("/api/summarize")
+async def summarize(request: Request):
+    """Rolling-history summarization (P2): older turns compressed into a
+    stable summary so multi-turn context stays bounded and cache-friendly."""
+    require_tenant(request)
+    body = await request.json()
+    older = body.get("older") or []
+    if not older:
+        return {"summary": ""}
+    texts = [f"{t.get('role','user')}: {t.get('text','')}" for t in older]
+    joined = "\n".join(texts)[-12000:]
+    summary = await summarize_history(joined)
+    return {"summary": summary}
+
+
 @app.get("/api/ask")
 async def ask(request: Request, q: str, dataset: str | None = None, context: str | None = None):
     """Stream the answer as newline-delimited JSON so the UI never sits blank.
@@ -352,13 +425,26 @@ async def ask(request: Request, q: str, dataset: str | None = None, context: str
     question = q if not context else f"{context.strip()}\n\nFollow-up question: {q}"
 
     async def gen():
+        t_ask = time.time()
+        answer_chars = 0
         yield json.dumps({"stage": "start", "dataset": dataset or DEMO_DATASET}) + "\n"
         try:
             async for event in recall(question, dataset):
+                if event.get("type") == "chunk":
+                    answer_chars += len(event.get("text") or "")
                 yield json.dumps(event) + "\n"
         except Exception as exc:  # noqa: BLE001 - demo must never white-screen
             yield json.dumps({"stage": "error", "message": str(exc)}) + "\n"
         yield json.dumps({"stage": "done"}) + "\n"
+        # metering (P2): estimates = chars/4; the true provider usage lives in
+        # the provider dashboard until a usage-exposing recall path exists
+        storage.save_llm_call(
+            brain=dataset or DEMO_DATASET, feature="ask",
+            model=os.getenv("LLM_MODEL", "brain-llm"),
+            est_prompt_tokens=len(question) // 4,
+            est_completion_tokens=answer_chars // 4,
+            ms=int((time.time() - t_ask) * 1000),
+        )
 
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
