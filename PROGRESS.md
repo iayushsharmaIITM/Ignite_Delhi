@@ -1,3 +1,17 @@
+## P2 — persistence + metering + summarization + fast paths — COMPLETE 2026-09-27
+
+- Postgres 17 in compose (kestrel-db); chats/turns/llm_calls schema in storage.py;
+  server-first restore with localStorage offline fallback; deletes sync both ways.
+- Token metering: every ask records feature/brain/model/est-tokens/ms into
+  llm_calls; GET /api/usage aggregates. Estimates = chars/4 (labeled).
+- /api/summarize: real LLM rolling summaries (platform key, gpt-oss-120b).
+- Smalltalk fast paths: pure greetings = instant template (0s, was 11-26s);
+  chatty smalltalk = direct LLM completion (~5s), NO brain round trip.
+- Known: DeepSeek V4.1 Flash recall via OpenRouter flaps 402 upstream
+  (works for ingest + raw calls; recall moved to gpt-oss-120b). Revisit with
+  a funded OpenRouter balance or a direct DeepSeek API key.
+- Brain volume incident recovery documented in P1 entry; new state 246/587.
+
 ## P1 — THE FLIP: app answers from OUR local brain — COMPLETE 2026-09-27
 
 - Colima resized to 4 CPU / 8 GB (the 2/4 sizing starved recall into timeouts).

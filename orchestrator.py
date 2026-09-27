@@ -33,12 +33,15 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 
 RACERS = [
     ("graph retrieval agent", "GRAPH_COMPLETION"),
     ("vector retrieval agent", "RAG_COMPLETION"),
 ]
+
+OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
 
 async def answer(query: str, dataset: str | None, smalltalk: bool = False):
@@ -51,13 +54,25 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
 
     t_start = time.time()
 
+    # --- Fast path: greetings/smalltalk never touch the brain ----------------
+    # Retrieval (embed + graph search + generation) is an 11-25s round trip;
+    # a greeting needs none of it. One small direct completion instead.
+    if smalltalk:
+        yield {"stage": "step", "label": "Smalltalk: direct chat, no retrieval"}
+        reply = await asyncio.to_thread(_direct_chat, query)
+        for word in reply.split(" "):
+            yield {"type": "chunk", "text": word + " "}
+            await asyncio.sleep(0.01)
+        yield {"stage": "done", "ms": int((time.time() - t_start) * 1000)}
+        return
+
     # --- Sub-agent: citations prewarmer (overlaps everything) ----------------
     prewarm = asyncio.ensure_future(_prewarm(dataset))
     yield {"stage": "step", "label": "Orchestrator: planning retrieval agents"}
 
     race = os.getenv("KESTREL_RACE_RETRIEVAL", "1") != "0"
 
-    if smalltalk or not race:
+    if not race:
         name, strategy = RACERS[0]
         yield {"stage": "step", "label": f"Delegating to {name}"}
         t0 = time.time()
@@ -156,6 +171,52 @@ async def _prewarm(dataset: str | None):
         await asyncio.to_thread(citations.prewarm, target)
     except Exception:  # noqa: BLE001 - prewarming is best-effort by design
         pass
+
+
+_PURE_GREETING_RE = re.compile(
+    r"^\s*(h+i+|hello+|hey+|yo+|hiya|good\s*(morning|afternoon|evening))"
+    r"[\s!.?]*$", re.IGNORECASE)
+
+
+def _direct_chat(query: str) -> str:
+    """Small completion for greetings — no retrieval, no citations.
+
+    Pure greetings (just the word) get an instant template — a network round
+    trip to say \"hello\" is waste. Anything chatty goes to the LLM."""
+    if _PURE_GREETING_RE.match(query):
+        hour = time.localtime().tm_hour
+        part = "morning" if hour < 12 else "afternoon" if hour < 17 else "evening"
+        return (f"Good {part}! Ask me anything about your company's documents — "
+                "I answer with cited sources from your contracts, tickets and meetings.")
+    import requests
+
+    key = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+    if not key:
+        return "Hello! Ask me anything about your company documents."
+    try:
+        resp = requests.post(
+            f"{OPENROUTER_BASE}/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "model": os.getenv("SUMMARIZER_MODEL", "openai/gpt-oss-120b"),
+                "messages": [
+                    {"role": "system",
+                     "content": "You are Kestrel, a company brain that answers from the "
+                                "user's documents. The user is just greeting or chatting — "
+                                "respond warmly in one or two sentences and suggest what "
+                                "you can do: answer questions grounded in their documents "
+                                "with cited sources."},
+                    {"role": "user", "content": query},
+                ],
+                "max_tokens": 150,
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return (resp.json()["choices"][0]["message"].get("content")
+                or "Hello! How can I help?").strip()
+    except Exception:  # noqa: BLE001 - greeting must never fail
+        return "Hello! Ask me anything about your company documents."
 
 
 async def _swallow(task: asyncio.Task):
