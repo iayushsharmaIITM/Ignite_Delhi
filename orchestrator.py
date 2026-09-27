@@ -93,6 +93,29 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
                "label": f"Delegating to {len(tasks)} retrieval agents simultaneously"}
         t0 = time.time()
 
+        # --- Router sub-agent: runs concurrently with the racers. If it says
+        # CHAT, the racers are cancelled and the answer bypasses retrieval —
+        # general conversation never pays the 10-25s brain round trip.
+        router_task = asyncio.ensure_future(asyncio.to_thread(_classify, query))
+        done_r, _ = await asyncio.wait({router_task}, timeout=8)
+        route = "brain"
+        if router_task in done_r and not router_task.exception():
+            route = router_task.result()
+        yield {"stage": "step",
+               "label": ("Router: general chat — bypassing retrieval agents"
+                         if route == "chat" else
+                         "Router: document question — retrieval agents continue")}
+        if route == "chat":
+            for p in tasks:
+                p.cancel()
+                asyncio.ensure_future(_swallow(p))
+            reply = await asyncio.to_thread(_direct_chat_general, query)
+            for word in reply.split(" "):
+                yield {"type": "chunk", "text": word + " "}
+                await asyncio.sleep(0.01)
+            yield {"stage": "done", "ms": int((time.time() - t_start) * 1000)}
+            return
+
         results = None
         winner = None
         pending = set(tasks)
@@ -176,6 +199,81 @@ async def _prewarm(dataset: str | None):
 _PURE_GREETING_RE = re.compile(
     r"^\s*(h+i+|hello+|hey+|yo+|hiya|good\s*(morning|afternoon|evening))"
     r"[\s!.?]*$", re.IGNORECASE)
+
+
+ROUTER_INSTRUCTION = (
+    "You are the router of a company-brain application. The company's documents "
+    "cover contracts, tickets, meetings, policies, projects, people and finances. "
+    "Decide whether the user's message should be answered FROM those documents, or "
+    "is general conversation (time, date, weather, greetings, opinions, jokes, "
+    "general knowledge, math). If it might relate to the company's documents or "
+    "business, answer BRAIN. Only answer CHAT when it is clearly general "
+    "conversation. Reply with exactly one word: BRAIN or CHAT."
+)
+
+
+def _classify(query: str) -> str:
+    """Router sub-agent: BRAIN or CHAT. Defaults to BRAIN on any failure —
+    a misroute to retrieval costs seconds; a misroute to chat costs trust."""
+    import requests
+
+    key = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+    if not key:
+        return "brain"
+    try:
+        resp = requests.post(
+            f"{OPENROUTER_BASE}/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "model": os.getenv("ROUTER_MODEL", "openai/gpt-oss-120b"),
+                "messages": [
+                    {"role": "system", "content": ROUTER_INSTRUCTION},
+                    {"role": "user", "content": query[-2000:]},
+                ],
+                "max_tokens": 200,
+            },
+            timeout=45,
+        )
+        resp.raise_for_status()
+        word = (resp.json()["choices"][0]["message"].get("content") or "").strip().upper()
+        if "CHAT" in word:
+            return "chat"
+        return "brain"   # BRAIN, or anything ambiguous: the safe default
+    except Exception:  # noqa: BLE001 - router down: retrieval is the safe default
+        return "brain"
+
+
+def _direct_chat_general(query: str) -> str:
+    """General conversation: no retrieval context, but time-aware."""
+    import requests
+    from datetime import datetime
+
+    key = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+    if not key:
+        return "I can answer questions about your company's documents — try me on those."
+    try:
+        now = datetime.now().strftime("%A, %d %B %Y, %H:%M local time")
+        resp = requests.post(
+            f"{OPENROUTER_BASE}/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "model": os.getenv("SUMMARIZER_MODEL", "openai/gpt-oss-120b"),
+                "messages": [
+                    {"role": "system",
+                     "content": "You are Kestrel, a company brain. This message is "
+                                "general conversation, not a document question — answer "
+                                "helpfully in a sentence or two. Current local time: " + now},
+                    {"role": "user", "content": query},
+                ],
+                "max_tokens": 250,
+            },
+            timeout=45,
+        )
+        resp.raise_for_status()
+        return (resp.json()["choices"][0]["message"].get("content")
+                or "Try me on your company documents.").strip()
+    except Exception:  # noqa: BLE001
+        return "I can answer questions about your company's documents — try me on those."
 
 
 def _direct_chat(query: str) -> str:

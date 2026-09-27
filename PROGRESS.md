@@ -1,3 +1,18 @@
+## Router sub-agent — non-brain queries bypass retrieval 2026-09-27
+
+Owner request: queries unrelated to the brain must fast-track. Design: the
+orchestrator launches a ROUTER sub-agent concurrently with the retrieval
+racers — a tiny classification call (fixed instruction prefix, cache-hit
+friendly, ~1-2s) deciding BRAIN vs CHAT. CHAT cancels the racers and answers
+via a direct completion (time-aware: current datetime in the prompt); BRAIN
+lets the racers continue with zero added latency. Router failure or ambiguity
+defaults to BRAIN (a misroute to retrieval costs seconds; a misroute to chat
+costs trust).
+
+Measured: "What time is it here?" — router bypasses, correct datetime answer,
+9s total (was 11-25s through the brain). Brain questions unchanged (5
+citations; routing overlapped, not additive).
+
 ## Stale-citation healing on restore — 2026-09-27
 
 Chats saved before the smalltalk fix carried fake citations on greetings and
