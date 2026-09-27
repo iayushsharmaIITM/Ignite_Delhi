@@ -437,3 +437,9 @@ kbd {
 .tier .tbtn[disabled] { opacity: .45; cursor: default; }
 .tier .tbtn.hot { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .km-note { font-size: 11.5px; color: var(--muted-2); margin: 14px 0 0; }
+
+/* Clerk's component sheet is CORS-dark to our JS, and some of its internals
+   (the "Primary" badge, row action buttons) resolve to near-invisible alpha
+   colors in the dark theme. Our own variables keep them readable in both. */
+.cl-badge { color: var(--fg-2) !important; background: var(--panel-2) !important;
+  border: 1px solid var(--line-2) !important; }
