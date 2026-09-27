@@ -77,10 +77,29 @@
     emit();
   }
 
-  function openAccount() { try { window.Clerk?.openUserProfile?.(); } catch (e) {} }
+  // Theme-matched Clerk component variables — shared by the gate's mounted
+  // sign-in and the account modal, so Clerk surfaces follow the app theme.
+  function appearance() {
+    const light = document.documentElement.dataset.theme === 'light';
+    return { variables: light ? {
+        colorBackground: '#ffffff', colorText: '#201d18', colorForeground: '#201d18',
+        colorInputBackground: '#f3f1ec', colorInputText: '#201d18',
+        colorPrimary: '#b45309', colorPrimaryForeground: '#ffffff',
+        colorMutedForeground: '#6f6a60', colorBorder: 'rgba(28,24,16,.15)',
+      } : {
+        colorBackground: '#232323', colorText: '#e9e9e9', colorForeground: '#e9e9e9',
+        colorInputBackground: '#2b2b2b', colorInputText: '#e9e9e9',
+        colorPrimary: '#e8863b', colorPrimaryForeground: '#161616',
+        colorMutedForeground: '#9b9b9b', colorBorder: 'rgba(255,255,255,.13)',
+      } };
+  }
+
+  function openAccount() {
+    try { window.Clerk?.openUserProfile?.({ appearance: appearance() }); } catch (e) {}
+  }
 
   window.KestrelAuth = {
-    init, authHeaders, signOut, openAccount, state,
+    init, authHeaders, signOut, openAccount, appearance, state,
     addListener(fn) { listeners.push(fn); fn(state()); },
     get mode() { return mode; },
     get user() { return window.Clerk?.user || null; },
