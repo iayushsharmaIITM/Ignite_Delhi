@@ -1858,9 +1858,16 @@ async function streamPipeline(name) {
     const signedIn = !!st.signedIn;
     gate.hidden = signedIn;
     document.body.classList.toggle('locked', !signedIn);
-    if (!signedIn && !mount.dataset.mounted) {
+    // Mount the form only for a GENUINE signed-out state: Clerk loaded, a
+    // client present, zero sessions. Mounting while any session exists makes
+    // Clerk redirect to afterSignIn — a reload loop when the client is
+    // mid-handshake (user ref null but session alive).
+    const clerk = window.Clerk;
+    const signedOut = !!clerk && !!clerk.loaded && !!clerk.client &&
+                      ((clerk.client.sessions || []).length === 0);
+    if (!signedIn && signedOut && !mount.dataset.mounted) {
       mount.dataset.mounted = '1';
-      // load() may still be mid-boot — retry until mountSignIn accepts
+      // the UI renderer can lag load() by a beat — retry until it accepts
       const tryMount = (tries) => {
         try { window.Clerk.mountSignIn(mount, { appearance: GATE_APPEARANCE() }); }
         catch (e) { if (tries > 0) setTimeout(() => tryMount(tries - 1), 300); }

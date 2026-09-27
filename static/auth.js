@@ -23,7 +23,14 @@
   function emit() { listeners.forEach(fn => { try { fn(state()); } catch (e) {} }); }
 
   function state() {
-    return { mode, signedIn: !!(mode === 'clerk' && window.Clerk && window.Clerk.user) };
+    if (mode !== 'clerk' || !window.Clerk) return { mode, signedIn: false };
+    // A client holding sessions IS signed in. After the Account Portal
+    // redirects back, clerk-js reloads the client and the `user` ref is
+    // transiently null — treating that as signed-out re-opened the gate and
+    // mounted <SignIn>, which Clerk answered by redirecting to afterSignIn:
+    // an endless reload loop. Sessions are the durable truth.
+    const sessions = (window.Clerk.client && window.Clerk.client.sessions) || [];
+    return { mode, signedIn: !!window.Clerk.user || sessions.length > 0 };
   }
 
   function loadScript(publishableKey) {
