@@ -6,6 +6,8 @@
 <title>Kestrel Company Brain</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>◆</text></svg>">
 <link rel="stylesheet" href="/static/shell.css">
+<script src="/static/ui.js"></script>
+<script src="/static/auth.js"></script>
 <style>
 * { box-sizing:border-box; }
   main { max-width:800px; margin:0 auto; padding:40px 24px 64px; }
@@ -415,8 +417,8 @@
         <span class="nm" id="src-name"></span>
         <span class="where" id="src-where"></span>
         <span class="sp">
-          <button type="button" id="src-copy">Copy</button>
-          <button type="button" id="src-close">Close</button>
+          <button type="button" id="src-copy" data-i18n="src.copy">Copy</button>
+          <button type="button" id="src-close" data-i18n="src.close">Close</button>
         </span>
       </div>
       <pre id="src-body"></pre>
@@ -426,22 +428,22 @@
   <div id="files-sheet" hidden>
     <div class="sheet">
       <div class="head">
-        <strong>Add documents</strong>
+        <strong data-i18n="files.title">Add documents</strong>
         <span class="where" id="files-target"></span>
-        <span class="sp"><button type="button" id="files-close">Close</button></span>
+        <span class="sp"><button type="button" id="files-close" data-i18n="files.close">Close</button></span>
       </div>
       <div class="body">
         <div class="notice" id="files-notice" hidden></div>
         <div class="drop" id="drop2">
-          Drop files here or <span style="text-decoration:underline">choose files</span>
-          <div class="hint">PDF, DOCX, TXT, MD, CSV, JSON, code files · up to 5 MB each · 40 max.
+          <span data-i18n="files.drop">Drop files here or choose files</span>
+          <div class="hint" data-i18n="files.hint">PDF, DOCX, TXT, MD, CSV, JSON, code files · up to 5 MB each · 40 max.
             Added straight into this brain — no restart, immediately answerable.</div>
         </div>
         <input type="file" id="file-input" multiple hidden>
         <ul class="files" id="filelist"></ul>
         <div class="pipeline" id="pipeline"></div>
         <div class="done" id="files-done"></div>
-        <div class="cta"><button id="files-go" type="button" disabled>Add to brain</button></div>
+        <div class="cta"><button id="files-go" type="button" disabled data-i18n="files.add">Add to brain</button></div>
       </div>
     </div>
   </div>
@@ -450,19 +452,19 @@
   <div class="field">
     <div class="bar-card bar-anchor">
       <div class="bar-top">
-        <button type="button" class="bar-btn" id="brainswitch" title="Switch brain" aria-label="Switch brain">
+        <button type="button" class="bar-btn" id="brainswitch" data-i18n-title="composer.switch_brain" title="Switch brain" aria-label="Switch brain">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
           <span class="bname" id="brainname">Demo brain</span>
           <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
         </button>
         <span class="spacer"></span>
-        <button type="button" class="bar-btn" id="menu2-toggle" title="Conversation actions" aria-label="Conversation actions">⋯</button>
+        <button type="button" class="bar-btn" id="menu2-toggle" data-i18n-title="composer.actions" title="Conversation actions" aria-label="Conversation actions">⋯</button>
       </div>
       <div class="atts" id="pending" hidden></div>
-      <textarea id="q" rows="1" placeholder="Ask across every document the company has written…"
+      <textarea id="q" rows="1" data-i18n-ph="composer.placeholder" placeholder="Ask across every document the company has written…"
                autocomplete="off" autofocus></textarea>
       <div class="bar-row">
-        <button type="button" class="bar-btn" id="attach" title="Attach files to this message" aria-label="Attach files to this message">
+        <button type="button" class="bar-btn" id="attach" data-i18n-title="composer.attach" title="Attach files to this message" aria-label="Attach files to this message">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         </button>
         <span class="spacer" style="flex:1"></span>
@@ -471,15 +473,15 @@
       <input type="file" id="chat-file" multiple hidden>
       <div class="pop" id="menu2" hidden>
         <div class="count" id="turncount"></div>
-        <button type="button" id="copy-transcript">Copy transcript</button>
-        <button type="button" id="menu-addbrain">Add documents to this brain…</button>
+        <button type="button" id="copy-transcript" data-i18n="menu.copy_transcript">Copy transcript</button>
+        <button type="button" id="menu-addbrain" data-i18n="menu.add_docs">Add documents to this brain…</button>
         <div class="pop-sep"></div>
-        <button type="button" id="export-md">Export Markdown</button>
-        <button type="button" id="export-txt">Export plain text</button>
-        <button type="button" id="export-docx">Export Word document</button>
-        <button type="button" id="export-pdf">Export PDF</button>
+        <button type="button" id="export-md" data-i18n="menu.export_md">Export Markdown</button>
+        <button type="button" id="export-txt" data-i18n="menu.export_txt">Export plain text</button>
+        <button type="button" id="export-docx" data-i18n="menu.export_docx">Export Word document</button>
+        <button type="button" id="export-pdf" data-i18n="menu.export_pdf">Export PDF</button>
         <div class="pop-sep"></div>
-        <button type="button" id="clear-chat">Clear conversation</button>
+        <button type="button" id="clear-chat" data-i18n="menu.clear_chat">Clear conversation</button>
       </div>
       <div class="pop" id="brainmenu" hidden></div>
     </div>
@@ -495,8 +497,8 @@
 <div id="auth-gate" hidden>
   <div class="auth-card">
     <div class="mark" style="width:34px;height:34px;border-radius:9px;background:linear-gradient(155deg,#e89b3f,#b45309 78%);display:grid;place-items:center;color:#161616;font-size:14px;margin:0 auto 14px;">◆</div>
-    <div class="auth-title">Sign in to Kestrel</div>
-    <div class="auth-sub">Your company's answers, grounded in your documents.</div>
+    <div class="auth-title" data-i18n="gate.title">Sign in to Kestrel</div>
+    <div class="auth-sub" data-i18n="gate.sub">Your company's answers, grounded in your documents.</div>
     <div id="clerk-mount"></div>
   </div>
 </div>
@@ -516,17 +518,28 @@ const BRAIN = (() => {
 })();
 
 const STARTERS_DEMO = [
-  { icon: 'doc',   label: 'Why is the Bluepeak renewal at risk?', q: 'Why is the Bluepeak renewal at risk, and what have we promised them?' },
-  { icon: 'scale', label: 'What credit do we owe, and who approved it?', q: 'What service credit do we owe Bluepeak, and who approved it?' },
-  { icon: 'owner', label: 'Who owns the renewal and the RCA?', q: 'Who owns the Bluepeak renewal, and who owns the root cause analysis?' },
-  { icon: 'check', label: 'Is the renewal date consistent?', q: 'Is the Bluepeak renewal date consistent across our documents?' },
+  { icon: 'doc',   lk: 'chip.demo1', label: 'Why is the Bluepeak renewal at risk?', q: 'Why is the Bluepeak renewal at risk, and what have we promised them?' },
+  { icon: 'scale', lk: 'chip.demo2', label: 'What credit do we owe, and who approved it?', q: 'What service credit do we owe Bluepeak, and who approved it?' },
+  { icon: 'owner', lk: 'chip.demo3', label: 'Who owns the renewal and the RCA?', q: 'Who owns the Bluepeak renewal, and who owns the root cause analysis?' },
+  { icon: 'check', lk: 'chip.demo4', label: 'Is the renewal date consistent?', q: 'Is the Bluepeak renewal date consistent across our documents?' },
 ];
 const STARTERS_GENERIC = [
-  { icon: 'doc',   label: 'Summarise what is in this brain', q: 'Summarise what this brain knows — its main documents and topics.' },
-  { icon: 'steps', label: 'What are the next steps?', q: 'What are the next steps across my documents, and who owns each one?' },
-  { icon: 'mail',  label: 'Draft a mail from the latest answer', q: 'Draft a mail summarising the most recent answer.' },
-  { icon: 'check', label: 'Is everything consistent?', q: 'Is everything in this brain consistent with each other?' },
+  { icon: 'doc',   lk: 'chip.gen1', label: 'Summarise what is in this brain', q: 'Summarise what this brain knows — its main documents and topics.' },
+  { icon: 'steps', lk: 'chip.gen2', label: 'What are the next steps?', q: 'What are the next steps across my documents, and who owns each one?' },
+  { icon: 'mail',  lk: 'chip.gen3', label: 'Draft a mail from the latest answer', q: 'Draft a mail summarising the most recent answer.' },
+  { icon: 'check', lk: 'chip.gen4', label: 'Is everything consistent?', q: 'Is everything in this brain consistent with each other?' },
 ];
+// shared chrome helpers — the UI language of every dynamic string
+const T = (k, f) => (window.KI18N ? window.KI18N.t(k, f) : (f || k));
+const Q = n => (window.KI18N ? window.KI18N.fmt('menu.questions', { n }) : n + ' question(s)');
+function stageLabel(s) {
+  if (!window.KI18N) return s;
+  if (/^Smalltalk:/.test(s)) return KI18N.t('stage.smalltalk', s);
+  if (/^Orchestrator: planning/.test(s)) return KI18N.t('stage.plan', s);
+  if (/^Router: general chat/.test(s)) return KI18N.t('stage.router_chat', s);
+  if (/^Delegating to/.test(s)) return KI18N.t('stage.delegating', s);
+  return s;
+}
 
 const threadEl = document.getElementById('thread');
 const turnCount = document.getElementById('turncount');
@@ -714,20 +727,29 @@ function chipSvg(name) {
   return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
          'stroke-linecap="round" stroke-linejoin="round">' + (CHIP_ICON[name] || '') + '</svg>';
 }
-(function greet() {
+function greet() {
   const h = new Date().getHours();
   document.getElementById('greeting').textContent =
-    h < 12 ? 'Morning, how can I help?' : h < 17 ? 'Afternoon, how can I help?' : 'Evening, how can I help?';
-})();
-(BRAIN ? STARTERS_GENERIC : STARTERS_DEMO).forEach(s => {
-  const c = document.createElement('button');
-  c.type = 'button'; c.className = 'chip';
-  c.innerHTML = chipSvg(s.icon) + '<span>' + s.label + '</span>';
-  c.addEventListener('click', () => { input.value = s.q; setGo('ready'); ask(s.q); });
-  chips.appendChild(c);
+    T(h < 12 ? 'greet.morning' : h < 17 ? 'greet.afternoon' : 'greet.evening', 'How can I help?');
+}
+function renderChips() {
+  chips.innerHTML = '';
+  (BRAIN ? STARTERS_GENERIC : STARTERS_DEMO).forEach(s => {
+    const c = document.createElement('button');
+    c.type = 'button'; c.className = 'chip';
+    c.innerHTML = chipSvg(s.icon) + '<span>' + T(s.lk, s.label) + '</span>';
+    c.addEventListener('click', () => { input.value = s.q; setGo('ready'); ask(s.q); });
+    chips.appendChild(c);
+  });
+}
+greet();
+renderChips();
+window.addEventListener('kestrel:lang', () => {
+  greet(); renderChips();
+  if (BRAIN) input.placeholder = T('composer.placeholder_brain', input.placeholder);
 });
 if (BRAIN) {
-  input.placeholder = 'Ask across the documents you uploaded…';
+  input.placeholder = T('composer.placeholder_brain', 'Ask across the documents you uploaded…');
   document.title = BRAIN + ' · Kestrel Company Brain';
 }
 
@@ -902,7 +924,7 @@ async function restoreHistory() {
     }
   });
   buildRail();
-  turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
+  turnCount.textContent = Q(TURNS.filter(t => t.role === 'user').length);
   const lastBot = [...saved].reverse().find(t => t.role === 'bot');
   if (lastBot) {
     SOURCES = (lastBot.sources || []).filter(i => i && i.source).map(i => i.source);
@@ -1049,7 +1071,7 @@ function renderSources(turn, items) {
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.textContent = i.source;
-    chip.title = 'Open this source document';
+    chip.title = T('src.open', 'Open this source document');
     chip.addEventListener('click', () => openSource(i.source, i.excerpt));
     row.appendChild(chip);
   });
@@ -1059,60 +1081,13 @@ function renderSources(turn, items) {
 let IN_FLIGHT = false;
 let CONTROLLER = null;
 
-// --- P3 auth: Clerk session token on every API call ---------------------------
-let AUTH = { mode: 'off', token: null };
-
+// --- P3 auth: the shared KestrelAuth bootstrap (auth.js) carries the Clerk
+// session on every page; this page only wraps it for the ask/save calls.
 async function authHeaders() {
-  if (AUTH.mode !== 'clerk') return {};
-  try {
-    const tok = await window.Clerk?.session?.getToken?.();
-    if (tok) return { Authorization: 'Bearer ' + tok };
-  } catch (e) { /* refresh failed - the call proceeds and 401s */ }
-  return {};
+  return window.KestrelAuth ? window.KestrelAuth.authHeaders() : {};
 }
 
-async function initAuth() {
-  try {
-    const cfg = await (await fetch('/api/config')).json();
-    if (cfg.authMode !== 'clerk' || !cfg.publishableKey) return;
-    AUTH.mode = 'clerk';
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
-      // ClerkJS v5's browser build reads the key from this attribute at
-      // script-eval time — Clerk.load() alone is too late
-      s.setAttribute('data-clerk-publishable-key', cfg.publishableKey);
-      s.onload = resolve; s.onerror = reject;
-      document.head.appendChild(s);
-    });
-    if (!window.Clerk) throw new Error('Clerk.js loaded but no global');
-    // Script-eval only reads the key from the attribute — the instance itself
-    // must be booted explicitly. load() fetches the environment, runs the
-    // dev-browser handshake, and wires the component renderer; every mount*
-    // call throws "components are not ready yet" until it has finished.
-    await window.Clerk.load({ publishableKey: cfg.publishableKey });
-    const gate = document.getElementById('auth-gate');
-    const update = () => {
-      const signedIn = !!window.Clerk.user;
-      gate.hidden = signedIn;
-      document.body.classList.toggle('locked', !signedIn);
-      if (!signedIn && !document.getElementById('clerk-mount').dataset.mounted) {
-        document.getElementById('clerk-mount').dataset.mounted = '1';
-        // load() has resolved, but the UI renderer can still lag a beat —
-        // retry briefly until mountSignIn accepts
-        const mount = (tries) => {
-          try { window.Clerk.mountSignIn(document.getElementById('clerk-mount')); }
-          catch (e) { if (tries > 0) setTimeout(() => mount(tries - 1), 300); }
-        };
-        mount(30);
-      }
-      if (signedIn) document.getElementById('clerk-mount').innerHTML = '';
-    };
-    window.Clerk.addListener(update);
-    update();
-  } catch (e) { console.warn('auth init failed:', e.message); }
-}
-initAuth();
+
 
 async function ask(q) {
   // Re-entry guard: submitting while an answer streams interleaved the turns.
@@ -1155,7 +1130,7 @@ function finalize(bubble, q, text, sources) {
   if (sources.length) renderSources(bubble.parentElement, sources);
   SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
   LAST = { q, text };
-  turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
+  turnCount.textContent = Q(TURNS.filter(t => t.role === 'user').length);
   saveHistory();
   buildRail();
   work.stop();
@@ -1244,7 +1219,7 @@ function finalize(bubble, q, text, sources) {
           bubble.innerHTML = renderMarkdown(text);   // direct output — no raw ** phase
           if (stick) scrollToBottom(false);
         } else if (ev.stage === 'step') {
-          work.step(ev.label, ev.ms);
+          work.step(stageLabel(ev.label), ev.ms);
           if (stick) scrollToBottom(false);
         } else if (ev.type === 'references' && ev.items?.length) {
           sources = ev.items;
@@ -1293,7 +1268,7 @@ function finalize(bubble, q, text, sources) {
         renderAnswerActions(bubble.parentElement, q, text, at);
         SOURCES = (sources || []).filter(i => i && i.source).map(i => i.source);
         LAST = { q, text };
-        turnCount.textContent = TURNS.filter(t => t.role === 'user').length + ' question(s)';
+        turnCount.textContent = Q(TURNS.filter(t => t.role === 'user').length);
         saveHistory();
         buildRail();
       } else {
@@ -1847,5 +1822,56 @@ async function streamPipeline(name) {
 }
 </script>
 <script src="/static/shell.js"></script>
+
+<script>
+// The auth gate. KestrelAuth (auth.js) boots Clerk for every page; this page
+// turns its state into the gate: hidden once a session exists, otherwise it
+// mounts the sign-in card with a theme-matched appearance.
+(function gateWatch() {
+  const gate = document.getElementById('auth-gate');
+  const mount = document.getElementById('clerk-mount');
+  if (!gate || !mount) return;
+
+  const GATE_APPEARANCE = () => {
+    const light = document.documentElement.dataset.theme === 'light';
+    return { variables: light ? {
+        colorBackground: '#ffffff', colorText: '#201d18',
+        colorInputBackground: '#f3f1ec', colorInputText: '#201d18',
+        colorPrimary: '#d67628', colorPrimaryForeground: '#ffffff',
+        colorMutedForeground: '#6f6a60', colorBorder: 'rgba(28,24,16,.15)',
+      } : {
+        colorBackground: '#232323', colorText: '#e9e9e9',
+        colorInputBackground: '#2b2b2b', colorInputText: '#e9e9e9',
+        colorPrimary: '#e8863b', colorPrimaryForeground: '#161616',
+        colorMutedForeground: '#9b9b9b', colorBorder: 'rgba(255,255,255,.13)',
+      } };
+  };
+
+  const update = (st) => {
+    const signedIn = !!st.signedIn;
+    gate.hidden = signedIn;
+    document.body.classList.toggle('locked', !signedIn);
+    if (!signedIn && !mount.dataset.mounted) {
+      mount.dataset.mounted = '1';
+      // load() may still be mid-boot — retry until mountSignIn accepts
+      const tryMount = (tries) => {
+        try { window.Clerk.mountSignIn(mount, { appearance: GATE_APPEARANCE() }); }
+        catch (e) { if (tries > 0) setTimeout(() => tryMount(tries - 1), 300); }
+      };
+      tryMount(30);
+    }
+    if (signedIn) { mount.innerHTML = ''; delete mount.dataset.mounted; }
+  };
+  if (window.KestrelAuth) window.KestrelAuth.addListener(update);
+
+  // a theme switch while the gate is open re-renders the Clerk card to match
+  window.addEventListener('kestrel:theme', () => {
+    if (gate.hidden || !window.Clerk || !mount.dataset.mounted) return;
+    try { window.Clerk.unmountSignIn(mount); } catch (e) {}
+    delete mount.dataset.mounted;
+    update({ signedIn: false });
+  });
+})();
+</script>
 </body>
 </html>

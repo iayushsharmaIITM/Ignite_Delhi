@@ -40,6 +40,8 @@
          padding:40px; }
 </style>
 <link rel="stylesheet" href="/static/shell.css">
+<script src="/static/ui.js"></script>
+<script src="/static/auth.js"></script>
 <style>
   /* The graph is full-bleed, so it makes room for the shared sidebar itself. */
   @media (min-width: 821px) {
@@ -125,7 +127,7 @@
 <canvas id="c2"></canvas>
 
 <div class="hud">
-  <h1 id="title">Knowledge graph</h1>
+  <h1 id="title" data-i18n="graph.title">Knowledge graph</h1>
   <p id="subtitle">Every entity and relationship extracted from the company corpus.</p>
 </div>
 
@@ -608,7 +610,8 @@ if (BRAIN) {
     'Entities and relationships extracted from the documents you uploaded.';
 }
 
-fetch(GRAPH_URL).then(r => r.json()).then(g => {
+(window.KestrelAuth ? window.KestrelAuth.authHeaders() : Promise.resolve({})).then(headers =>
+fetch(GRAPH_URL, { headers }).then(r => r.json()).then(g => {
   if (g.error) throw new Error(g.error);
   const rawNodes = g.nodes || [];
   const rawEdges = g.edges || [];
@@ -697,7 +700,7 @@ fetch(GRAPH_URL).then(r => r.json()).then(g => {
   box.className = 'err';
   box.textContent = 'Could not load the graph: ' + (err && err.message ? err.message : 'unknown error');
   document.body.appendChild(box);
-});
+}));
 </script>
 <script src="/static/shell.js"></script>
 </body>

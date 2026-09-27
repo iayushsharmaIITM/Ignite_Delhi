@@ -93,37 +93,39 @@
 
 </style>
 <link rel="stylesheet" href="/static/shell.css">
+<script src="/static/ui.js"></script>
+<script src="/static/auth.js"></script>
 </head>
 <body>
 <div class="app-main">
 <div class="wrap">
   <header>
-    <h1><span class="mark">◆</span>Build a company brain</h1>
-    <p class="sub">Upload your own documents. Each file is read, chunked and turned into a
+    <h1><span class="mark">◆</span><span data-i18n="up.h1">Build a company brain</span></h1>
+    <p class="sub" data-i18n="up.sub">Upload your own documents. Each file is read, chunked and turned into a
       knowledge graph — then you query it in the same dashboard as the demo brain.</p>
   </header>
 
   <section>
-    <div class="label">Brain name</div>
-    <input type="text" id="name" placeholder="e.g. acme_contracts" autocomplete="off" autofocus>
-    <div class="hint">Letters, numbers and underscores, 3–40 characters. Spaces become underscores.</div>
+    <div class="label" data-i18n="up.label_name">Brain name</div>
+    <input type="text" id="name" data-i18n-ph="up.name_ph" placeholder="e.g. acme_contracts" autocomplete="off" autofocus>
+    <div class="hint" data-i18n="up.name_hint">Letters, numbers and underscores, 3–40 characters. Spaces become underscores.</div>
   </section>
 
   <section>
-    <div class="label">Documents</div>
+    <div class="label" data-i18n="up.label_docs">Documents</div>
     <div class="drop" id="drop">
-      <strong>Drop files here</strong>
-      <span>or <button type="button" class="link" id="pick">choose files</button></span>
-      <div class="hint">PDF, DOCX, TXT, MD, CSV, JSON, code files (.py, .yaml, …) · up to 5 MB each · 40 max</div>
+      <strong data-i18n="up.drop">Drop files here</strong>
+      <span>or <button type="button" class="link" id="pick" data-i18n="up.choose">choose files</button></span>
+      <div class="hint" data-i18n="up.hint">PDF, DOCX, TXT, MD, CSV, JSON, code files (.py, .yaml, …) · up to 5 MB each · 40 max</div>
       <input type="file" id="file" multiple hidden>
     </div>
     <ul class="files" id="files"></ul>
   </section>
 
-  <button class="primary" id="build" disabled>Build brain</button>
+  <button class="primary" id="build" disabled data-i18n="up.build">Build brain</button>
 
   <section id="progsec" hidden>
-    <div class="label">Ingestion</div>
+    <div class="label" data-i18n="up.label_ing">Ingestion</div>
     <ul class="log" id="log"></ul>
   </section>
 
@@ -245,7 +247,10 @@ buildEl.addEventListener('click', async () => {
     form.append('name', name);
     if (appendMode) form.append('append', 'true');
     for (const f of picked) form.append('files', f, f.name);
-    const res = await fetch('/api/brains', { method: 'POST', body: form });
+    const res = await fetch('/api/brains', {
+      method: 'POST', body: form,
+      headers: await window.KestrelAuth.authHeaders(),
+    });
     const body = await res.json().catch(() => ({}));
     return { res, body };
   }
@@ -346,7 +351,8 @@ async function follow(name) {
   };
 
   try {
-    const res = await fetch('/api/brains/' + encodeURIComponent(name) + '/events');
+    const res = await fetch('/api/brains/' + encodeURIComponent(name) + '/events',
+      { headers: await window.KestrelAuth.authHeaders() });
     if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
 
     const reader = res.body.getReader();

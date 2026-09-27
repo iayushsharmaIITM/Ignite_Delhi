@@ -29,18 +29,23 @@
   const PAGES = [
     // "New chat" REPLACES the old Ask entry: same route, but it always starts
     // a fresh conversation (the chat itself lives under Chats).
-    { href: '/',        key: 'ask',    label: 'New chat', fresh: true },
-    { href: '/upload',  key: 'upload', label: 'New brain' },
-    { href: '/brains',  key: 'brains', label: 'Brains' },
-    { href: '/graph',   key: 'graph',  label: 'Graph' },
+    { href: '/',        key: 'ask',    lk: 'nav.new_chat',  fresh: true },
+    { href: '/upload',  key: 'upload', lk: 'nav.new_brain' },
+    { href: '/brains',  key: 'brains', lk: 'nav.brains' },
+    { href: '/graph',   key: 'graph',  lk: 'nav.graph' },
   ];
 
-  const links = PAGES.map(p => {
-    const active = path === p.href && !p.fresh;
-    const href = p.fresh ? '/' + (qs ? qs + '&new=1' : '?new=1') : p.href + qs;
-    return '<a class="nav-item' + (active ? ' active' : '') + '" href="' + href + '">' +
-           icon(p.key) + '<span>' + p.label + '</span></a>';
-  }).join('');
+  const T = (k, f) => (window.KI18N ? window.KI18N.t(k, f) : (f || k));
+
+  function buildLinks() {
+    return PAGES.map(p => {
+      const active = path === p.href && !p.fresh;
+      const href = p.fresh ? '/' + (qs ? qs + '&new=1' : '?new=1') : p.href + qs;
+      return '<a class="nav-item' + (active ? ' active' : '') + '" href="' + href + '">' +
+             icon(p.key) + '<span>' + T(p.lk, p.label) + '</span></a>';
+    }).join('');
+  }
+  let links = buildLinks();
 
 
   // Conversation list across ALL brains. Each chat remembers the brain it was
@@ -130,11 +135,11 @@
     const CARET  = '<svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg>';
 
     let html =
-      '<div class="chats-head"><span class="nav-label">Chats</span>' +
-      '<button type="button" class="head-btn" data-action="view-toggle" title="View and sort" aria-label="View and sort">' + FILTER + '</button></div>';
+      '<div class="chats-head"><span class="nav-label">' + T('nav.chats', 'Chats') + '</span>' +
+      '<button type="button" class="head-btn" data-action="view-toggle" title="' + T('view.toggle', 'View and sort') + '" aria-label="' + T('view.toggle', 'View and sort') + '">' + FILTER + '</button></div>';
 
     if (!entries.length) {
-      html += '<div class="chat-empty">No saved chats yet</div>';
+      html += '<div class="chat-empty">' + T('nav.no_chats', 'No saved chats yet') + '</div>';
       return html;
     }
 
@@ -179,7 +184,7 @@
     for (const [b, chats] of groups) {
       if (shown >= 16) break;
       const isCollapsed = collapsed.indexOf(b) >= 0;
-      const label = b === 'demo' ? 'Demo brain' : b;
+      const label = b === 'demo' ? T('brain.demo', 'Demo brain') : b;
       html += '<div class="brain-row" data-action="group-toggle" data-brain="' + esc(b) + '" title="Expand or collapse">' +
         CARET + FOLDER + '<span class="brain-name" data-newchat-brain="' + esc(b) + '">' + esc(label) + '</span>' +
         '<button type="button" class="row-del group-del" data-action="group-del" data-brain="' + esc(b) +
@@ -196,8 +201,8 @@
 
     function viewFooter() {
       return '<div class="view-note" data-view-note>' +
-        (view.mode === 'brain' ? 'Grouped by brain' : 'Timeline') +
-        ' · sorted by ' + (view.sort === 'created' ? 'created' : 'updated') + '</div>';
+        (view.mode === 'brain' ? T('view.grouped', 'Grouped by brain') : T('view.timeline', 'Timeline')) +
+        ' · ' + T('view.sorted', 'sorted by') + ' ' + (view.sort === 'created' ? T('view.created', 'created') : T('view.updated', 'updated')) + '</div>';
     }
   }
 
@@ -265,13 +270,13 @@
     menu.className = 'pop sb-pop';
     menu.id = 'sb-viewmenu';
     menu.innerHTML =
-      '<div class="pop-note">View</div>' +
-      '<button type="button" data-action="view-mode" data-value="brain">By brain' + (view.mode === 'brain' ? '<span class="tick">✓</span>' : '') + '</button>' +
-      '<button type="button" data-action="view-mode" data-value="timeline">Timeline' + (view.mode === 'timeline' ? '<span class="tick">✓</span>' : '') + '</button>' +
+      '<div class="pop-note">' + T('view.title', 'View') + '</div>' +
+      '<button type="button" data-action="view-mode" data-value="brain">' + T('view.by_brain', 'By brain') + (view.mode === 'brain' ? '<span class="tick">✓</span>' : '') + '</button>' +
+      '<button type="button" data-action="view-mode" data-value="timeline">' + T('view.timeline', 'Timeline') + (view.mode === 'timeline' ? '<span class="tick">✓</span>' : '') + '</button>' +
       '<div class="pop-sep"></div>' +
-      '<div class="pop-note">Sort by</div>' +
-      '<button type="button" data-action="view-sort" data-value="updated">Updated' + (view.sort === 'updated' ? '<span class="tick">✓</span>' : '') + '</button>' +
-      '<button type="button" data-action="view-sort" data-value="created">Created' + (view.sort === 'created' ? '<span class="tick">✓</span>' : '') + '</button>';
+      '<div class="pop-note">' + T('view.sort_by', 'Sort by') + '</div>' +
+      '<button type="button" data-action="view-sort" data-value="updated">' + T('view.updated', 'Updated') + (view.sort === 'updated' ? '<span class="tick">✓</span>' : '') + '</button>' +
+      '<button type="button" data-action="view-sort" data-value="created">' + T('view.created', 'Created') + (view.sort === 'created' ? '<span class="tick">✓</span>' : '') + '</button>';
     document.body.appendChild(menu);
     const r = btn.getBoundingClientRect();
     menu.style.left = Math.max(10, r.left) + 'px';
@@ -294,12 +299,13 @@
       '<div class="sub">Company Brain</div></div>' +
     '</div>' +
     '<nav class="nav">' +
-      '<div class="nav-label">Workspace</div>' + links +
+      '<div class="nav-label" data-nav-label>' + T('nav.workspace', 'Workspace') + '</div>' + links +
       '<div id="sb-chats"></div>' +
     '</nav>' +
+    '<div class="sb-user" id="sb-user" hidden></div>' +
     '<div class="sb-foot">' +
       '<div class="row"><span class="led" id="sb-led"></span>' +
-      '<span id="sb-prov">connecting…</span></div>' +
+      '<span id="sb-prov">' + T('sb.connecting', 'connecting…') + '</span></div>' +
     '</div>';
 
   const toggle = document.createElement('button');
@@ -330,12 +336,257 @@
     const ok = d.provider === 'mock' || (d.upstream === 'healthy' && d.auth !== 'failed');
     document.getElementById('sb-led').className = 'led ' + (ok ? 'ok' : 'bad');
     let label = d.provider;
-    if (d.auth === 'failed') label += ' · key rejected';
+    if (d.auth === 'failed') label += ' ' + T('sb.key_rejected', '· key rejected');
     else if (d.upstream) label += ' · ' + d.upstream;
     document.getElementById('sb-prov').textContent = label;
   }).catch(() => {
     document.getElementById('sb-led').className = 'led bad';
-    document.getElementById('sb-prov').textContent = 'unreachable';
+    document.getElementById('sb-prov').textContent = T('sb.unreachable', 'unreachable');
+  });
+
+  // ==========================================================================
+  // User area + settings — the account row (avatar, name) and the gear menu:
+  // language, app theme, usage stats, upgrade, account management, sign out.
+  // Lives in the shell so every page gets identical settings behaviour.
+  // ==========================================================================
+  const GEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>';
+  const MI = {
+    globe:  '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>',
+    theme:  '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/>',
+    chart:  '<path d="M4 20V10M10 20V4M16 20v-7M20 20H4"/>',
+    rocket: '<path d="M5 15c-1.5 1.5-2 5-2 5s3.5-.5 5-2M14 4c3-2 7-1 7-1s1 4-1 7l-6 6-4-4 4-6z"/><circle cx="14.5" cy="9.5" r="1.4"/>',
+    person: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"/>',
+    exit:   '<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 17l5-5-5-5M15 12H3"/>',
+    chev:   '<path d="m9 6 6 6-6 6"/>',
+  };
+  const mic = n => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + MI[n] + '</svg>';
+  const chevSvg = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + MI.chev + '</svg>';
+
+  function closeSettings() {
+    document.querySelectorAll('.settings-pop, .sub-pop').forEach(m => m.remove());
+  }
+
+  function userLabel(u) {
+    const nm = [u.firstName, u.lastName].filter(Boolean).join(' ');
+    const em = u.primaryEmailAddress || (u.emailAddresses && u.emailAddresses[0] && u.emailAddresses[0].emailAddress) || '';
+    const initials = ((u.firstName || '') + (u.lastName || '')).trim()
+      ? (u.firstName || ' ')[0] + (u.lastName || u.firstName || ' ')[0]
+      : (em || 'K').slice(0, 2).toUpperCase();
+    return { nm: nm || em || 'Kestrel user', em, initials: initials.toUpperCase() };
+  }
+
+  function renderUser(st) {
+    const box = document.getElementById('sb-user');
+    if (!box) return;
+    if (st.mode !== 'clerk') { box.hidden = true; return; }
+    box.hidden = false;
+    if (st.signedIn) {
+      const u = window.KestrelAuth.user || {};
+      const w = userLabel(u);
+      const img = u.imageUrl ? '<img src="' + u.imageUrl + '" alt="">' : '';
+      box.innerHTML =
+        '<button type="button" class="avatar" data-set="account" title="' + w.nm + '">' + img + (img ? '' : w.initials) + '</button>' +
+        '<button type="button" class="who" data-set="account"><div class="nm">' + w.nm + '</div>' +
+        '<div class="em">' + (w.em || '') + '</div></button>' +
+        '<button type="button" class="gear" data-set="menu" aria-label="Settings">' + GEAR + '</button>';
+    } else {
+      box.innerHTML =
+        '<button type="button" class="who" data-set="signin"><div class="nm">' + T('set.sign_in', 'Sign in') + '</div></button>';
+    }
+  }
+
+  function settingsMenu() {
+    closeSettings();
+    const menu = document.createElement('div');
+    menu.className = 'settings-pop';
+    menu.id = 'sb-settings';
+
+    const theme = window.KTheme ? window.KTheme.theme : 'system';
+    const item = (set, ic, label, extra) =>
+      '<button type="button" class="set-item" data-set="' + set + '">' + mic(ic) + '<span>' + label + '</span>' + (extra || '') + '</button>';
+    const chevItem = (set, ic, label) => item(set, ic, label, chevSvg);
+
+    let html =
+      chevItem('lang', 'globe', T('set.language', 'Language')) +
+      chevItem('theme', 'theme', T('set.theme', 'App theme')) +
+      '<div class="set-sep"></div>' +
+      item('usage', 'chart', T('set.usage', 'Usage stats')) +
+      item('upgrade', 'rocket', T('set.upgrade', 'Upgrade'));
+    if (window.KestrelAuth && window.KestrelAuth.state().signedIn) {
+      html += '<div class="set-sep"></div>' +
+        item('account', 'person', T('set.account', 'Manage account')) +
+        item('signout', 'exit', T('set.signout', 'Disconnect'));
+    }
+    menu.innerHTML = html;
+    document.body.appendChild(menu);
+    const gear = document.querySelector('.sb-user .gear');
+    const r = (gear || menu).getBoundingClientRect();
+    menu.style.left = '12px';
+    menu.style.top = '';
+    menu.style.bottom = Math.max(10, window.innerHeight - r.top + 8) + 'px';
+    return menu;
+  }
+
+  function subMenu(anchor, html) {
+    const old = document.querySelector('.sub-pop');
+    if (old) old.remove();
+    const sub = document.createElement('div');
+    sub.className = 'sub-pop';
+    sub.innerHTML = html;
+    document.body.appendChild(sub);
+    const r = anchor.getBoundingClientRect();
+    let left = r.right + 8;
+    if (left + sub.offsetWidth > window.innerWidth - 8) left = window.innerWidth - sub.offsetWidth - 8;
+    sub.style.left = left + 'px';
+    sub.style.top = Math.max(10, r.top - 6) + 'px';
+    return sub;
+  }
+
+  function openLangMenu(anchor) {
+    const tick = c => (window.KI18N.lang === c ? '<span class="tick">✓</span>' : '');
+    subMenu(anchor, window.KI18N.LANGS.map(l =>
+      '<button type="button" class="set-item" data-lang="' + l.code + '">' +
+      '<span>' + l.label + '</span>' + tick(l.code) + '</button>').join(''));
+  }
+
+  function openThemeMenu(anchor) {
+    const theme = window.KTheme ? window.KTheme.theme : 'system';
+    const tick = m => (theme === m ? '<span class="tick">✓</span>' : '');
+    subMenu(anchor,
+      '<button type="button" class="set-item" data-ktheme="system">' + mic('theme') + '<span>' + T('set.system', 'System default') + '</span>' + tick('system') + '</button>' +
+      '<button type="button" class="set-item" data-ktheme="dark">' + mic('theme') + '<span>' + T('set.dark', 'Dark theme') + '</span>' + tick('dark') + '</button>' +
+      '<button type="button" class="set-item" data-ktheme="light">' + mic('theme') + '<span>' + T('set.light', 'Light theme') + '</span>' + tick('light') + '</button>');
+  }
+
+  // ------------------------------------------------------------- modals
+  function closeModal() {
+    document.querySelectorAll('.km-scrim').forEach(m => m.remove());
+  }
+
+  function km(title, sub, bodyHtml) {
+    closeModal();
+    const scrim = document.createElement('div');
+    scrim.className = 'km-scrim';
+    scrim.innerHTML =
+      '<div class="km-sheet"><div class="km-head"><h2>' + title + '</h2>' +
+      '<button type="button" class="km-x" data-km-close aria-label="Close">✕</button></div>' +
+      '<p class="km-sub">' + sub + '</p>' + bodyHtml + '</div>';
+    document.body.appendChild(scrim);
+    scrim.addEventListener('click', e => {
+      if (e.target === scrim || e.target.closest('[data-km-close]')) closeModal();
+    });
+    return scrim;
+  }
+
+  async function openUsage() {
+    const scrim = km(T('usage.title', 'Usage stats'), T('usage.sub', 'Last 30 days · estimated tokens'), '<div class="u-empty">…</div>');
+    let rows = null;
+    try {
+      const h = await window.KestrelAuth.authHeaders();
+      const r = await fetch('/api/usage?days=30', { headers: h });
+      if (r.status === 401) {
+        scrim.querySelector('.km-sheet').innerHTML =
+          '<div class="km-head"><h2>' + T('usage.title', 'Usage stats') + '</h2>' +
+          '<button type="button" class="km-x" data-km-close>✕</button></div>' +
+          '<div class="u-empty">' + T('usage.signin', 'Sign in to see usage.') + '</div>';
+        return;
+      }
+      rows = (await r.json()).usage || [];
+    } catch (e) { rows = null; }
+    if (!rows || !rows.length) {
+      scrim.querySelector('.km-sheet').innerHTML =
+        '<div class="km-head"><h2>' + T('usage.title', 'Usage stats') + '</h2>' +
+        '<button type="button" class="km-x" data-km-close>✕</button></div>' +
+        '<div class="u-empty">' + T('usage.empty', 'No model calls recorded yet.') + '</div>';
+      return;
+    }
+    const n = v => (v || 0).toLocaleString();
+    const secs = rows.reduce((a, r0) => a + (r0.total_ms || 0), 0) / 1000;
+    const body = '<table class="u-table"><thead><tr>' +
+      '<th>' + T('usage.feature', 'Feature') + '</th><th>' + T('usage.brain', 'Brain') + '</th>' +
+      '<th>' + T('usage.model', 'Model') + '</th>' +
+      '<th class="num">' + T('usage.calls', 'Calls') + '</th>' +
+      '<th class="num">' + T('usage.tokens', 'Tokens') + '</th></tr></thead><tbody>' +
+      rows.map(r0 => '<tr><td>' + (r0.feature || '—') + '</td><td>' + (r0.brain || '—') + '</td>' +
+        '<td>' + (r0.model || '—') + '</td><td class="num">' + n(r0.calls) + '</td>' +
+        '<td class="num">' + n((r0.prompt_tokens || 0) + (r0.completion_tokens || 0)) + '</td></tr>').join('') +
+      '</tbody></table>' +
+      '<div class="u-total"><span>' + rows.reduce((a, r0) => a + (r0.calls || 0), 0).toLocaleString() + ' ' + T('usage.calls', 'Calls') + '</span>' +
+      '<span>' + n(rows.reduce((a, r0) => a + (r0.prompt_tokens || 0) + (r0.completion_tokens || 0), 0)) + ' ' + T('usage.tokens', 'Tokens') + '</span>' +
+      '<span>' + secs.toFixed(1) + 's ' + T('usage.time', 'Time') + '</span></div>';
+    scrim.querySelector('.km-sheet').innerHTML =
+      '<div class="km-head"><h2>' + T('usage.title', 'Usage stats') + '</h2>' +
+      '<button type="button" class="km-x" data-km-close>✕</button></div>' +
+      '<p class="km-sub">' + T('usage.sub', 'Last 30 days · estimated tokens') + '</p>' + body;
+  }
+
+  function openUpgrade() {
+    const tier = (cls, name, price, per, feats, btn, hot) =>
+      '<div class="tier' + (hot ? ' hot' : '') + '"><div class="tn">' + name + '</div>' +
+      '<div class="tp">' + price + ' <small>' + per + '</small></div>' +
+      '<ul>' + feats.map(f => '<li>' + f + '</li>').join('') + '</ul>' +
+      '<button type="button" class="tbtn' + (hot ? ' hot' : '') + '" ' + (btn.disabled ? 'disabled' : '') + '>' + btn.label + '</button></div>';
+    const body = '<div class="tiers">' +
+      tier('', T('up.free', 'Free'), '₹0', T('up.per_mo', '/mo'),
+        [T('up.free_f1'), T('up.free_f2'), T('up.free_f3')],
+        { label: T('up.current', 'Current plan'), disabled: true }) +
+      tier('hot', T('up.pro', 'Pro'), '₹999', T('up.per_mo', '/mo'),
+        [T('up.pro_f1'), T('up.pro_f2'), T('up.pro_f3')],
+        { label: T('up.soon', 'Coming soon'), disabled: true }) +
+      tier('', T('up.biz', 'Business'), '₹1,999', T('up.per_mo', '/mo'),
+        [T('up.biz_f1'), T('up.biz_f2'), T('up.biz_f3')],
+        { label: T('up.soon', 'Coming soon'), disabled: true }) +
+      '</div><p class="km-note">' + T('up.note', '') + '</p>';
+    km(T('up.title', 'Upgrade Kestrel'), T('up.sub', ''), body);
+  }
+
+  // ------------------------------------------------------------- wiring
+  document.addEventListener('click', async e => {
+    const gear = e.target.closest('[data-set="menu"]');
+    if (gear) {
+      const wasOpen = !!document.getElementById('sb-settings');
+      closeSettings();
+      if (!wasOpen) settingsMenu();
+      return;
+    }
+    const set = e.target.closest('[data-set]');
+    if (set && !gear) {
+      const which = set.dataset.set;
+      if (which === 'lang') { openLangMenu(set); return; }
+      if (which === 'theme') { openThemeMenu(set); return; }
+      if (which === 'usage') { closeSettings(); openUsage(); return; }
+      if (which === 'upgrade') { closeSettings(); openUpgrade(); return; }
+      if (which === 'account') { closeSettings(); window.KestrelAuth.openAccount(); return; }
+      if (which === 'signout') { closeSettings(); await window.KestrelAuth.signOut(); return; }
+      if (which === 'signin') { location.href = '/'; return; }
+    }
+    const langBtn = e.target.closest('[data-lang]');
+    if (langBtn) { window.KI18N.setLang(langBtn.dataset.lang); closeSettings(); return; }
+    const themeBtn = e.target.closest('[data-ktheme]');
+    if (themeBtn) { window.KTheme.set(themeBtn.dataset.ktheme); closeSettings(); return; }
+    // click anywhere else closes the menus, but not clicks inside them
+    if (!e.target.closest('.settings-pop') && !e.target.closest('.sub-pop')) closeSettings();
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeSettings(); closeModal(); }
+  });
+
+  if (window.KestrelAuth) window.KestrelAuth.addListener(renderUser);
+
+  // language switch rebuilds every translated surface in the shell
+  window.addEventListener('kestrel:lang', () => {
+    const lbl = document.querySelector('[data-nav-label]');
+    if (lbl) lbl.textContent = T('nav.workspace', 'Workspace');
+    const nav = document.querySelector('.shell .nav');
+    if (nav) {
+      const chats = document.getElementById('sb-chats');
+      nav.innerHTML = '<div class="nav-label" data-nav-label>' + T('nav.workspace', 'Workspace') + '</div>' +
+        buildLinks() + (chats ? '<div id="sb-chats"></div>' : '');
+    }
+    renderChats();
+    renderUser(window.KestrelAuth ? window.KestrelAuth.state()
+                                  : { mode: 'off', signedIn: false });
   });
 
 })();

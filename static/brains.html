@@ -68,12 +68,14 @@
          font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
 </style>
 <link rel="stylesheet" href="/static/shell.css">
+<script src="/static/ui.js"></script>
+<script src="/static/auth.js"></script>
 </head>
 <body>
 <div class="app-main">
 <div class="wrap">
   <header>
-    <h1><span class="mark">◆</span>Brains</h1>
+    <h1><span class="mark">◆</span><span data-i18n="nav.brains">Brains</span></h1>
     <p class="sub">Every brain in this workspace. The demo brain is pre-built;
       the rest were created from documents someone uploaded.</p>
   </header>
@@ -176,6 +178,7 @@ function row(brain) {
       del.textContent = 'Deleting…';
       try {
         const res = await fetch('/api/brains/' + encodeURIComponent(brain.name),
+          { headers: await window.KestrelAuth.authHeaders() },
                                 { method: 'DELETE' });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.detail || ('HTTP ' + res.status));
@@ -203,7 +206,8 @@ function show(text, bad) {
 
 async function loadStats(name, el, isDemo) {
   try {
-    const r = await fetch('/api/stats?dataset=' + encodeURIComponent(name));
+    const r = await fetch('/api/stats?dataset=' + encodeURIComponent(name),
+      { headers: await window.KestrelAuth.authHeaders() });
     const d = await r.json();
     if (!d.ok) { el.textContent = isDemo ? 'graph unavailable' : 'graph not ready yet'; return; }
     el.textContent = d.nodes + ' nodes · ' + d.edges + ' edges' +
@@ -216,7 +220,7 @@ async function loadStats(name, el, isDemo) {
 (async () => {
   let data;
   try {
-    const res = await fetch('/api/brains');
+    const res = await fetch('/api/brains', { headers: await window.KestrelAuth.authHeaders() });
     data = await res.json();
   } catch (err) {
     show('Could not reach the server: ' + err.message, true);
