@@ -169,16 +169,19 @@ def require_dataset_access(request: Request, dataset: str | None) -> None:
     Every read route funnels through here rather than checking inline, so a new
     route cannot forget the check by omission - it has to actively skip a call.
     """
-    import tenants
+    # P3: the Clerk identity gate FIRST — the legacy tenants early-return
+    # used to bypass it entirely (an unauthenticated ask returned 200).
+    identity = require_tenant(request)
+    if not auth.active():
+        import tenants
 
-    if not tenants.configured():
-        return
-    tenant = require_tenant(request)
-    if not tenant.allows(dataset):
-        raise HTTPException(
-            status_code=403,
-            detail=f"'{dataset}' is not available to this account.",
-        )
+        if not tenants.configured():
+            return
+        if not identity.allows(dataset):
+            raise HTTPException(
+                status_code=403,
+                detail=f"'{dataset}' is not available to this account.",
+            )
     brain_allowed(request, dataset or DEMO_DATASET)
 
 
@@ -368,6 +371,14 @@ def health():
 # server-side chat persistence (P2) — Postgres is the source of truth when
 # available; the UI keeps localStorage as its offline fallback
 # --------------------------------------------------------------------------
+
+@app.get("/api/config")
+def config():
+    return {
+        "authMode": auth.mode(),
+        "publishableKey": os.getenv("CLERK_PUBLISHABLE_KEY", "") if auth.active() else "",
+    }
+
 
 @app.post("/api/chats")
 async def chats_upsert(request: Request):
@@ -646,6 +657,12 @@ async def create_brain(
         (upload.filename or "untitled", await _read_capped(upload, documents.MAX_FILE_BYTES))
         for upload in files
     ]
+    # P3: register ownership when auth is on — org-owned brains are only
+    # reachable by their workspace (brain_allowed enforces it on read)
+    identity = getattr(request.state, "identity", None) or {}
+    if auth.active():
+        storage.register_brain(safe, identity.get("org_id"),
+                               identity.get("user_id"), shared=False)
     if not payload:
         raise HTTPException(status_code=400, detail="No files were uploaded.")
 

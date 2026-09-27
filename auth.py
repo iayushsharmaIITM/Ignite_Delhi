@@ -59,6 +59,7 @@ def _fetch_jwks(url: str) -> dict:
     cache is the cache; TTL enforced by comparing the fetch timestamp)."""
     with urllib.request.urlopen(url, timeout=10) as resp:
         keys = json.loads(resp.read().decode())
+    _JWKS_DATA[url] = keys
     _JWKS_TS[url] = time.time()
     return keys
 
@@ -69,7 +70,7 @@ _JWKS_TTL = 600
 
 def _jwks(url: str) -> dict:
     ts = _JWKS_TS.get(url)
-    if not ts or time.time() - ts > _JWKS_TTL:
+    if not ts or time.time() - ts > _JWKS_TTL or url not in _JWKS_DATA:
         return _fetch_jwks(url)
     return _JWKS_DATA[url]
 

@@ -61,6 +61,23 @@ def test_verify_roundtrip():
     assert identity == {"user_id": "user_A", "org_id": "org_A"}
 
 
+def test_verify_roundtrip_within_ttl():
+    """Second verification inside the 10-minute cache window must also pass.
+
+    Regression: _fetch_jwks recorded the fetch timestamp but never stored the
+    keys, so the first call succeeded (fresh fetch) and every later call inside
+    the TTL hit a KeyError in _jwks and failed closed — production auth broke
+    on the second request after each fetch.
+    """
+    tok = "Bearer " + token("user_A", "org_A")
+    first = auth.identity_from_request(tok)
+    second = auth.identity_from_request(tok)   # cache-warm path
+    assert first == second == {"user_id": "user_A", "org_id": "org_A"}
+    # and the cached entry must really be the key material, not a miss
+    assert TEST_URL in auth._JWKS_DATA
+    assert auth._JWKS_DATA[TEST_URL]["keys"][0]["kid"] == _KID
+
+
 def test_garbage_token_fails_closed():
     assert auth.identity_from_request("Bearer not-a-jwt") is None
     assert auth.identity_from_request(None) is None

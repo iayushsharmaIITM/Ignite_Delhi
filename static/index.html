@@ -168,6 +168,19 @@
   .w-step.live::before { content:"◌"; display:inline-block; margin-right:7px;
     color:var(--accent); animation:spin .8s linear infinite; }
 
+  /* auth gate (P3): covers the app until the Clerk session exists */
+  #auth-gate { position:fixed; inset:0; z-index:100; display:flex;
+    align-items:center; justify-content:center;
+    background:var(--bg); }
+  #auth-gate[hidden] { display:none; }
+  .auth-card { width:min(420px, 92vw); padding:34px 30px; border-radius:16px;
+    border:1px solid var(--line-2); background:var(--panel);
+    box-shadow:var(--shadow-lg); text-align:center; }
+  .auth-title { font-size:20px; font-weight:600; margin-bottom:6px; }
+  .auth-sub { font-size:13px; color:var(--muted); margin-bottom:22px; }
+  body.locked .app-main, body.locked form#f { filter:blur(6px) saturate(.6);
+    pointer-events:none; user-select:none; }
+
   .bar-anchor { position:relative; }
 
   /* ==== suggestion chips (home only) ========================================= */
@@ -479,6 +492,15 @@
 
 
 
+<div id="auth-gate" hidden>
+  <div class="auth-card">
+    <div class="mark" style="width:34px;height:34px;border-radius:9px;background:linear-gradient(155deg,#e89b3f,#b45309 78%);display:grid;place-items:center;color:#161616;font-size:14px;margin:0 auto 14px;">◆</div>
+    <div class="auth-title">Sign in to Kestrel</div>
+    <div class="auth-sub">Your company's answers, grounded in your documents.</div>
+    <div id="clerk-mount"></div>
+  </div>
+</div>
+
 <script>
 // ---------------------------------------------------------------------------
 // Which brain are we asking?
@@ -569,10 +591,10 @@ function saveHistory() {
     // P2: mirror to the server (Postgres source of truth); local remains the
     // offline fallback. Fire-and-forget - never block the answer on sync.
     const me = chats.find(c => c.id === CHAT_ID);
-    if (me) fetch('/api/chats', { method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    if (me) authHeaders().then(h => fetch('/api/chats', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...h },
       body: JSON.stringify({ id: CHAT_ID, brain: BRAIN || 'demo', ...me })
-    }).catch(() => {});
+    })).catch(() => {});
   } catch (e) { /* private mode or quota - history is a convenience, not state */ }
 }
 
@@ -827,7 +849,8 @@ async function restoreHistory() {
   // the offline fallback. Both carry the same TURNS shape.
   let saved = [];
   try {
-    const res = await fetch('/api/chats/' + encodeURIComponent(CHAT_ID));
+    const res = await fetch('/api/chats/' + encodeURIComponent(CHAT_ID),
+                            { headers: await authHeaders() });
     if (res.ok) {
       const data = await res.json();
       if (data.chat) saved = (data.chat.turns || []).map(x => ({
@@ -1036,6 +1059,61 @@ function renderSources(turn, items) {
 let IN_FLIGHT = false;
 let CONTROLLER = null;
 
+// --- P3 auth: Clerk session token on every API call ---------------------------
+let AUTH = { mode: 'off', token: null };
+
+async function authHeaders() {
+  if (AUTH.mode !== 'clerk') return {};
+  try {
+    const tok = await window.Clerk?.session?.getToken?.();
+    if (tok) return { Authorization: 'Bearer ' + tok };
+  } catch (e) { /* refresh failed - the call proceeds and 401s */ }
+  return {};
+}
+
+async function initAuth() {
+  try {
+    const cfg = await (await fetch('/api/config')).json();
+    if (cfg.authMode !== 'clerk' || !cfg.publishableKey) return;
+    AUTH.mode = 'clerk';
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
+      // ClerkJS v5's browser build reads the key from this attribute at
+      // script-eval time — Clerk.load() alone is too late
+      s.setAttribute('data-clerk-publishable-key', cfg.publishableKey);
+      s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    if (!window.Clerk) throw new Error('Clerk.js loaded but no global');
+    // Script-eval only reads the key from the attribute — the instance itself
+    // must be booted explicitly. load() fetches the environment, runs the
+    // dev-browser handshake, and wires the component renderer; every mount*
+    // call throws "components are not ready yet" until it has finished.
+    await window.Clerk.load({ publishableKey: cfg.publishableKey });
+    const gate = document.getElementById('auth-gate');
+    const update = () => {
+      const signedIn = !!window.Clerk.user;
+      gate.hidden = signedIn;
+      document.body.classList.toggle('locked', !signedIn);
+      if (!signedIn && !document.getElementById('clerk-mount').dataset.mounted) {
+        document.getElementById('clerk-mount').dataset.mounted = '1';
+        // load() has resolved, but the UI renderer can still lag a beat —
+        // retry briefly until mountSignIn accepts
+        const mount = (tries) => {
+          try { window.Clerk.mountSignIn(document.getElementById('clerk-mount')); }
+          catch (e) { if (tries > 0) setTimeout(() => mount(tries - 1), 300); }
+        };
+        mount(30);
+      }
+      if (signedIn) document.getElementById('clerk-mount').innerHTML = '';
+    };
+    window.Clerk.addListener(update);
+    update();
+  } catch (e) { console.warn('auth init failed:', e.message); }
+}
+initAuth();
+
 async function ask(q) {
   // Re-entry guard: submitting while an answer streams interleaved the turns.
   if (IN_FLIGHT) return;
@@ -1141,7 +1219,8 @@ function finalize(bubble, q, text, sources) {
     if (BRAIN) params.set('dataset', BRAIN);
     if (context) params.set('context', context);
 
-    const res = await fetch('/api/ask?' + params.toString(), { signal: CONTROLLER.signal });
+    const res = await fetch('/api/ask?' + params.toString(),
+                            { signal: CONTROLLER.signal, headers: await authHeaders() });
     if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
 
     const reader = res.body.getReader();
