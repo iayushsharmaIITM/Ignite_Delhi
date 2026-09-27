@@ -70,7 +70,8 @@ def default_dataset() -> str:
     return os.getenv("COGNEE_DATASET", "company_brain")
 
 
-async def recall(query: str, dataset: str | None = None):
+async def recall(query: str, dataset: str | None = None,
+                 smalltalk: bool | None = None):
     """Yield events. Async generator so the UI can stream.
 
     `dataset=None` asks the demo brain. Any other value asks that specific
@@ -88,7 +89,7 @@ async def recall(query: str, dataset: str | None = None):
     # fixtures never saw.
     produced = False
     try:
-        async for event in _cloud(query, dataset):
+        async for event in _cloud(query, dataset, smalltalk=smalltalk):
             produced = True
             yield event
         return                      # clean finish - the real answer stands alone
@@ -168,7 +169,8 @@ def _is_smalltalk(query: str) -> bool:
     return bool(q) and len(q.split()) <= 4 and bool(_SMALLTALK_RE.match(q))
 
 
-async def _cloud(query: str, dataset: str | None = None):
+async def _cloud(query: str, dataset: str | None = None,
+                 smalltalk: bool | None = None):
     """Real path, delegated to the orchestrator (head agent).
 
     The orchestrator runs retrieval racers and the citations prewarmer
@@ -178,7 +180,10 @@ async def _cloud(query: str, dataset: str | None = None):
     """
     import orchestrator
 
-    smalltalk = _is_smalltalk(query)
+    # app.py passes the RAW-question flag down: the wrapped query carries
+    # context preamble that defeats the greeting regex in ongoing chats
+    if smalltalk is None:
+        smalltalk = _is_smalltalk(query)
     async for event in orchestrator.answer(query, dataset, smalltalk=smalltalk):
         yield event
 

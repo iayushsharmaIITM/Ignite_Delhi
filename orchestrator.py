@@ -183,7 +183,11 @@ def _direct_chat(query: str) -> str:
 
     Pure greetings (just the word) get an instant template — a network round
     trip to say \"hello\" is waste. Anything chatty goes to the LLM."""
-    if _PURE_GREETING_RE.match(query):
+    # ongoing chats wrap the question in context: judge the LAST line only
+    tail = query.strip().splitlines()[-1] if query.strip() else query
+    tail = re.sub(r"^follow-up question:\s*", "", tail.strip(), flags=re.IGNORECASE)
+    if _PURE_GREETING_RE.match(tail):
+        query = tail
         hour = time.localtime().tm_hour
         part = "morning" if hour < 12 else "afternoon" if hour < 17 else "evening"
         return (f"Good {part}! Ask me anything about your company's documents — "

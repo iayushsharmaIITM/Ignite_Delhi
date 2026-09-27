@@ -1,3 +1,13 @@
+## Smalltalk latency root cause — FIXED 2026-09-27
+
+"hii" as a follow-up took 19-26s: the flag died at the recall->_cloud boundary
+(the wrapped query defeated the regex) AND the app restart had dropped the
+local-brain env. Fixed: flag threaded end-to-end (app raw q -> recall ->
+_cloud -> orchestrator), .env now durably points at localhost:8888 (flavor
+oss, timeout 1800), greeting template judged on the wrapped query's last line.
+Measured: follow-up "hii" completes in 2.2s (was 19-26s); pure greetings are
+instant templates; chatty smalltalk = one direct completion.
+
 ## P2 — persistence + metering + summarization + fast paths — COMPLETE 2026-09-27
 
 - Postgres 17 in compose (kestrel-db); chats/turns/llm_calls schema in storage.py;

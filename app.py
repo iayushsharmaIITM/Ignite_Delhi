@@ -424,12 +424,14 @@ async def ask(request: Request, q: str, dataset: str | None = None, context: str
 
     question = q if not context else f"{context.strip()}\n\nFollow-up question: {q}"
 
+    raw_smalltalk = memory_layer._is_smalltalk(q)
+
     async def gen():
         t_ask = time.time()
         answer_chars = 0
         yield json.dumps({"stage": "start", "dataset": dataset or DEMO_DATASET}) + "\n"
         try:
-            async for event in recall(question, dataset):
+            async for event in recall(question, dataset, smalltalk=raw_smalltalk):
                 if event.get("type") == "chunk":
                     answer_chars += len(event.get("text") or "")
                 yield json.dumps(event) + "\n"
