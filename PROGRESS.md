@@ -1,3 +1,24 @@
+## P1 — THE FLIP: app answers from OUR local brain — COMPLETE 2026-09-27
+
+- Colima resized to 4 CPU / 8 GB (the 2/4 sizing starved recall into timeouts).
+- DeepSeek V4.1 Flash validated for INGESTION via OpenRouter (graph built:
+  178/387 nodes/edges, $0.02 spend). Recall on DeepSeek flaps 402 at the
+  upstream — recall runs on gpt-oss-120b (both models stay in the registry).
+- INCIDENT (diagnosed + recovered): a debug container + hard colima restart
+  wiped the brain volume (178/387 lost). Volume ownership fixed (chown 1000),
+  corpus re-ingested on gpt-oss-120b. New state: 246 nodes / 587 edges.
+- App flipped: `COGNEE_SERVICE_URL=localhost:8888`, flavor oss. Parity verified
+  in-browser: real orchestrator worklog, correct answer (Marcus Lee / Priya
+  Raghavan), 3 local citations. Battery green (25/25, 13/13, 10/10, smoke 4/4).
+- M1.4 measurements: brain container 1.29 GiB RSS (fits 2 GB, comfortable at 8);
+  ingest wall ~9 min (12 docs, extraction-dominated); recall ~11.7s warm local
+  (beats the 18-26s cloud tenant on this machine).
+- Note: app footer says "cloud · ready" — cosmetic: "cloud" = any Cognee API;
+  it is actually localhost:8888.
+
+The Phase 1 gate of the old plan is PASSED: the product answers from our own
+brain on our own keys. Next per PLAN.md: P2 (Postgres persistence + Langfuse).
+
 # PROGRESS — execution log for BUILD_PLAN.md
 
 Append-only, newest first (BUILD_PLAN.md §4). States are exactly:

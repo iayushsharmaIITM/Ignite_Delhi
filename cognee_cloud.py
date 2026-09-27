@@ -372,12 +372,23 @@ def recall(query: str, name: Optional[str] = None, search_type: str = GRAPH_COMP
     if top_k:
         body["topK"] = top_k
 
-    resp = requests.post(
-        f"{_base()}/api/v1/recall", headers=_headers(), json=body, timeout=timeout()
-    )
-    _check(resp, "recall")
-    payload = resp.json()
-    return payload if isinstance(payload, list) else [payload]
+    # Retries transient upstream failures (402 budget flaps, 429, 5xx) — a
+    # hosted provider pool rejects intermittently under load, and one flap
+    # must not kill a recall that runs multiple LLM calls internally.
+    last_err: Optional[str] = None
+    for attempt in range(3):
+        resp = requests.post(
+            f"{_base()}/api/v1/recall", headers=_headers(), json=body, timeout=timeout()
+        )
+        if resp.status_code < 400:
+            payload = resp.json()
+            return payload if isinstance(payload, list) else [payload]
+        if resp.status_code in (402, 429) or resp.status_code >= 500:
+            last_err = f"HTTP {resp.status_code} — {resp.text[:160]}"
+            time.sleep(6 * (attempt + 1))
+            continue
+        _check(resp, "recall")
+    raise CogneeCloudError(f"recall failed after retries: {last_err}")
 
 
 def answer_text(results: Iterable) -> str:
