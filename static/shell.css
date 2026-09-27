@@ -167,7 +167,24 @@ h1, .display {
   text-transform: uppercase; font-weight: 700; margin-top: 3px;
 }
 
-.nav { padding: 14px 12px; overflow-y: auto; flex: 1; }
+.nav { padding: 14px 12px; overflow-y: auto; flex: 1; position: relative; }
+
+/* gliding hover highlight (the ZCode-style cursor rail): ONE element that
+   slides between rows on hover and shrinks to a small tick that tracks the
+   cursor in the gutter. JS drives it (shell.js); CSS only animates. */
+.sb-slide { position: absolute; left: 8px; right: 8px; height: 34px;
+  border-radius: var(--radius-sm); background: var(--wash-2);
+  opacity: 0; pointer-events: none; z-index: 0;
+  transition: top .26s cubic-bezier(.3,1.1,.3,1), height .22s ease,
+              opacity .18s ease, left .2s ease, width .2s ease,
+              border-radius .2s ease, background .2s ease;
+  will-change: top, height; }
+.sb-slide.tick { left: 10px; right: auto; width: 46px; height: 2px;
+  border-radius: 1px; background: var(--line-3); }
+body.sb-slide-on .nav .nav-item:hover,
+body.sb-slide-on .nav .brain-row:hover { background: transparent; }
+.nav .brain-row { position: relative; z-index: 1; }
+.nav .nav-item { z-index: 1; }
 .nav-label {
   font-size: 9.5px; letter-spacing: .15em; text-transform: uppercase;
   color: var(--muted-2); font-weight: 700; padding: 16px 10px 7px;

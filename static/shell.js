@@ -318,6 +318,49 @@
   document.body.insertBefore(toggle, document.body.firstChild);
   document.body.insertBefore(shell, document.body.firstChild);
 
+  // gliding hover highlight — one element slides between rows; in the gutter
+  // it shrinks to a small tick that tracks the cursor (ZCode-style rail)
+  const navEl = document.querySelector('.shell .nav');
+  const slide = document.createElement('div');
+  slide.className = 'sb-slide';
+  slide.setAttribute('aria-hidden', 'true');
+  let slideRAF = 0;
+  function ensureSlide() {
+    if (navEl && !slide.isConnected) navEl.appendChild(slide);
+  }
+  ensureSlide();
+  if (navEl) {
+    navEl.addEventListener('mousemove', (e) => {
+      if (slideRAF) return;
+      slideRAF = requestAnimationFrame(() => {
+        slideRAF = 0;
+        const rect = navEl.getBoundingClientRect();
+        const y = e.clientY - rect.top + navEl.scrollTop;
+        // elementFromPoint, not e.target: synthetic moves and moves over a
+        // row's own padding/spans must both resolve to the row beneath
+        const under = document.elementFromPoint(e.clientX, e.clientY);
+        const row = under && under.closest('.nav-item, .brain-row');
+        if (row && navEl.contains(row)) {
+          slide.classList.remove('tick');
+          slide.style.left = ''; slide.style.width = '';
+          slide.style.top = row.offsetTop + 'px';
+          slide.style.height = row.offsetHeight + 'px';
+          slide.style.opacity = '1';
+        } else {
+          slide.classList.add('tick');
+          slide.style.left = '10px'; slide.style.width = '46px';
+          slide.style.top = (y - 1) + 'px'; slide.style.height = '2px';
+          slide.style.opacity = '.8';
+        }
+      });
+    });
+    navEl.addEventListener('mouseleave', () => {
+      if (slideRAF) { cancelAnimationFrame(slideRAF); slideRAF = 0; }
+      slide.style.opacity = '0';
+    });
+    document.body.classList.add('sb-slide-on');
+  }
+
   renderChats();
   // index.html dispatches this after saving; the sidebar is otherwise built once
   // at load and a new conversation would not appear until a reload.
@@ -584,6 +627,7 @@
       nav.innerHTML = '<div class="nav-label" data-nav-label>' + T('nav.workspace', 'Workspace') + '</div>' +
         buildLinks() + (chats ? '<div id="sb-chats"></div>' : '');
     }
+    ensureSlide();
     renderChats();
     renderUser(window.KestrelAuth ? window.KestrelAuth.state()
                                   : { mode: 'off', signedIn: false });
