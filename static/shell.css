@@ -33,7 +33,7 @@
   --fg:        #e9e9e9;
   --fg-2:      #c9c9c9;
   --muted:     #9b9b9b;
-  --muted-2:   #6b6b6b;
+  --muted-2:   #949494;   /* was #6b6b6b: 2.4-3.3:1 on panels, failed WCAG */
 
   --sans:  -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --serif: var(--sans);
@@ -83,13 +83,21 @@ html[data-theme="light"] {
 
   --fg:        #201d18;
   --fg-2:      #45413a;
-  --muted:     #6f6a60;
-  --muted-2:   #9b958a;
+  --muted:     #5f5a52;   /* 6.1:1 on panel-2 */
+  --muted-2:   #6f6a60;   /* 4.6:1 on bg — the old #9b958a failed at 2.4-3.0:1 */
 
-  --accent-soft: rgba(214,118,40,.5);
-  --accent-dim:  rgba(214,118,40,.12);
-  --accent-glow: rgba(214,118,40,.12);
+  /* deeper falcon amber on paper: accent-as-text/icons passes 4.5-5:1 on
+     white, white text passes on accent fills (the bright #e8863b managed
+     only 2.7:1 on white) */
+  --accent:      #b45309;
+  --accent-2:    #e8863b;
+  --accent-soft: rgba(180,83,9,.5);
+  --accent-dim:  rgba(180,83,9,.12);
+  --accent-glow: rgba(180,83,9,.14);
   --accent-ink:  #ffffff;
+  --btn-ink:     #b45309;   /* the send circle: amber with white arrow */
+  --go-ink:      #ffffff;
+  --bad:         #c53030;
 
   --shadow:    0 1px 2px rgba(40,32,18,.08), 0 10px 30px rgba(40,32,18,.08);
   --shadow-lg: 0 2px 6px rgba(40,32,18,.1), 0 24px 72px rgba(40,32,18,.16);

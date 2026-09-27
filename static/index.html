@@ -75,7 +75,7 @@
 
   #go { display:inline-flex; align-items:center; justify-content:center; flex:none;
         width:34px; height:34px; padding:0; border-radius:50%; border:0;
-        background:var(--btn-ink); color:#161616; cursor:pointer;
+        background:var(--btn-ink); color:var(--go-ink, #161616); cursor:pointer;
         transition:transform .12s ease, opacity .15s ease, background .18s ease; }
   #go svg { width:16px; height:16px; }
   #go:hover:not(:disabled) { opacity:.88; }
@@ -182,6 +182,13 @@
   .auth-sub { font-size:13px; color:var(--muted); margin-bottom:22px; }
   body.locked .app-main, body.locked form#f { filter:blur(6px) saturate(.6);
     pointer-events:none; user-select:none; }
+  /* Clerk's component sheet is CORS-dark to our JS; its social button ships
+     black text at 62% alpha, unreadable on the dark card. Our own variables
+     keep it readable in both themes. */
+  #clerk-mount .cl-socialButtonsBlockButton {
+    color: var(--fg-2) !important; background: var(--panel-2) !important;
+    border: 1px solid var(--line-2) !important; }
+  #clerk-mount .cl-socialButtonsBlockButton:hover { background: var(--panel-3) !important; }
 
   .bar-anchor { position:relative; }
 
@@ -359,7 +366,7 @@
     border:1px solid var(--line); }
   #files-sheet .cta { margin-top:16px; display:flex; justify-content:flex-end; }
   #files-sheet .cta button { padding:9px 20px; border-radius:9px; border:0;
-    background:var(--btn-ink); color:#161616; font-weight:650; font-size:13px;
+    background:var(--btn-ink); color:var(--go-ink, #161616); font-weight:650; font-size:13px;
     cursor:pointer; box-shadow:none; }
   #files-sheet .cta button:disabled { opacity:.4; cursor:default; }
 
@@ -1835,12 +1842,12 @@ async function streamPipeline(name) {
   const GATE_APPEARANCE = () => {
     const light = document.documentElement.dataset.theme === 'light';
     return { variables: light ? {
-        colorBackground: '#ffffff', colorText: '#201d18',
+        colorBackground: '#ffffff', colorText: '#201d18', colorForeground: '#201d18',
         colorInputBackground: '#f3f1ec', colorInputText: '#201d18',
-        colorPrimary: '#d67628', colorPrimaryForeground: '#ffffff',
+        colorPrimary: '#b45309', colorPrimaryForeground: '#ffffff',
         colorMutedForeground: '#6f6a60', colorBorder: 'rgba(28,24,16,.15)',
       } : {
-        colorBackground: '#232323', colorText: '#e9e9e9',
+        colorBackground: '#232323', colorText: '#e9e9e9', colorForeground: '#e9e9e9',
         colorInputBackground: '#2b2b2b', colorInputText: '#e9e9e9',
         colorPrimary: '#e8863b', colorPrimaryForeground: '#161616',
         colorMutedForeground: '#9b9b9b', colorBorder: 'rgba(255,255,255,.13)',
