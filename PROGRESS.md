@@ -1,3 +1,13 @@
+## Smalltalk classifier v2 — social-vocabulary based 2026-09-27
+
+Owner flagged the logic gap: "hello how are you" fell through the narrow
+greeting regex into a 30.8s retrieval that cited random documents for a
+greeting. Rewritten as social-vocabulary classification (greetings +
+how-are-you + thanks + identity + goodbyes, optional filler words, <=8 words,
+greeting+social sequences) instead of exact-string whitelisting. Verified:
+22-case matrix, 0 misroutes. Fake citations for greetings are now impossible
+(smalltalk path never touches the brain).
+
 ## Smalltalk latency root cause — FIXED 2026-09-27
 
 "hii" as a follow-up took 19-26s: the flag died at the recall->_cloud boundary

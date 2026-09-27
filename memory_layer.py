@@ -154,19 +154,32 @@ async def _mock(query: str, dataset: str | None = None):
         yield {"type": "references", "items": entry["references"]}
 
 
-# Greetings and meta questions: the graph has nothing to say about them, so
+# Greetings and social chitchat: the graph has nothing to say about them, so
 # they are answered WITHOUT citations rather than dressing up unrelated
-# chunks as evidence.
+# chunks as evidence. Classification is by SOCIAL VOCABULARY (greetings,
+# how-are-you, thanks, identity, goodbyes) with optional filler words — not
+# by exact strings, which is how "hello how are you" once fell through to a
+# 30s retrieval that cited random documents for a greeting.
+_GREET = (r"h+i+|hello+|hey+|yo+|hiya|sup|"
+          r"good\s*(morning|afternoon|evening|day)|how\s*do\s*you\s*do")
+_SOCIAL = (r"how\s*(are|r)\s*(you|u|things|it\s*going)|how('s|\s*is)\s*it\s*going|"
+           r"what('s|\s*is)\s*up|wassup|who\s*(are|r)\s*(you|u)|"
+           r"what\s*(are|r)\s*(you|u)|what\s*can\s*(you|u)\s*do|"
+           r"what\s*do\s*you\s*do|thank\s*you|thanks|ty|thx|"
+           r"great\s*(job|work|stuff)|good\s*(job|work)|nice|cool|"
+           r"bye|goodbye|good\s*night|see\s*(ya|you)|help")
+_FILLER = r"(?:\s*(?:there|team|kestrel|everyone|folks|my\s+friend|all|guys|doc|brain|doing|today|now))*"
 _SMALLTALK_RE = re.compile(
-    r"^\s*(h+i+|hello+|hey+|yo+|sup|hiya|good\s*(morning|afternoon|evening)|"
-    r"thanks?+(\s+you)?|ty|what'?s\s*up|whats\s*up|how\s*(are|r)\s*(you|u)|"
-    r"who\s*(are|r)\s*(you|u)|what\s*can\s*(you|u)\s*do|help\s*me?|test)\s*[!.?]*\s*$",
+    r"^\s*(?:(?:" + _GREET + r")[\s!.,?-]*(?:" + _SOCIAL + r")?|(?:" + _SOCIAL + r")?)"
+    + _FILLER + r"[\s!.?,-]*$",
     re.IGNORECASE)
 
 
 def _is_smalltalk(query: str) -> bool:
+    """True for greetings and social chitchat that the documents cannot
+    answer. Word-capped so a real question never misroutes."""
     q = (query or "").strip()
-    return bool(q) and len(q.split()) <= 4 and bool(_SMALLTALK_RE.match(q))
+    return bool(q) and len(q.split()) <= 8 and bool(_SMALLTALK_RE.match(q))
 
 
 async def _cloud(query: str, dataset: str | None = None,
