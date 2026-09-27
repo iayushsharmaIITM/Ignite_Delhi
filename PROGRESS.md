@@ -1,3 +1,13 @@
+## Stale-citation healing on restore — 2026-09-27
+
+Chats saved before the smalltalk fix carried fake citations on greetings and
+re-rendered them on restore. Fix: restoreHistory now heals local-only chats by
+pushing them through the server's authoritative strip (POST -> GET) before
+rendering; storage.upsert_chat strips sources from smalltalk AND social-reply
+bot turns (memory_layer classifiers are the single source of truth). Narrow
+JS guard kept for fully-offline rendering. Verified: stale seeded chat renders
+0 citations on both turns.
+
 ## Smalltalk classifier v2 — social-vocabulary based 2026-09-27
 
 Owner flagged the logic gap: "hello how are you" fell through the narrow

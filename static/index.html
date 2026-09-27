@@ -836,12 +836,38 @@ async function restoreHistory() {
       }));
     }
   } catch (e) { /* offline - fall through to localStorage */ }
+  if (!saved.length) {
+    // local-only chat: push it through the server's authoritative strip
+    // (smalltalk/social replies lose their stale citations there), then
+    // render the cleaned version
+    const me = allChats().find(c => c.id === CHAT_ID);
+    if (me) {
+      try {
+        await fetch('/api/chats', { method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: CHAT_ID, brain: BRAIN || 'demo', ...me }) });
+        const res2 = await fetch('/api/chats/' + encodeURIComponent(CHAT_ID));
+        if (res2.ok) {
+          const d2 = await res2.json();
+          if (d2.chat) saved = (d2.chat.turns || []).map(x => ({
+            role: x.role, text: x.text, sources: x.sources || [],
+            attachments: x.attachments || [],
+            at: x.at ? new Date(x.at).getTime() : undefined,
+          }));
+        }
+      } catch (e2) { /* offline - local copy renders as-is */ }
+    }
+  }
   if (!saved.length) saved = loadHistory();
   if (!saved.length) return;
   document.body.classList.add('chatting');
   TURNS.push(...saved);
   let lastQuestion = '';
   saved.forEach((t, i) => {
+    // retroactive correction for LOCAL-only turns (the server strips its own):
+    // pure greetings can never cite documents. Narrow on purpose — this only
+    // covers the obvious greeting-openers, not mixed content questions.
+    if (t.role === 'bot' && /^(?:h+i+|hello+|hey+|yo+|hiya|sup|good\s+(?:morning|afternoon|evening))\b[\s!.,?-]*(?:(?:how|who)\s+(?:are|r)\s+(?:you|u)|(?:what\s+can\s+(?:you|u)\s+do)|(?:thank\s*you)|thanks)?[\s!.,?-]*(?:there|team|kestrel|everyone|folks|guys)?[\s!.?,-]*$/i.test(t.text)) t.sources = [];
     if (t.role === 'user') {
       lastQuestion = t.text;
       renderTurn(t.role, t.text, t.sources);

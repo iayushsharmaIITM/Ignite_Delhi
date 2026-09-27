@@ -109,6 +109,17 @@ def upsert_chat(record: dict) -> dict:
     created = record.get("created")
     turns = record.get("turns") or []
     now = datetime.now(timezone.utc)
+    # Authoritative smalltalk strip: greetings can never cite documents. Older
+    # turns saved before the smalltalk fix carry stale fake citations — the
+    # Python classifier (memory_layer) is the single source of truth here.
+    try:
+        from memory_layer import _is_smalltalk, _is_social_reply
+        for t in turns:
+            txt = t.get("text") or ""
+            if t.get("role") == "bot" and (_is_smalltalk(txt) or _is_social_reply(txt)):
+                t["sources"] = []
+    except Exception:  # noqa: BLE001 - classifier unavailable: store as-is
+        pass
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(
             """INSERT INTO chats (id, brain, title, created, updated)
