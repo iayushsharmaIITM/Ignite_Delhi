@@ -23,7 +23,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
+
+# Force auth-off for these tests — they stub cognee_cloud.status and
+# must not depend on a live Clerk token.
+os.environ["AUTH_MODE"] = "off"
 
 import app as app_module
 import cognee_cloud
