@@ -84,6 +84,32 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
+## M2.2 — graph-store decision F2: postgres_graph_shared ISOLATES — DONE 2026-09-28
+
+Env discovery: 1.6.1 selects via GRAPH_DATABASE_PROVIDER (postgres_demo is
+canonical, "postgres" alias kept) + GRAPH_DATASET_DATABASE_HANDLER
+(default "ladybug"); the Postgres hybrid adapter is out-of-tree (only
+Neptune remains). Both PostgresGraph handlers exist in-tree.
+Experiment on scratch m22_probe_*: ingest→COMPLETED→recall returns ONLY the
+probe (mango/2031, zero demo keywords), graph 11 nodes (vs 295 global on
+embedded). Kill→restart→recall identical (state survives in Postgres).
+contract_test --flavor oss green on the backend. Side note: drift probe now
+200s cloud names (was 422 on embedded) — different code path, harmless (we
+send oss names). **F2: postgres_graph_shared is the local multi-brain
+answer** (docs' "demo, not production" notwithstanding — measured).
+Reverted to embedded after (demo protection); scratch deleted, tenant clean.
+
+## INCIDENT — M2.2 revert wiped the demo graph — RECOVERING 2026-09-28
+
+Root cause: the ONLY mounted path was /app/.cognee (logs+ids); live data
+lives under /cognee-storage (DATA/SYSTEM_ROOT) on ephemeral disk. My
+--force-recreate destroyed company_brain + registry (295 nodes). The M0.2
+volume comment was wrong about what it preserves. Fix: compose.oss.yml now
+mounts cognee_oss_data:/cognee-storage (plus O2 restart/healthcheck already
+in). Recovery: 12-doc corpus re-ingesting into company_brain (OpenRouter
+key, fastembed local) in background; fixtures snapshots still serve
+read-only meanwhile. Postgres (30 chats) untouched throughout.
+
 ## Round 2 — 20 new ops/security finds — DONE 2026-09-28
 
 Second hunt (ops-failure + security-2nd-pass lenses) found 20, all fixed +

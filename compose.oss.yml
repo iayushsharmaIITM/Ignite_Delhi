@@ -15,6 +15,10 @@
 # The named volume keeps embedded stores (SQLite/LanceDB/Kuzu) across container
 # recreation, so the hours-long free-tier ingest in M1.2 survives a rebuild.
 # Externalized state (Neon) arrives in Phase 2 and replaces this.
+# M2.2 correction: ONLY mounted paths survive. The image keeps live data under
+# /cognee-storage (DATA/SYSTEM_ROOT_DIRECTORY), NOT under /app/.cognee (logs +
+# ids only) — a --force-recreate with only the .cognee mount wiped the demo
+# graph on 28 Sep 2026 (rebuilt after). Both paths are mounted now.
 
 services:
   cognee-oss:
@@ -27,6 +31,7 @@ services:
       - .env.oss
     volumes:
       - cognee_oss_state:/app/.cognee
+      - cognee_oss_data:/cognee-storage
     # O2: without this, a host reboot starts the app before Postgres is
     # ready, and the app's one-shot storage.init degrades it for its whole
     # lifetime (now also self-heals via retry — belt and suspenders).
@@ -52,4 +57,5 @@ services:
 
 volumes:
   cognee_oss_state:
+  cognee_oss_data:
   kestrel_db:
