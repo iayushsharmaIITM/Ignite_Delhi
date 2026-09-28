@@ -90,14 +90,24 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
         # sooner; the race trades ~2x retrieval tokens for first-answer
         # latency. Cost-saving lever: KESTREL_RACE_RETRIEVAL=0 runs a single
         # GRAPH_COMPLETION retrieval instead (no double spend, slower tail).
+        # --- Retrieval: hedged, not raced --------------------------------
+        # Cost decision (owner): full speed at 1x cost. The old design started
+        # BOTH strategies at once and paid double on every ask (cancelling a
+        # to_thread await never stops the worker thread — the "loser" always
+        # ran to completion). Now GRAPH runs first; RAG starts ONLY if GRAPH
+        # is slow past the hedge delay or fails fast. Typical ask: 1x cost,
+        # same latency. Slow tail: RAG covers it, occasional 2x. Levers:
+        # KESTREL_HEDGE_SECONDS (default 8); KESTREL_RACE_RETRIEVAL=0 keeps
+        # the old single-retrieval path above.
+        hedge = float(os.getenv("KESTREL_HEDGE_SECONDS", "8"))
+        primary, secondary = RACERS[0], RACERS[1]
         tasks = {
             asyncio.ensure_future(
-                asyncio.to_thread(cognee_cloud.recall, query, dataset, strategy)
-            ): name
-            for name, strategy in RACERS
+                asyncio.to_thread(cognee_cloud.recall, query, dataset, primary[1])
+            ): primary[0],
         }
         yield {"stage": "step",
-               "label": f"Delegating to {len(tasks)} retrieval agents simultaneously"}
+               "label": f"Delegating to {primary[0]} (hedged backup ready)"}
         t0 = time.time()
 
         # --- Router sub-agent: runs concurrently with the racers. If it says
@@ -126,9 +136,24 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
         results = None
         winner = None
         pending = set(tasks)
+        hedged = False
         while pending:
+            # The hedge: wait for the primary only up to the delay. A fast
+            # failure skips the wait entirely (fail over at once); a slow
+            # primary earns a backup racer after `hedge` seconds.
+            timeout = None if hedged else hedge
             done, pending = await asyncio.wait(
-                pending, return_when=asyncio.FIRST_COMPLETED)
+                pending, return_when=asyncio.FIRST_COMPLETED, timeout=timeout)
+            if not done and not hedged:
+                hedged = True
+                fut = asyncio.ensure_future(
+                    asyncio.to_thread(
+                        cognee_cloud.recall, query, dataset, secondary[1]))
+                tasks[fut] = secondary[0]
+                pending.add(fut)
+                yield {"stage": "step",
+                       "label": f"{primary[0]} slow — hedging with {secondary[0]}"}
+                continue
             for fut in done:
                 name = tasks[fut]
                 try:
@@ -139,9 +164,18 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
                         yield {"stage": "step",
                                "label": f"{name} answered first",
                                "ms": int((time.time() - t0) * 1000)}
-                except Exception as exc:  # noqa: BLE001 - a failed racer is not a failed ask
+                except Exception as exc:  # noqa: BLE001 - a failed retrieval is not a failed ask
                     yield {"stage": "step",
                            "label": f"{name} failed ({str(exc)[:60]})"}
+                    if not hedged:
+                        # Fail fast: the primary is dead, start the backup now
+                        # instead of waiting out the hedge delay.
+                        hedged = True
+                        fut2 = asyncio.ensure_future(
+                            asyncio.to_thread(
+                                cognee_cloud.recall, query, dataset, secondary[1]))
+                        tasks[fut2] = secondary[0]
+                        pending.add(fut2)
                 finally:
                     if results is not None:
                         for p in pending:

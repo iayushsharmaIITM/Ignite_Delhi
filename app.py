@@ -150,14 +150,13 @@ def brain_allowed(request: Request, brain: str) -> None:
     org-less (SEC-8). No-op when auth is off.
 
     SEC-2: fail CLOSED. An unknown brain (no row — script-ingested, pre-P3,
-    ops-created) is 403, not allowed. The demo dataset is the one explicit
-    allow: it predates ownership rows and must keep working, including during
-    a Postgres outage (row lookup failure also lands here as None)."""
+    ops-created) is 403, not allowed — and per owner decision the demo has
+    NO blanket allow either: company_brain carries a real ownership row
+    (creator-owned), so every brain answers to the same rule, including
+    during a Postgres outage (lookup failure lands here as None → 403)."""
     if not auth.active():
         return
     identity = getattr(request.state, "identity", None) or {}
-    if brain == DEMO_DATASET:
-        return
     org = identity.get("org_id")
     rec = storage.brain_access(brain)
     if rec is None:
@@ -429,8 +428,9 @@ async def chats_upsert(request: Request):
     # SEC-5/NEW-4: stamp ownership + brain server-side; the record's own
     # org_id is ignored (storage.upsert_chat takes the stamped values).
     org = identity.get("org_id") if isinstance(identity, dict) else None
+    uid = identity.get("user_id") if isinstance(identity, dict) else None
     brain = request.query_params.get("brain") or record.get("brain")
-    return storage.upsert_chat(record, org=org, brain=brain)
+    return storage.upsert_chat(record, org=org, brain=brain, created_by=uid)
 
 
 @app.get("/api/chats")
@@ -443,7 +443,8 @@ def chats_list(request: Request, brain: str | None = None):
         brain = safe_dataset(brain)
         require_dataset_access(request, brain)
     org = identity.get("org_id") if isinstance(identity, dict) else None
-    return {"ok": True, "chats": storage.list_chats(brain, org=org)}
+    uid = identity.get("user_id") if isinstance(identity, dict) else None
+    return {"ok": True, "chats": storage.list_chats(brain, org=org, user_id=uid)}
 
 
 @app.get("/api/chats/{chat_id}")
@@ -454,7 +455,8 @@ def chats_get(request: Request, chat_id: str):
     # LOW-11: identity is not ownership — scope the read; 404 (not 403) so a
     # foreign id is indistinguishable from a missing one.
     org = identity.get("org_id") if isinstance(identity, dict) else None
-    chat = storage.get_chat(chat_id, org=org) if auth.active() \
+    uid = identity.get("user_id") if isinstance(identity, dict) else None
+    chat = storage.get_chat(chat_id, org=org, user_id=uid) if auth.active() \
         else storage.get_chat(chat_id)
     # a miss is a normal sync probe (stale local ids), not an error — the UI
     # falls back to localStorage; 404 here would spam the browser console
@@ -470,7 +472,8 @@ def chats_delete(request: Request, chat_id: str):
     # 404 either way: foreign ids are indistinguishable from missing ones.
     if auth.active():
         org = identity.get("org_id") if isinstance(identity, dict) else None
-        return {"ok": storage.delete_chat(chat_id, org=org)}
+        uid = identity.get("user_id") if isinstance(identity, dict) else None
+        return {"ok": storage.delete_chat(chat_id, org=org, user_id=uid)}
     return {"ok": storage.delete_chat(chat_id)}
 
 
@@ -483,7 +486,8 @@ def usage(request: Request, days: int = 30):
     # LOW-4: scope metering to the caller's org; auth-off keeps the old
     # platform-wide view.
     org = identity.get("org_id") if isinstance(identity, dict) else None
-    rows = storage.usage_summary(days, org=org) if auth.active() \
+    uid = identity.get("user_id") if isinstance(identity, dict) else None
+    rows = storage.usage_summary(days, org=org, user_id=uid) if auth.active() \
         else storage.usage_summary(days)
     return {"ok": True, "usage": rows}
 

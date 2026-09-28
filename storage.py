@@ -84,6 +84,10 @@ def init() -> bool:
                    )""")
             cur.execute("ALTER TABLE chats ADD COLUMN IF NOT EXISTS org_id text")
             cur.execute("CREATE INDEX IF NOT EXISTS chats_org_idx ON chats(org_id)")
+            # Item-1 backfill support: person-level ownership for org-less
+            # users (their identity has org None, so org_id cannot hold them).
+            cur.execute("ALTER TABLE chats ADD COLUMN IF NOT EXISTS created_by text")
+            cur.execute("CREATE INDEX IF NOT EXISTS chats_created_by_idx ON chats(created_by)")
             cur.execute(
                 """CREATE TABLE IF NOT EXISTS llm_calls (
                      ts timestamptz NOT NULL DEFAULT now(),
@@ -123,14 +127,14 @@ def _est_tokens(text: str) -> int:
 
 
 def upsert_chat(record: dict, org: str | None = None,
-                brain: str | None = None) -> dict:
+                brain: str | None = None,
+                created_by: str | None = None) -> dict:
     """Insert or update one chat with its full turns array.
 
-    SEC-5: `org`/`brain` are server-stamped by the caller (identity + route).
-    A client-supplied org_id in the record is IGNORED — the server wins, so a
-    client can neither omit ownership nor self-declare into another org.
-    `brain` is normalized server-side (NEW-4); legacy rows keep whatever case
-    they were stored with until rewritten.
+    SEC-5: `org`/`brain`/`created_by` are server-stamped by the caller
+    (identity + route). A client-supplied org_id in the record is IGNORED —
+    the server wins, so a client can neither omit ownership nor self-declare
+    into another org. `brain` is normalized server-side (NEW-4).
     """
     chat_id = record["id"]
     raw_brain = brain if brain is not None else record.get("brain")
@@ -159,14 +163,15 @@ def upsert_chat(record: dict, org: str | None = None,
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO chats (id, brain, org_id, title, created, updated)
-                   VALUES (%s, %s, %s, %s,
+                """INSERT INTO chats (id, brain, org_id, created_by, title, created, updated)
+                   VALUES (%s, %s, %s, %s, %s,
                            COALESCE(%s, now()), now())
                    ON CONFLICT (id) DO UPDATE
                      SET title = EXCLUDED.title, updated = now(),
                          brain = EXCLUDED.brain,
-                         org_id = COALESCE(EXCLUDED.org_id, chats.org_id)""",
-                (chat_id, brain, org, title, _ts(created)),
+                         org_id = COALESCE(EXCLUDED.org_id, chats.org_id),
+                         created_by = COALESCE(EXCLUDED.created_by, chats.created_by)""",
+                (chat_id, brain, org, created_by, title, _ts(created)),
             )
             cur.execute("DELETE FROM turns WHERE chat_id = %s", (chat_id,))
             for idx, t in enumerate(turns):
@@ -189,13 +194,14 @@ def upsert_chat(record: dict, org: str | None = None,
     return {"ok": True, "id": chat_id, "turns": len(turns)}
 
 
-def list_chats(brain: str | None, org: str | None = None) -> list:
+def list_chats(brain: str | None, org: str | None = None,
+               user_id: str | None = None) -> list:
     clauses, args = [], []
     if brain:
         clauses.append("brain = %s"); args.append(brain)
-    if org is not None:                      # auth on: only this org's chats
-        clauses.append("(org_id = %s OR org_id IS NULL)")
-        args.append(org)
+    pred, pargs = _owner_clause(org, user_id)
+    if pred:                                        # auth on: only owned chats
+        clauses.append(pred); args.extend(pargs)
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(
@@ -204,22 +210,26 @@ def list_chats(brain: str | None, org: str | None = None) -> list:
         return cur.fetchall()
 
 
-def _org_clause(org: str | None) -> tuple:
-    """Ownership predicate with legacy grandfathering.
+def _owner_clause(org: str | None, user_id: str | None) -> tuple:
+    """Ownership predicate: org match OR creator match, with legacy
+    grandfathering.
 
-    Rows stamped with an org are visible only to that org. Pre-P3 rows have
-    org_id NULL and stay visible to everyone (the demo history depends on
-    it) — but only until the backfill assigns them; see SEC-5. With org=None
-    (auth off) there is no predicate at all: unchanged single-user behavior.
+    Stamped rows are visible only to their org / creator. Pre-P3 rows have
+    BOTH NULL and stay visible to everyone (the demo history depends on it)
+    until the item-1 backfill stamps the creator. With org=None AND
+    user_id=None (auth off) there is no predicate: unchanged single-user
+    behavior.
     """
-    if org is None:
+    if org is None and user_id is None:
         return "", []
-    return "(org_id = %s OR org_id IS NULL)", [org]
+    return ("(org_id = %s OR created_by = %s OR (org_id IS NULL AND created_by IS NULL))",
+            [org, user_id])
 
 
-def get_chat(chat_id: str, org: str | None = None) -> dict | None:
+def get_chat(chat_id: str, org: str | None = None,
+             user_id: str | None = None) -> dict | None:
     with _conn() as conn, conn.cursor() as cur:
-        pred, args = _org_clause(org)
+        pred, args = _owner_clause(org, user_id)
         cur.execute(
             "SELECT id, brain, title, created, updated FROM chats WHERE id = %s"
             + (" AND " + pred if pred else ""),
@@ -237,18 +247,21 @@ def get_chat(chat_id: str, org: str | None = None) -> dict | None:
         return chat
 
 
-def delete_chat(chat_id: str, org: str | None = None) -> bool:
-    """Delete a chat. Stamped rows require an org match; legacy NULL rows are
-    deletable by any authenticated caller (they are effectively public until
-    the SEC-5 backfill — and undeletable-by-anyone would be worse)."""
+def delete_chat(chat_id: str, org: str | None = None,
+                user_id: str | None = None) -> bool:
+    """Delete a chat. Stamped rows require an org or creator match (item 3:
+    tightened to org-match-only semantics — legacy double-NULL rows stay
+    deletable until the backfill stamps them, since undeletable-by-anyone
+    would be worse)."""
     with _conn() as conn, conn.cursor() as cur:
-        if org is None:
+        if org is None and user_id is None:
             cur.execute("DELETE FROM chats WHERE id = %s", (chat_id,))
         else:
             cur.execute(
                 """DELETE FROM chats WHERE id = %s
-                   AND (org_id = %s OR org_id IS NULL)""",
-                (chat_id, org),
+                   AND (org_id = %s OR created_by = %s
+                        OR (org_id IS NULL AND created_by IS NULL))""",
+                (chat_id, org, user_id),
             )
         return cur.rowcount > 0
 
@@ -297,17 +310,18 @@ def brain_access(brain: str) -> dict | None:
         return None
 
 
-def usage_summary(days: int = 30, org: str | None = None) -> list:
-    """Metering. LOW-4: scoped to the caller's org when known — brains the
-    org owns, shared brains, and legacy unregistered brains (grandfathered
-    visible, same rule as chats). org=None keeps the old platform-wide view
-    for auth-off mode."""
+def usage_summary(days: int = 30, org: str | None = None,
+                  user_id: str | None = None) -> list:
+    """Metering. LOW-4: scoped to the caller — brains the org owns, brains
+    the user created, shared brains, and legacy unregistered brains
+    (grandfathered visible, same rule as chats). No identity keeps the old
+    platform-wide view for auth-off mode."""
     scope, args = "", [str(days)]
-    if org is not None:
+    if org is not None or user_id is not None:
         scope = """AND (brain IN (SELECT brain FROM brain_access
-                                  WHERE org_id = %s OR is_shared)
+                                  WHERE org_id = %s OR created_by = %s OR is_shared)
                        OR brain NOT IN (SELECT brain FROM brain_access))"""
-        args.append(org)
+        args.extend([org, user_id])
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(
             f"""SELECT feature, brain, model, COUNT(*) AS calls,

@@ -20,6 +20,30 @@ os.environ["AUTH_MODE"] = "clerk"
 import auth  # noqa: E402
 import storage  # noqa: E402
 
+# Fail-closed authz (SEC-2) made prod-DB testing dangerous: seed rows now
+# change access decisions, so this suite gets its OWN database. Created once,
+# scrubbed per test module run — production chats are never touched.
+_TEST_DB = "kestrel_test_auth"
+
+
+def _use_test_db() -> None:
+    import psycopg
+    admin = storage.DATABASE_URL.rsplit("/", 1)[0] + "/kestrel"
+    with psycopg.connect(admin, autocommit=True) as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM pg_database WHERE datname = %s",
+            (_TEST_DB,)).fetchone()
+        if not exists:
+            conn.execute(f'CREATE DATABASE "{_TEST_DB}"')
+    storage.DATABASE_URL = admin.rsplit("/", 1)[0] + f"/{_TEST_DB}"
+    assert storage.init(), "test database init failed"
+    with psycopg.connect(storage.DATABASE_URL, autocommit=True) as conn:
+        for tbl in ("turns", "chats", "brain_access", "llm_calls"):
+            conn.execute(f"TRUNCATE {tbl} CASCADE")
+
+
+_use_test_db()
+
 # --- test keypair ------------------------------------------------------------
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa

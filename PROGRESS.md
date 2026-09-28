@@ -84,6 +84,26 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
+## Owner decisions 1–4 — DONE 2026-09-28
+
+1. Legacy chats → owner org (b): 26 NULL rows stamped
+   org_3JvGk0RrREUOodUd1KkANvi2vGB/creator; chats gained created_by (migration)
+   for org-less owners; predicates are org-OR-creator with double-NULL
+   grandfathering. Proven: owner lists 27, stranger 0.
+2. Demo NOT world-readable: company_brain row flipped to creator-owned
+   (shared=false); DEMO blanket-allow removed — every brain, same rule.
+   Proven: owner ALLOW, stranger 403, unknown 403.
+3. Deletes tightened to org/creator-match (legacy double-NULL still deletable
+   until stamped — none remain).
+4. Hedged retrieval (1x cost, same speed): GRAPH first, RAG starts only past
+   KESTREL_HEDGE_SECONDS=8 or on fast failure; router concurrent as before.
+   Proven by stub: fast graph 1 call, slow graph hedges (2 calls, vector wins).
+   (One probe detour: live router classified "test q" as chat — correct
+   behavior, wrong probe query; re-probed with forced route.)
+Infra: colima was down (restarted; volumes intact, 26 chats kept);
+test_auth_isolation now runs on isolated kestrel_test_auth DB (fail-closed
+made prod-DB testing unsafe — the suite proved it by failing).
+
 ## Bug-fix session — BUGS_AUDIT.md 45 + 14 new — DONE 2026-09-28
 
 DeepSeek v4.1 Flash audit validated TRUE 45/45 (3 subagent sweeps + execution
