@@ -159,6 +159,14 @@
   .working { margin:2px 0 12px; font-size:12px; color:var(--muted); }
   .working-head { display:flex; align-items:center; gap:9px; margin-bottom:4px; }
   .working-head .w-elapsed { color:var(--fg-2); font-weight:590; }
+  /* once the answer lands the log collapses into its header; the chevron
+     marks it expandable (rotates open when expanded) */
+  .working.collapsed .w-step { display:none; }
+  .working-head.toggle { cursor:pointer; user-select:none; width:fit-content; }
+  .working-head.toggle::after { content:"▸"; margin-left:auto; color:var(--muted-2);
+    font-size:10px; transition:transform .18s ease; }
+  .working:not(.collapsed) .working-head.toggle::after { transform:rotate(90deg); }
+  .working-head.toggle:hover .w-elapsed { color:var(--fg); }
   .working .spin { width:11px; height:11px; border-radius:50%; flex:none;
           border:2px solid var(--line-3); border-top-color:var(--accent);
           animation:spin .8s linear infinite; display:inline-block; }
@@ -1620,6 +1628,15 @@ function workStart(turn) {
       const sp = head.querySelector('.spin');
       if (sp) sp.remove();
       elapsed.textContent = 'Worked · ' + ((Date.now() - t0) / 1000).toFixed(1) + 's';
+      // the process collapses into its header once the result is out —
+      // click the header to expand/collapse the step log again
+      box.classList.add('collapsed');
+      head.classList.add('toggle');
+      head.title = 'Show the steps';
+      head.addEventListener('click', () => {
+        box.classList.toggle('collapsed');
+        head.title = box.classList.contains('collapsed') ? 'Show the steps' : 'Hide the steps';
+      });
     },
   };
 }
