@@ -36,7 +36,10 @@ CORPUS = os.path.join(HERE, "corpus")
 
 # {dataset: {fingerprint: filename}} for user-uploaded files. Written at upload
 # time because the tenant will not store a document's name for us.
-UPLOADS = os.path.join(HERE, "fixtures", "uploads.json")
+# O3b: this manifest fingerprints user-uploaded file content — which once
+# embedded a live key fragment that got committed. It lives OUTSIDE git now
+# (cognee_oss_state/ is gitignored): local operational state, not source.
+UPLOADS = os.path.join(HERE, "cognee_oss_state", "uploads.json")
 
 # How long a resolved map stays warm. The tenant only changes when something is
 # ingested, and this saves a round trip per question.

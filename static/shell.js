@@ -431,7 +431,10 @@
   // Status LED. "healthy" alone is not enough — the tenant's /health is
   // unauthenticated, so only claim ok when the authenticated probe passed.
   fetch('/health').then(r => r.json()).then(d => {
-    const ok = d.provider === 'mock' || (d.upstream === 'healthy' && d.auth !== 'failed');
+    // 5b: the server reports Cognee's word ("ready"), not ours ("healthy") —
+    // accept both or the dot never goes green on a healthy stack.
+    const up = d.upstream === 'healthy' || d.upstream === 'ready';
+    const ok = d.provider === 'mock' || (up && d.auth !== 'failed');
     document.getElementById('sb-led').className = 'led ' + (ok ? 'ok' : 'bad');
     let label = d.provider;
     if (d.auth === 'failed') label += ' ' + T('sb.key_rejected', '· key rejected');
@@ -635,7 +638,7 @@
         [T('up.biz_f1'), T('up.biz_f2'), T('up.biz_f3')],
         { label: T('up.soon', 'Coming soon'), disabled: true }) +
       '</div><p class="km-note">' + T('up.note', '') + '</p>';
-    km(T('up.title', 'Upgrade Kestrel'), T('up.sub', ''), body);
+    km(T('up.title', 'Upgrade Kestrel'), T('upg.sub', ''), body);
   }
 
   // ------------------------------------------------------------- wiring
