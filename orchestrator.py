@@ -258,7 +258,10 @@ ROUTER_INSTRUCTION = (
     "is general conversation (time, date, weather, greetings, opinions, jokes, "
     "general knowledge, math). If it might relate to the company's documents or "
     "business, answer BRAIN. Only answer CHAT when it is clearly general "
-    "conversation. Reply with exactly one word: BRAIN or CHAT."
+    "conversation. Questions about the brain itself — 'what is this brain "
+    "about', 'what documents do you have', 'summarize these documents', "
+    "'what is this specific brain about' — are ALWAYS BRAIN: they can only be "
+    "answered from the indexed documents. Reply with exactly one word: BRAIN or CHAT."
 )
 
 
