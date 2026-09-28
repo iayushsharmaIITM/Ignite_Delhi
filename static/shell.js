@@ -306,11 +306,7 @@
       '<div class="nav-label" data-nav-label>' + T('nav.workspace', 'Workspace') + '</div>' + links +
       '<div id="sb-chats"></div>' +
     '</nav>' +
-    '<div class="sb-user" id="sb-user" hidden></div>' +
-    '<div class="sb-foot">' +
-      '<div class="row"><span class="led" id="sb-led"></span>' +
-      '<span id="sb-prov">' + T('sb.connecting', 'connecting…') + '</span></div>' +
-    '</div>';
+    '<div class="sb-user" id="sb-user" hidden></div>';
 
   const toggle = document.createElement('button');
   toggle.className = 'sb-toggle';
@@ -426,23 +422,6 @@
 
   document.getElementById('jump-latest')?.addEventListener('click', () => {
     window.dispatchEvent(new Event('kestrel:jump-latest'));
-  });
-
-  // Status LED. "healthy" alone is not enough — the tenant's /health is
-  // unauthenticated, so only claim ok when the authenticated probe passed.
-  fetch('/health').then(r => r.json()).then(d => {
-    // 5b: the server reports Cognee's word ("ready"), not ours ("healthy") —
-    // accept both or the dot never goes green on a healthy stack.
-    const up = d.upstream === 'healthy' || d.upstream === 'ready';
-    const ok = d.provider === 'mock' || (up && d.auth !== 'failed');
-    document.getElementById('sb-led').className = 'led ' + (ok ? 'ok' : 'bad');
-    let label = d.backend || d.provider;   // T4: truthful local-vs-tenant
-    if (d.auth === 'failed') label += ' ' + T('sb.key_rejected', '· key rejected');
-    else if (d.upstream) label += ' · ' + d.upstream;
-    document.getElementById('sb-prov').textContent = label;
-  }).catch(() => {
-    document.getElementById('sb-led').className = 'led bad';
-    document.getElementById('sb-prov').textContent = T('sb.unreachable', 'unreachable');
   });
 
   // ==========================================================================
