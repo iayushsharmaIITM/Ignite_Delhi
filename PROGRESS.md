@@ -542,3 +542,24 @@ from the tenant — dataset list verified back to the five real brains.
   `create_brain` and `brain_events` share delete_brain's guard-before-authz
   ordering (same class, only delete_brain was approved); `pytest` is not in
   `requirements.txt` (installed globally here; the battery no longer needs it).
+
+## P5 — Langfuse observability + route labeling — DONE 2026-09-28
+
+`observe.py`: zero-dependency, fail-open Langfuse bridge (daemon thread +
+bounded queue; no keys = silent no-op). Traced: /api/ask (with the route
+actually taken — smalltalk/chat/brain — parsed from orchestrator stage
+labels; require_dataset_access now returns the identity), the router's own
+LLM call, summarizer, and OCR vision calls. Local Langfuse v2 container
+added to compose.oss.yml (Postgres-only; UI signup; keys in .env).
+
+Ingestion wire format learned the hard way: trace-create + separate
+observation-create items, fields nested under `body`; nested observation
+arrays and flat items are silently rejected (207 with errors array).
+
+Verified: per-route, per-model token split observable — 'hii' →
+route=smalltalk (236/33 tokens), Bluepeak → route=brain (236/223), router
+call as its own generation. Battery green.
+
+P5 remaining (deferred, not blocking): route→model mapping formalization
+for premium BYOK (P6) and off-peak ingest batching. Routing itself
+(smalltalk direct / router sub-agent / hedged racers) was already shipped.
