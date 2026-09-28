@@ -831,7 +831,20 @@ async def create_brain(
     # to. Silently appending to a brain the user thinks is new would produce
     # answers from documents they never saw — so the 409 is the default, and
     # `append=True` is the opt-in the UI offers once the user has been told.
-    already_exists = cognee_cloud.exists(safe)
+    try:
+        already_exists = cognee_cloud.exists(safe)
+    except Exception as exc:  # noqa: BLE001 - tenant-down is availability
+        # Without the tenant we cannot tell existing from new, and proceeding
+        # unseen could merge into a brain the user was never told about (the
+        # exact failure the 409 below exists to prevent). Fail closed, and
+        # say so: 503 (retry later) instead of a 500 that reads as our crash.
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The brain service is unreachable right now - new brains "
+                "cannot be checked or created. Please try again in a moment."
+            ),
+        ) from exc
     if already_exists:
         # Appending to SOMEONE ELSE'S dataset must fail closed — the owner
         # check applies to the existing brain.
