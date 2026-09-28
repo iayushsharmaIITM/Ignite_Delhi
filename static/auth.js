@@ -17,7 +17,7 @@
  */
 (function () {
   const listeners = [];
-  let mode = 'off';
+  let mode = 'unknown';   // 'off' | 'clerk' — unknown until /api/config resolves
   let booted = null;   // promise, so parallel callers await one boot
 
   function emit() { listeners.forEach(fn => { try { fn(state()); } catch (e) {} }); }

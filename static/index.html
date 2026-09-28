@@ -1914,6 +1914,9 @@ async function streamPipeline(name) {
   const GATE_APPEARANCE = () => window.KestrelAuth.appearance();
 
   const update = (st) => {
+    if (st.mode === 'unknown') return;   // boot state: keep the gate hidden —
+    // showing it here flashed the sign-in card on EVERY chat switch for
+    // signed-in users. The gate only appears once we know it must.
     const signedIn = !!st.signedIn;
     gate.hidden = signedIn;
     document.body.classList.toggle('locked', !signedIn);
