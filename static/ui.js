@@ -80,7 +80,6 @@
       'usage.empty': 'No model calls recorded yet.', 'usage.signin': 'Sign in to see usage.',
 
       'up.title': 'Upgrade Kestrel',
-      'up.sub': 'Simple plans that scale with your company brain.',
       'up.current': 'Current plan', 'up.soon': 'Coming soon', 'up.per_mo': '/mo',
       'up.free': 'Free', 'up.pro': 'Pro', 'up.biz': 'Business',
       'up.free_f1': '1 brain, up to 3 members', 'up.free_f2': '200 answers a month',
@@ -162,7 +161,6 @@
       'usage.empty': 'अभी कोई मॉडल कॉल दर्ज नहीं हुई।', 'usage.signin': 'उपयोग देखने के लिए साइन इन करें।',
 
       'up.title': 'Kestrel अपग्रेड करें',
-      'up.sub': 'आपके कंपनी ब्रेन के साथ बढ़ने वाली सरल योजनाएँ।',
       'up.current': 'वर्तमान योजना', 'up.soon': 'जल्द आ रहा है', 'up.per_mo': '/माह',
       'up.free': 'फ्री', 'up.pro': 'प्रो', 'up.biz': 'बिज़नेस',
       'up.free_f1': '1 ब्रेन, 3 सदस्यों तक', 'up.free_f2': 'महीने में 200 जवाब',
@@ -244,7 +242,6 @@
       'usage.empty': 'Aún no hay llamadas al modelo.', 'usage.signin': 'Inicia sesión para ver el uso.',
 
       'up.title': 'Mejora Kestrel',
-      'up.sub': 'Planes simples que crecen con el cerebro de tu empresa.',
       'up.current': 'Plan actual', 'up.soon': 'Próximamente', 'up.per_mo': '/mes',
       'up.free': 'Gratis', 'up.pro': 'Pro', 'up.biz': 'Empresa',
       'up.free_f1': '1 cerebro, hasta 3 miembros', 'up.free_f2': '200 respuestas al mes',
@@ -326,7 +323,6 @@
       'usage.empty': "Aucun appel de modèle enregistré.", 'usage.signin': "Connectez-vous pour voir l'utilisation.",
 
       'up.title': 'Améliorer Kestrel',
-      'up.sub': 'Des offres simples qui grandissent avec votre cerveau d’entreprise.',
       'up.current': 'Offre actuelle', 'up.soon': 'Bientôt disponible', 'up.per_mo': '/mois',
       'up.free': 'Gratuit', 'up.pro': 'Pro', 'up.biz': 'Entreprise',
       'up.free_f1': '1 cerveau, jusqu’à 3 membres', 'up.free_f2': '200 réponses par mois',
@@ -408,7 +404,6 @@
       'usage.empty': 'Noch keine Modellaufrufe aufgezeichnet.', 'usage.signin': 'Melden Sie sich an, um die Nutzung zu sehen.',
 
       'up.title': 'Kestrel upgraden',
-      'up.sub': 'Einfache Pläne, die mit Ihrem Company Brain wachsen.',
       'up.current': 'Aktueller Plan', 'up.soon': 'Demnächst', 'up.per_mo': '/Monat',
       'up.free': 'Kostenlos', 'up.pro': 'Pro', 'up.biz': 'Business',
       'up.free_f1': '1 Brain, bis zu 3 Mitglieder', 'up.free_f2': '200 Antworten pro Monat',
@@ -490,7 +485,6 @@
       'usage.empty': '还没有模型调用记录。', 'usage.signin': '登录后查看用量。',
 
       'up.title': '升级 Kestrel',
-      'up.sub': '随您的公司大脑一起成长的简单套餐。',
       'up.current': '当前套餐', 'up.soon': '即将推出', 'up.per_mo': '/月',
       'up.free': '免费版', 'up.pro': '专业版', 'up.biz': '企业版',
       'up.free_f1': '1 个大脑，最多 3 名成员', 'up.free_f2': '每月 200 次回答',
@@ -580,5 +574,6 @@
 
   window.KI18N = { t, fmt, apply, setLang, get lang() { return lang; }, LANGS };
   window.KTheme = KTheme;
-  apply();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => apply());
+  else apply();
 })();

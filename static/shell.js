@@ -84,9 +84,11 @@
     catch (e) { return []; }
   }
 
-  function deleteChat(chatBrain, chatId) {
+  async function deleteChat(chatBrain, chatId) {
     // server-side deletion first (Postgres), then the local copy
-    fetch('/api/chats/' + encodeURIComponent(chatId), { method: 'DELETE' }).catch(() => {});
+    let h = {};
+    try { h = window.KestrelAuth ? await window.KestrelAuth.authHeaders() : {}; } catch (e) {}
+    fetch('/api/chats/' + encodeURIComponent(chatId), { method: 'DELETE', headers: h }).catch(() => {});
     try {
       const key = 'kestrel.chats.' + chatBrain;
       const rest = JSON.parse(localStorage.getItem(key) || '[]').filter(c => c.id !== chatId);
@@ -100,12 +102,14 @@
     }
   }
 
-  function deleteBrainChats(chatBrain) {
+  async function deleteBrainChats(chatBrain) {
     // every chat of this brain is removed server-side AND locally
+    let h = {};
+    try { h = window.KestrelAuth ? await window.KestrelAuth.authHeaders() : {}; } catch (e) {}
     try {
       const raw = localStorage.getItem('kestrel.chats.' + chatBrain) || '[]';
       JSON.parse(raw).forEach(c =>
-        fetch('/api/chats/' + encodeURIComponent(c.id), { method: 'DELETE' }).catch(() => {}));
+        fetch('/api/chats/' + encodeURIComponent(c.id), { method: 'DELETE', headers: h }).catch(() => {}));
       localStorage.removeItem('kestrel.chats.' + chatBrain);
     } catch (e) {}
     renderChats();
@@ -119,7 +123,7 @@
     if (box) box.innerHTML = chatGroup();
   }
 
-  function esc(s) { return (s || '').replace(/[<>&"]/g, ''); }
+  function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
   function chatGroup() {
     const view = chatView();
@@ -362,6 +366,57 @@
   }
 
   renderChats();
+  // Server hydration: the sidebar previously read ONLY localStorage, so any
+  // chat living in Postgres (cleared cache, new device, pre-auth history) was
+  // invisible and restore fell through to "empty". Merge server rows in by id
+  // (local entries win on conflict — they may hold unsynced turns), then
+  // re-render. Runs once at boot; failures keep the local-only view.
+  (async function hydrateChats() {
+    try {
+      const h = window.KestrelAuth ? await window.KestrelAuth.authHeaders() : {};
+      const brains = new Set(['demo']);
+      try {
+        const rb = await fetch('/api/brains', { headers: h });
+        if (rb.ok) ((await rb.json()).brains || []).forEach(b => {
+          const n = b && (b.name || b);
+          if (typeof n === 'string' && n) brains.add(n);
+        });
+      } catch (e) { /* fall back to local keys below */ }
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf('kestrel.chats.') === 0)
+            brains.add(k.slice('kestrel.chats.'.length));
+        }
+      } catch (e) {}
+      let changed = false;
+      for (const b of brains) {
+        let rows = [];
+        try {
+          const r = await fetch('/api/chats?brain=' + encodeURIComponent(b),
+                                { headers: h });
+          if (r.ok) rows = (await r.json()).chats || [];
+        } catch (e) { continue; }
+        if (!rows.length) continue;
+        const key = 'kestrel.chats.' + b;
+        let local = [];
+        try { local = JSON.parse(localStorage.getItem(key) || '[]'); }
+        catch (e) { local = []; }
+        const seen = new Set(local.map(c => c.id));
+        rows.forEach(s => {
+          if (s && s.id && !seen.has(s.id)) {
+            local.unshift({ id: s.id, title: s.title || 'Untitled',
+                            at: s.at || Date.now(), turns: s.turns || [] });
+            seen.add(s.id); changed = true;
+          }
+        });
+        if (changed) try {
+          localStorage.setItem(key, JSON.stringify(local.slice(0, 100)));
+        } catch (e) {}
+      }
+      if (changed) renderChats();
+    } catch (e) { /* local-only view stands */ }
+  })();
   // index.html dispatches this after saving; the sidebar is otherwise built once
   // at load and a new conversation would not appear until a reload.
   window.addEventListener('kestrel:chats', renderChats);

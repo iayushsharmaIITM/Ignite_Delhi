@@ -64,6 +64,10 @@
   }
 
   async function authHeaders() {
+    // Wait for boot: parse-time callers (history restore, graph fetch) run
+    // before /api/config + Clerk.load() resolve, and mode is still 'off'
+    // until then — without this await they get {} and fire unauthenticated.
+    try { await booted; } catch (e) { /* boot failed; fall through to {} */ }
     if (mode !== 'clerk') return {};
     try {
       const tok = await window.Clerk?.session?.getToken?.();

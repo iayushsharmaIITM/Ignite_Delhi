@@ -178,8 +178,7 @@ function row(brain) {
       del.textContent = 'Deleting…';
       try {
         const res = await fetch('/api/brains/' + encodeURIComponent(brain.name),
-          { headers: await window.KestrelAuth.authHeaders() },
-                                { method: 'DELETE' });
+          { headers: await window.KestrelAuth.authHeaders(), method: 'DELETE' });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.detail || ('HTTP ' + res.status));
         li.remove();

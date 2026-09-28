@@ -31,7 +31,7 @@
   body.chatting #thread-wrap { display:block; }
 
   /* ==== home ================================================================ */
-  .watermark { font-size:150px; line-height:1; color:rgba(255,255,255,.045);
+  .watermark { font-size:150px; line-height:1; color:var(--watermark);
     user-select:none; margin-bottom:6px; }
   .greeting { font-size:30px; font-weight:550; letter-spacing:-.02em;
     color:var(--fg); text-align:center; margin-bottom:26px; }
@@ -686,13 +686,15 @@ function renderBrainMenu(items) {
   brainMenu.appendChild(newBrain);
 }
 
-brainBtn.addEventListener('click', e => {
+brainBtn.addEventListener('click', async e => {
   e.stopPropagation();
   menu2.hidden = true;
   if (!brainMenu.hidden) { brainMenu.hidden = true; return; }
   brainMenu.hidden = false;
   brainMenu.innerHTML = '<div class="pop-note">loading…</div>';
-  fetch('/api/brains').then(r => r.json()).then(d => {
+  // FE cross-check find: the brain-switcher menu also needs auth in Clerk
+  // mode (it fired headerless and silently listed nothing gated).
+  fetch('/api/brains', { headers: await authHeaders() }).then(r => r.json()).then(d => {
     const items = (d.brains || []).filter(b => !b.is_system);
     // demo first, then the rest alphabetically — the same order as /brains
     items.sort((a, b) => (b.is_demo - a.is_demo) || (a.name || '').localeCompare(b.name || ''));
@@ -895,10 +897,12 @@ async function restoreHistory() {
     const me = allChats().find(c => c.id === CHAT_ID);
     if (me) {
       try {
+        const h = await authHeaders();
         await fetch('/api/chats', { method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...h },
           body: JSON.stringify({ id: CHAT_ID, brain: BRAIN || 'demo', ...me }) });
-        const res2 = await fetch('/api/chats/' + encodeURIComponent(CHAT_ID));
+        const res2 = await fetch('/api/chats/' + encodeURIComponent(CHAT_ID),
+                                 { headers: h });
         if (res2.ok) {
           const d2 = await res2.json();
           if (d2.chat) saved = (d2.chat.turns || []).map(x => ({
@@ -1033,7 +1037,8 @@ async function openSource(name, excerpt) {
   try {
     const params = new URLSearchParams({ name });
     if (BRAIN) params.set('dataset', BRAIN);
-    const res = await fetch('/api/source?' + params.toString());
+    const res = await fetch('/api/source?' + params.toString(),
+                            { headers: await authHeaders() });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
 
@@ -1158,13 +1163,13 @@ function finalize(bubble, q, text, sources) {
   // context so THIS answer can use them, and every ingestible file is added
   // to the current brain so every FUTURE question cites it.
   let context = history;
+  let stepTick = null;   // LOW-2: cleared below — one leaked ticker per ask before
   if (files.length) {
     const steps = ['Reading attached files…'];
     let si = 0;
-    const stepTick = setInterval(() => {
+    stepTick = setInterval(() => {
       si = (si + 1) % steps.length;
     }, 100);
-    void stepTick;
     work.step('Reading attached files…');
     const TEXTY = /\.(txt|md|csv|json|py|js|ts|jsx|tsx|java|go|rs|c|cpp|h|hpp|sh|sql|yaml|yml|toml|ini|cfg|html|css)$/i;
     let fed = 0;
@@ -1186,14 +1191,17 @@ function finalize(bubble, q, text, sources) {
         fd.append('name', BRAIN);
         fd.append('append', 'true');
         ingestible.forEach(f => fd.append('files', f));
-        fetch('/api/brains', { method: 'POST', body: fd })
+        fetch('/api/brains', { method: 'POST', body: fd,
+                                headers: await authHeaders() })
           .then(r => r.json()).then(d => {
             if (d.ok || d.partial) window.dispatchEvent(new Event('kestrel:brain-updated'));
-          }).catch(() => { /* failures surface on /brains, not in the ask path */ });
+            else work.step('Upload rejected: ' + (d.detail || 'HTTP error'));
+          }).catch(() => { work.step('Upload failed: no response from server'); });
       }
     }
     if (fed) work.step('Attached content in context — ' + fed + ' file(s)');
   }
+  if (stepTick) clearInterval(stepTick);
   context = context.slice(0, 6000);
 
   try {
@@ -1230,10 +1238,22 @@ function finalize(bubble, q, text, sources) {
           if (stick) scrollToBottom(false);
         } else if (ev.type === 'references' && ev.items?.length) {
           sources = ev.items;
-          if (finalized) { renderSources(bubble.parentElement, sources); saveHistory(); }
+          if (finalized) {
+            // FE-8: finalize() snapshotted the then-empty sources into TURNS
+            // (references land AFTER done) — write them back to the saved
+            // turn or the chips vanish on reload.
+            for (let i = TURNS.length - 1; i >= 0; i--)
+              if (TURNS[i].role === 'bot') { TURNS[i].sources = sources; break; }
+            renderSources(bubble.parentElement, sources); saveHistory();
+          }
         } else if (ev.stage === 'error') {
-          bubble.className = 'bubble err';
-          bubble.textContent = 'Something went wrong: ' + ev.message;
+          // COR-15: an error AFTER finalize (e.g. a post-done citations
+          // failure) must not wipe a completed answer from the screen.
+          if (finalized) { /* answer stands; the error is stale news */ }
+          else {
+            bubble.className = 'bubble err';
+            bubble.textContent = 'Something went wrong: ' + ev.message;
+          }
         } else if (ev.stage === 'done' && text && !finalized) {
           finalize(bubble, q, text, sources);
         }
@@ -1250,7 +1270,11 @@ function finalize(bubble, q, text, sources) {
           bubble.innerHTML = renderMarkdown(text);
         } else if (ev.type === 'references' && ev.items?.length) {
           sources = ev.items;
-          if (finalized) { renderSources(bubble.parentElement, sources); saveHistory(); }
+          if (finalized) {
+            for (let i = TURNS.length - 1; i >= 0; i--)
+              if (TURNS[i].role === 'bot') { TURNS[i].sources = sources; break; }
+            renderSources(bubble.parentElement, sources); saveHistory();
+          }
         } else if (ev.stage === 'done' && text && !finalized) {
           finalize(bubble, q, text, sources);
         }
@@ -1283,8 +1307,23 @@ function finalize(bubble, q, text, sources) {
         bubble.textContent = 'Stopped before any answer arrived.';
       }
     } else if (!finalized) {
-      bubble.className = 'bubble err';
-      bubble.textContent = 'Could not reach the server: ' + err.message;
+      // COR-15: a transport failure after partial text keeps the partial
+      // answer, honestly labelled — the AbortError path right above is the
+      // model. Dropping streamed text on a blip is the worst outage shape.
+      if (text) {
+        text += '\n\n_(connection lost — showing what arrived.)_';
+        const at = Date.now();
+        TURNS.push({ role: 'bot', text, sources, at });
+        bubble.className = 'bubble rendered';
+        bubble.innerHTML = renderMarkdown(text);
+        renderSources(bubble.parentElement, sources);
+        renderAnswerActions(bubble.parentElement, q, text, at);
+        saveHistory();
+        buildRail();
+      } else {
+        bubble.className = 'bubble err';
+        bubble.textContent = 'Could not reach the server: ' + err.message;
+      }
     }
   } finally {
     if (!finalized) work.stop();
@@ -1405,8 +1444,13 @@ function buildRail() {
     b.addEventListener('mouseenter', () => {
       const answer = (TURNS[i + 1] && TURNS[i + 1].role === 'bot')
         ? clean(TURNS[i + 1].text).slice(0, 110) : '';
-      railTip.innerHTML = '<b></b>' + (answer ? answer + '…' : '');
-      railTip.querySelector('b').textContent = (t.text || 'message').slice(0, 64);
+      // FE-9: model-derived text must never hit innerHTML (stored-XSS class,
+      // same as the fixed C2) — build with nodes instead.
+      railTip.textContent = '';
+      const lab = document.createElement('b');
+      lab.textContent = (t.text || 'message').slice(0, 64);
+      railTip.appendChild(lab);
+      if (answer) railTip.appendChild(document.createTextNode(answer + '…'));
       railTip.style.display = 'block';
       const r = b.getBoundingClientRect();
       railTip.style.left = (r.right + 12) + 'px';
@@ -1571,7 +1615,9 @@ function exportPdf() {
       const n = document.createElement('span');
       n.className = 'count';
       n.textContent = 'PDF blocked here - use Word or Markdown instead';
-      document.querySelector('.bar-menu-row').appendChild(n);
+      // LOW-3: .bar-menu-row exists nowhere — the old target threw inside
+      // the handler and the notice never showed. Anchor to the export menu.
+      (document.querySelector('.bar-menu-row') || document.body).appendChild(n);
       setTimeout(() => n.remove(), 4000);
     }
     setTimeout(() => frame.remove(), 2000);
@@ -1604,7 +1650,7 @@ document.getElementById('copy-transcript')?.addEventListener('click', async e =>
   setTimeout(() => { e.target.textContent = 'Copy transcript'; }, 1300);
 });
 
-CLEAR_BTN?.addEventListener('click', () => {
+CLEAR_BTN?.addEventListener('click', async () => {
   // Two-step: the first click arms, the second clears. A destructive control
   // that fires on one click sits too close to everything else.
   if (CLEAR_BTN.dataset.armed !== '1') {
@@ -1627,7 +1673,8 @@ CLEAR_BTN?.addEventListener('click', () => {
     // amount of destruction for a button that sits inside one chat.
     const rest = allChats().filter(c => c.id !== CHAT_ID);
     localStorage.setItem(CHATS_KEY, JSON.stringify(rest));
-    fetch('/api/chats/' + encodeURIComponent(CHAT_ID), { method: 'DELETE' }).catch(() => {});
+    fetch('/api/chats/' + encodeURIComponent(CHAT_ID),
+          { method: 'DELETE', headers: await authHeaders() }).catch(() => {});
   } catch (e) {}
   threadEl.innerHTML = '<div class="placeholder" id="empty"></div>';
   buildRail();
@@ -1765,7 +1812,8 @@ filesGo.addEventListener('click', async () => {
   picked.forEach(f => fd.append('files', f));
 
   try {
-    const res = await fetch('/api/brains', { method: 'POST', body: fd });
+    const res = await fetch('/api/brains', { method: 'POST', body: fd,
+                              headers: await authHeaders() });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       // The API's own refusal messages are the honest ones — surface verbatim.
@@ -1805,7 +1853,8 @@ async function streamPipeline(name) {
   // Same NDJSON shape as /api/ask; reflects real pipeline states until the
   // dataset reaches a terminal one (or the sheet closes).
   try {
-    const res = await fetch('/api/brains/' + encodeURIComponent(name) + '/events?timeout_s=600');
+    const res = await fetch('/api/brains/' + encodeURIComponent(name) + '/events?timeout_s=600',
+                            { headers: await authHeaders() });
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = '';
