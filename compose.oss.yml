@@ -20,16 +20,21 @@ services:
   cognee-oss:
     image: cognee/cognee:1.6.1
     container_name: cognee-oss
+    restart: unless-stopped
     ports:
       - "8888:8000"
     env_file:
       - .env.oss
     volumes:
       - cognee_oss_state:/app/.cognee
+    # O2: without this, a host reboot starts the app before Postgres is
+    # ready, and the app's one-shot storage.init degrades it for its whole
+    # lifetime (now also self-heals via retry — belt and suspenders).
 
   postgres:
     image: postgres:17-alpine
     container_name: kestrel-db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: kestrel
       POSTGRES_PASSWORD: kestrel
@@ -38,6 +43,12 @@ services:
       - "5433:5432"
     volumes:
       - kestrel_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kestrel -d kestrel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 volumes:
   cognee_oss_state:

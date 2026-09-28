@@ -96,20 +96,34 @@ def verify_token(token: str) -> dict | None:
         key = next(k for k in jwks.get("keys", []) if k.get("kid") == headers.get("kid"))
         from jwt import PyJWK
 
+        # S4: pin the issuer when configured — any RS256 token from the JWKS
+        # key is not automatically OUR session (cross-template replay).
+        decode_kw: dict = {
+            "algorithms": ["RS256"],
+            "options": {"verify_aud": False, "require": ["exp"]},
+            "leeway": 10,
+        }
+        if issuer():
+            decode_kw["issuer"] = issuer()
         payload = jwt.decode(
             token,
             PyJWK.from_dict(key).key,
-            # LOW-7: never take the algorithm from the token header, and
+            **decode_kw,  # LOW-7: never take the algorithm from the token header, and
             # require expiry — an unexpiring token is a forever-token.
-            algorithms=["RS256"],
-            options={"verify_aud": False, "require": ["exp"]},
-            leeway=10,
         )
     except Exception:  # noqa: BLE001 - fail closed on any verification problem
         return None
 
-    org = payload.get("o") or {}   # Clerk active-organization claim
+    # S4: Clerk's org claim shape varies (active-org "o" object, occasionally
+    # a top-level org_id string or orgs array). Accept the known shapes;
+    # anything else is org-less, never someone else's org.
+    org = payload.get("o") or {}
     org_id = org.get("id") if isinstance(org, dict) else None
+    if not org_id and isinstance(payload.get("org_id"), str):
+        org_id = payload["org_id"]
+    if not org_id and isinstance(payload.get("orgs"), list) \
+            and len(payload["orgs"]) == 1 and isinstance(payload["orgs"][0], dict):
+        org_id = payload["orgs"][0].get("id")
     return {"user_id": payload.get("sub"), "org_id": org_id}
 
 

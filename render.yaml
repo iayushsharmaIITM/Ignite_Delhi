@@ -29,6 +29,19 @@ services:
     envVars:
       - key: PROVIDER
         value: cloud
+      # O1: fail-closed authz (SEC-2) turns a missing database into a 403 on
+      # every brain + 503 on chat writes behind a green /health. Any deploy
+      # from this file with AUTH_MODE=clerk MUST set DATABASE_URL (managed
+      # Postgres) alongside the Clerk vars below — boot refuses to start
+      # clerk mode without a JWKS URL, but only a live probe proves the DB.
+      - key: DATABASE_URL
+        sync: false
+      # - key: AUTH_MODE
+      #   value: clerk
+      # - key: CLERK_SECRET_KEY
+      #   sync: false
+      # - key: CLERK_JWKS_URL
+      #   sync: false
       - key: COGNEE_SERVICE_URL
         sync: false
       - key: COGNEE_API_KEY

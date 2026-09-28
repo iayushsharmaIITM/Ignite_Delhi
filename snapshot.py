@@ -99,8 +99,13 @@ def main() -> int:
             continue
 
         data = lean(graph)
+        # O8: per-brain files atomically too (LOW-8 only covered the
+        # manifest) — an interrupted export truncated a brain snapshot and
+        # broke /api/graph for it until a manual re-export.
         path = OUT / f"{name}.json"
-        path.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
+        tmp = OUT / f".{name}.json.tmp"
+        tmp.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
+        tmp.replace(path)
 
         manifest["brains"][name] = {
             "nodes": len(data["nodes"]),

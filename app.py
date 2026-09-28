@@ -30,6 +30,7 @@ import asyncio
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -59,6 +60,59 @@ from memory_layer import recall  # noqa: E402
 from summarizer import summarize_history  # noqa: E402
 
 app = FastAPI(title="Kestrel Company Brain")
+
+
+# S9: response hardening. No CSP — the pages run inline scripts throughout,
+# blocking CSP would white-screen the product; the safe headers (framing,
+# sniffing, referrer) cost nothing. HSTS is intentionally absent: this tier
+# also serves plain-HTTP localhost, where it would do harm.
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    return resp
+
+
+# S5: per-identity cost guard. llm_calls metering can count spend, but nothing
+# STOPPED spend: any valid identity could stream asks (each a hedged LLM
+# recall), 5MB x 40 uploads, or 900s event polls without bound. Token-bucket
+# per key, process-local (single-worker tier; a multi-worker deploy needs a
+# shared bucket — flagged for P4). Generous defaults; env overrides; the
+# battery (AUTH_MODE=off, local caller) never trips them.
+_RATE_BUCKETS: dict = {}
+_RATE_LOCK = threading.Lock()
+
+
+def _rate_limit(key: str, capacity: int, per_seconds: int) -> bool:
+    """True when the call may proceed (token consumed); False when limited."""
+    now = time.time()
+    with _RATE_LOCK:
+        tokens, stamp = _RATE_BUCKETS.get(key, (float(capacity), now))
+        tokens = min(float(capacity), tokens + (now - stamp) * capacity / per_seconds)
+        if tokens < 1.0:
+            _RATE_BUCKETS[key] = (tokens, now)
+            return False
+        _RATE_BUCKETS[key] = (tokens - 1.0, now)
+        return True
+
+
+def _caller_key(request: Request) -> str:
+    ident = getattr(request.state, "identity", None) or {}
+    client = getattr(request, "client", None)
+    return str(ident.get("user_id") or ident.get("org_id")
+               or request.headers.get("authorization", "")[:32]
+               or (client.host if client else "local"))
+
+
+def _check_rate(request: Request, scope: str) -> None:
+    defaults = {"ask": 60, "upload": 20, "events": 30}
+    cap = int(os.getenv(f"RATE_{scope.upper()}_PER_MIN",
+                        str(defaults.get(scope, 60))))
+    if not _rate_limit(f"{scope}:{_caller_key(request)}", cap, 60):
+        raise HTTPException(status_code=429,
+                            detail="Rate limit exceeded — slow down and retry.")
 
 # One shared stylesheet and sidebar for every page. Serving them from /static
 # means the shell is written once instead of pasted into four HTML files.
@@ -93,7 +147,7 @@ DEMO_DATASET = memory_layer.default_dataset()
 # boring. Normalised rather than rejected where possible: a user typing
 # "Acme Corp!" should get acme_corp, not an error.
 BRAIN_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_]{2,39}$")
-RESERVED_NAMES = {DEMO_DATASET, "default_dataset", "company_brain"}
+# (RESERVED_NAMES lives below normalize_brain_name — it holds normalized names.)
 
 # H5: request-size limits. The honest client sends ~1 question and 3 turns of
 # context, so these are generous - they exist to bound the API, not the user.
@@ -217,6 +271,13 @@ def safe_dataset(raw: str | None) -> str:
     return normalize_brain_name(raw or "") or DEMO_DATASET
 
 
+# S8: compared against NORMALIZED names — so the set holds normalized names.
+# A raw COGNEE_DATASET like "Acme-Demo" would otherwise leave its normalized
+# twin ("acme_demo") creatable/deletable past this guard.
+RESERVED_NAMES = {normalize_brain_name(DEMO_DATASET) or DEMO_DATASET,
+                  "default_dataset", "company_brain"}
+
+
 def _pipeline_state(payload) -> str:
     """Pull one readable state out of Cognee's per-dataset status map.
 
@@ -324,11 +385,25 @@ def _load_graph(dataset: str | None = None):
     for path in candidates:
         try:
             with open(path, encoding="utf-8") as fh:
-                return json.load(fh), "fixture"
+                data = json.load(fh)
         except FileNotFoundError:
             continue
         except Exception as exc:  # noqa: BLE001
             cloud_error = f"{cloud_error}; {path.name}: {exc}"[:300]
+            continue
+        # S10: snapshots are committed JSON (and tenant payloads pass through
+        # here too) — validate shape and size before serving to every reader.
+        # A truncated export or a compromised payload otherwise 500s/OOMs here.
+        try:
+            nodes, edges = data.get("nodes"), data.get("edges")
+            if not isinstance(nodes, list) or not isinstance(edges, list):
+                raise ValueError("snapshot must hold nodes[]/edges[]")
+            if len(nodes) > 100_000 or len(edges) > 500_000:
+                raise ValueError("snapshot exceeds sane bounds")
+            return data, "fixture"
+        except Exception as exc:  # noqa: BLE001
+            cloud_error = f"{cloud_error}; {path.name}: bad snapshot ({exc})"[:300]
+            continue
 
     return None, f"cloud: {cloud_error}"[:300]
 
@@ -368,32 +443,54 @@ def health():
         # infrastructure coordinates (no service URL, no DB host).
         "storage": {"storage": storage.status().get("storage")},
     }
-    # Prove the tenant instance is actually reachable, not just configured.
+    # O4: prove the tenant reachable, but NEVER hang the liveness probe on
+    # it — two synchronous tenant calls here once turned tenant slowness
+    # into web-tier restart loops. Cached 30s, refresh failures keep stale.
     if payload["provider"] == "cloud":
-        try:
-            import cognee_cloud
-
-            upstream = cognee_cloud.health()
-            payload["upstream"] = upstream.get("status", "unknown")
-            payload["components"] = {
-                k: v.get("status") for k, v in (upstream.get("components") or {}).items()
-            }
-
-            # The tenant's /health endpoint is UNAUTHENTICATED. It therefore
-            # reports "healthy" even when our API key is wrong — we verified
-            # this by pointing the app at a bad key and watching /health claim
-            # everything was fine while every query returned 401. So probe an
-            # authenticated endpoint too, or this check is worse than useless.
-            try:
-                cognee_cloud.datasets()
-                payload["auth"] = "ok"
-            except Exception as exc:  # noqa: BLE001
-                payload["auth"] = "failed"
-                payload["auth_error"] = str(exc)[:160]
-        except Exception as exc:  # noqa: BLE001 - health must never raise
-            payload["upstream"] = "unreachable"
-            payload["upstream_error"] = str(exc)[:200]
+        payload.update(_upstream_cached())
     return payload
+
+
+_UPSTREAM_CACHE: dict = {"at": 0.0, "payload": {"upstream": "unknown"}}
+_UPSTREAM_TTL = 30.0
+
+
+def _upstream_cached() -> dict:
+    now = time.time()
+    if now - _UPSTREAM_CACHE["at"] < _UPSTREAM_TTL:
+        return dict(_UPSTREAM_CACHE["payload"])
+    # Prove the tenant instance is actually reachable, not just configured.
+    fresh: dict = {}
+    try:
+        import cognee_cloud
+
+        upstream = cognee_cloud.health()
+        fresh["upstream"] = upstream.get("status", "unknown")
+        fresh["components"] = {
+            k: v.get("status") for k, v in (upstream.get("components") or {}).items()
+        }
+
+        # The tenant's /health endpoint is UNAUTHENTICATED. It therefore
+        # reports "healthy" even when our API key is wrong — we verified
+        # this by pointing the app at a bad key and watching /health claim
+        # everything was fine while every query returned 401. So probe an
+        # authenticated endpoint too, or this check is worse than useless.
+        try:
+            cognee_cloud.datasets()
+            fresh["auth"] = "ok"
+        except Exception as exc:  # noqa: BLE001
+            fresh["auth"] = "failed"
+            fresh["auth_error"] = str(exc)[:160]
+    except Exception as exc:  # noqa: BLE001 - health must never raise
+        # Refresh failed: keep serving the last good reading (or "unknown"
+        # on first boot) rather than hanging the probe on a sick tenant.
+        if _UPSTREAM_CACHE["payload"].get("upstream") == "unknown":
+            fresh = {"upstream": "unreachable", "upstream_error": str(exc)[:200]}
+        else:
+            return dict(_UPSTREAM_CACHE["payload"])
+    _UPSTREAM_CACHE["at"] = now
+    _UPSTREAM_CACHE["payload"] = fresh
+    return dict(fresh)
 
 
 # --------------------------------------------------------------------------
@@ -430,14 +527,25 @@ async def chats_upsert(request: Request):
     org = identity.get("org_id") if isinstance(identity, dict) else None
     uid = identity.get("user_id") if isinstance(identity, dict) else None
     brain = request.query_params.get("brain") or record.get("brain")
-    return storage.upsert_chat(record, org=org, brain=brain, created_by=uid)
+    # O6: bound the write — an unbounded turns array holds one transaction
+    # inserting thousands of rows and every restore re-reads it all.
+    turns = record.get("turns") or []
+    if len(turns) > 500:
+        raise HTTPException(status_code=413, detail="Too many turns in one chat.")
+    if any(len(t.get("text") or "") > 100_000 for t in turns if isinstance(t, dict)):
+        raise HTTPException(status_code=413, detail="Turn text too large.")
+    try:
+        return storage.upsert_chat(record, org=org, brain=brain, created_by=uid)
+    except storage.OwnershipError:
+        # S1: somebody else's chat id — indistinguishable from missing.
+        raise HTTPException(status_code=404, detail="Chat not found.")
 
 
 @app.get("/api/chats")
 def chats_list(request: Request, brain: str | None = None):
     identity = require_tenant(request)
     if not storage.available():
-        return {"ok": False, "chats": [], "storage": storage.status()}
+        return {"ok": False, "chats": [], "storage": _public_storage()}
     # NEW-3: a client-supplied brain filter is a brain access — gate it.
     if brain:
         brain = safe_dataset(brain)
@@ -445,6 +553,12 @@ def chats_list(request: Request, brain: str | None = None):
     org = identity.get("org_id") if isinstance(identity, dict) else None
     uid = identity.get("user_id") if isinstance(identity, dict) else None
     return {"ok": True, "chats": storage.list_chats(brain, org=org, user_id=uid)}
+
+
+def _public_storage() -> dict:
+    """S6: storage.status() carries the DB host + driver errors — fine for
+    logs, not for API responses. Callers get the status boolean only."""
+    return {"storage": storage.status().get("storage")}
 
 
 @app.get("/api/chats/{chat_id}")
@@ -523,6 +637,8 @@ async def ask(request: Request, q: str, dataset: str | None = None, context: str
     # downstream — one name, one meaning, start to finish.
     dataset = safe_dataset(dataset)
     require_dataset_access(request, dataset)
+    # S5: asks cost inference — bound per caller (generous; see _check_rate).
+    _check_rate(request, "ask")
     # straight into the prompt. Unbounded input is unbounded token cost on every
     # call - a trivial way to inflate the inference bill. Mirrors how
     # documents.py caps uploads: refuse early with a clear reason.
@@ -552,7 +668,9 @@ async def ask(request: Request, q: str, dataset: str | None = None, context: str
                     answer_chars += len(event.get("text") or "")
                 yield json.dumps(event) + "\n"
         except Exception as exc:  # noqa: BLE001 - demo must never white-screen
-            yield json.dumps({"stage": "error", "message": str(exc)}) + "\n"
+            # S6: truncate — the untruncated tenant traceback/paths/SQL used
+            # to echo to every caller on this one path.
+            yield json.dumps({"stage": "error", "message": str(exc)[:300]}) + "\n"
         yield json.dumps({"stage": "done"}) + "\n"
         # metering (P2): estimates = chars/4; the true provider usage lives in
         # the provider dashboard until a usage-exposing recall path exists
@@ -702,25 +820,41 @@ async def create_brain(
             detail=f"'{safe}' is reserved. Please choose another name.",
         )
 
-    require_dataset_access(request, safe)
-
     import cognee_cloud
+
+    # Identity first, always: the exists() probe below hits the tenant, and
+    # branching on its result before gating would turn name-existence into an
+    # oracle for unauthenticated callers.
+    identity = require_tenant(request)
 
     # Refuse to merge into an existing brain UNLESS the caller explicitly asked
     # to. Silently appending to a brain the user thinks is new would produce
     # answers from documents they never saw — so the 409 is the default, and
     # `append=True` is the opt-in the UI offers once the user has been told.
     already_exists = cognee_cloud.exists(safe)
-    if already_exists and not append:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"A brain called '{safe}' already exists. Add to it instead, "
-                "or pick another name."
-            ),
-        )
+    if already_exists:
+        # Appending to SOMEONE ELSE'S dataset must fail closed — the owner
+        # check applies to the existing brain.
+        require_dataset_access(request, safe)
+        if not append:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A brain called '{safe}' already exists. Add to it instead, "
+                    "or pick another name."
+                ),
+            )
+    else:
+        # S3: a genuinely new brain has no ownership row by definition — the
+        # SEC-2 fail-closed rule would 403 every legitimate create. Any
+        # authenticated identity may found a brain (identity already gated
+        # above); ownership is stamped at success (SEC-9) so the second
+        # request already answers to it.
+        pass
 
     # Cap the count before reading anything, then cap each file WHILE reading it.
+    # S5: uploads cost embedding + LLM — bound per caller like asks.
+    _check_rate(request, "upload")
     if len(files) > documents.MAX_FILES:
         raise HTTPException(
             status_code=413,
@@ -825,6 +959,8 @@ async def brain_events(request: Request, name: str, timeout_s: int = 600):
     # (same edge rule as every other route), then authorize.
     name = safe_dataset(name)
     require_dataset_access(request, name)
+    # S5: a 900s held connection per call — bound per caller.
+    _check_rate(request, "events")
     """Stream ingestion progress as newline-delimited JSON.
 
     Deliberately the same streaming shape /api/ask already proved, rather than
@@ -927,6 +1063,10 @@ def delete_brain(request: Request, name: str):
         raise HTTPException(status_code=400, detail=str(exc)[:300]) from exc
     if not removed:
         raise HTTPException(status_code=404, detail=f"No brain called '{name}'.")
+    # S2: the dataset is gone — release the name. Without this the ownership
+    # row squats the name and a later re-create by anyone 403s on it.
+    if auth.active():
+        storage.unregister_brain(safe)
     return {"ok": True, "deleted": safe}
 
 
@@ -1027,6 +1167,22 @@ def upload_page():
 
 if __name__ == "__main__":
     import uvicorn
+
+    # O7: a missing JWKS URL in clerk mode is a silent total outage (every
+    # token 401s behind a green /health). Fail LOUD at boot instead.
+    if auth.mode() == "clerk" and not auth.jwks_url():
+        raise SystemExit(
+            "AUTH_MODE=clerk but no CLERK_JWKS_URL (or CLERK_ISSUER) is set — "
+            "every request would 401. Refusing to boot.")
+    if auth.mode() == "clerk":
+        print(f"auth: clerk mode, JWKS {auth.jwks_url()}", flush=True)
+    if not storage.available():
+        print("storage: Postgres unavailable — chats fall back to "
+              "localStorage; Clerk-mode brains will 403 until it connects.",
+              flush=True)
+
+    # Render injects PORT and requires binding to 0.0.0.0. Locally we want
+    # 127.0.0.1. Same file works in both places with these two defaults.
 
     # Render injects PORT and requires binding to 0.0.0.0. Locally we want
     # 127.0.0.1. Same file works in both places with these two defaults.

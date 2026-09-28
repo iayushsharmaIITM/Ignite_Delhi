@@ -84,6 +84,29 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
+## Round 2 — 20 new ops/security finds — DONE 2026-09-28
+
+Second hunt (ops-failure + security-2nd-pass lenses) found 20, all fixed +
+proven except where noted OWNER ACTION:
+- S1 upsert-hijack guard (OwnershipError→404) · S2 unregister-on-delete ·
+  S3 create-vs-append split (fail-closed overshoot broke ALL creates — fixed:
+  identity-first, owner-check only on existing) · S4 iss-pin + org claim
+  fallbacks · S6 error truncation + storage-status redaction · S7 demo
+  fallback key · S8 normalized RESERVED · S9 safe response headers +
+  per-identity token buckets (ask 60/upload 20/events 30 per min, env
+  overridable) · S10 snapshot read validation.
+- O2 storage self-heal retry + compose restart/healthcheck · O4 cached
+  upstream probe (30s TTL, stale-on-failure) · O5 llm_calls index + 180d
+  purge · O6 upsert caps (500 turns, 100k chars) · O7 clerk-misconfig boot
+  refusal + audibility · O8 per-file atomic snapshots · O1 render.yaml
+  DATABASE_URL/Auth placeholders.
+- Battery green again (25/25, 13/13, 10/10, 4/4, 5/5 isolated, UI clean).
+- OWNER ACTION required: O3 — fixtures/uploads.json commits a Bedrock key
+  fragment + account id. Rotate the key, scrub history; migrating the
+  manifest to a gitignored path is a follow-up call (breaks existing
+  citations without migration). O9 (ingest receipts/resume) is a design
+  task, recommended for P4.
+
 ## Owner decisions 1–4 — DONE 2026-09-28
 
 1. Legacy chats → owner org (b): 26 NULL rows stamped
