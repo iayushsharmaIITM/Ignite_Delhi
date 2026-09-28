@@ -156,15 +156,20 @@ def _status_values(state: Any):
     but also has a flat shape, so accept both.
     """
     if isinstance(state, dict):
+        # Bare {"<uuid>": "<STATE>"} shape (measured 2026-09-25: the cloud
+        # tenant returns this when include_error_detail is absent). Yield bare
+        # strings ONLY for a homogeneously string-valued map — a mixed payload
+        # like {"<uuid>": {...}, "message": "..."} must not contribute its
+        # message/error text, or terminal_kind's keyword fallback would treat
+        # prose containing "completed"/"failed" as a pipeline state (the exact
+        # whole-blob class terminal_kind's docstring warns about).
+        bare = all(isinstance(v, str) for v in state.values())
         for key, value in state.items():
             if isinstance(value, dict):
                 status = value.get("status")
                 if isinstance(status, str):
                     yield status
-            elif isinstance(value, str) and key != "status":
-                # Bare {"<uuid>": "<STATE>"} shape: the cloud tenant returns
-                # this when include_error_detail is absent (measured
-                # 2026-09-25), and OSS may return it always. Accept it.
+            elif bare and isinstance(value, str) and key != "status":
                 # (key != "status" so the flat {"status": ...} shape below
                 # yields exactly once.)
                 yield value
@@ -339,14 +344,21 @@ def wait_ready(name: Optional[str] = None, timeout_s: int = 900, interval: int =
 
     TRAP 3: querying mid-ingest returns a confident, wrong answer. Never ask a
     question of a graph you have not finished building.
+
+    COR-2: a terminal FAILURE is not "ready" — it raises, so callers
+    (ingest.py) can refuse to snapshot a failed graph instead of printing
+    "Graph ready" over one.
     """
     key = resolve_id(name)
     deadline = time.time() + timeout_s
     last: Any = None
     while time.time() < deadline:
         state = status(key)
-        if is_terminal(state):
+        kind = terminal_kind(state)
+        if kind == "success":
             return state
+        if kind == "failure":
+            raise CogneeCloudError(f"Dataset {name!r} pipeline FAILED: {state}")
         last = state
         time.sleep(interval)
     raise CogneeCloudError(f"Dataset {name!r} not ready after {timeout_s}s. Last: {last}")
@@ -372,9 +384,11 @@ def recall(query: str, name: Optional[str] = None, search_type: str = GRAPH_COMP
     if top_k:
         body["topK"] = top_k
 
-    # Retries transient upstream failures (402 budget flaps, 429, 5xx) — a
-    # hosted provider pool rejects intermittently under load, and one flap
-    # must not kill a recall that runs multiple LLM calls internally.
+    # Retries transient upstream failures (429, 5xx) — a hosted provider pool
+    # rejects intermittently under load, and one flap must not kill a recall
+    # that runs multiple LLM calls internally. H9: 402 is a BILLING refusal,
+    # not a transient — retrying it twice burns minutes and changes nothing,
+    # so it fails fast like any other 4xx.
     last_err: Optional[str] = None
     for attempt in range(3):
         resp = requests.post(
@@ -383,7 +397,7 @@ def recall(query: str, name: Optional[str] = None, search_type: str = GRAPH_COMP
         if resp.status_code < 400:
             payload = resp.json()
             return payload if isinstance(payload, list) else [payload]
-        if resp.status_code in (402, 429) or resp.status_code >= 500:
+        if resp.status_code == 429 or resp.status_code >= 500:
             last_err = f"HTTP {resp.status_code} — {resp.text[:160]}"
             time.sleep(6 * (attempt + 1))
             continue

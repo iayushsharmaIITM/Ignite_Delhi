@@ -76,13 +76,20 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
         name, strategy = RACERS[0]
         yield {"stage": "step", "label": f"Delegating to {name}"}
         t0 = time.time()
+        # COR-3: recall takes 5 params — the old 6-positional call raised
+        # TypeError on every ask with the race disabled.
         results = await asyncio.to_thread(
-            cognee_cloud.recall, query, dataset, strategy if not smalltalk else None,
-            None, None, not smalltalk)
+            cognee_cloud.recall, query, dataset, strategy)
         yield {"stage": "step", "label": f"{name} returned",
                "ms": int((time.time() - t0) * 1000)}
     else:
         # --- Sub-agents: retrieval racers, simultaneously ---------------------
+        # H3, honestly: cancelling a to_thread await does NOT stop the worker
+        # thread — both recalls run to completion and both burn tokens. The
+        # p.cancel() below only detaches the loser so the winner streams
+        # sooner; the race trades ~2x retrieval tokens for first-answer
+        # latency. Cost-saving lever: KESTREL_RACE_RETRIEVAL=0 runs a single
+        # GRAPH_COMPLETION retrieval instead (no double spend, slower tail).
         tasks = {
             asyncio.ensure_future(
                 asyncio.to_thread(cognee_cloud.recall, query, dataset, strategy)
@@ -160,7 +167,8 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
         yield {"stage": "step", "label": f"Citations agent: resolving {len(items)} references"}
         rt0 = time.time()
         refs_task = asyncio.ensure_future(
-            asyncio.to_thread(citations.enrich, items, dataset or "company_brain"))
+            # COR-5: never re-type the demo name — one constant, one import.
+            asyncio.to_thread(citations.enrich, items, dataset or cognee_cloud.dataset()))
 
     # stream the prose without artificial pacing — the answer already exists;
     # every ms of sleep here is a ms the user waits for text they could read
@@ -175,11 +183,19 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
     yield {"stage": "done", "ms": int((time.time() - t_start) * 1000)}
 
     if refs_task is not None:
-        enriched = await refs_task
-        grounded = sum(1 for e in enriched if e.get("source"))
-        yield {"stage": "step", "label": f"Grounded in {grounded} sources",
-               "ms": int((time.time() - rt0) * 1000)}
-        yield {"type": "references", "items": enriched}
+        # COR-4: citations are an optional enrichment — their failure must
+        # never fail the stream. The answer already went out with `done`; a
+        # refs lookup that blows up here used to append a false
+        # "connection dropped mid-answer" trailer to a COMPLETE answer.
+        try:
+            enriched = await refs_task
+        except Exception:  # noqa: BLE001 - answer stands, chips just absent
+            enriched = []
+        if enriched:
+            grounded = sum(1 for e in enriched if e.get("source"))
+            yield {"stage": "step", "label": f"Grounded in {grounded} sources",
+                   "ms": int((time.time() - rt0) * 1000)}
+            yield {"type": "references", "items": enriched}
 
     await prewarm  # never raises (internally guarded)
 
@@ -236,7 +252,11 @@ def _classify(query: str) -> str:
         )
         resp.raise_for_status()
         word = (resp.json()["choices"][0]["message"].get("content") or "").strip().upper()
-        if "CHAT" in word:
+        # COR-7: the reply must BE the token, not merely contain it — a
+        # negation ("not a chat request") contains CHAT and flipped the route,
+        # silently skipping retrieval for a real question.
+        first = word.split()[0] if word.split() else ""
+        if first == "CHAT":
             return "chat"
         return "brain"   # BRAIN, or anything ambiguous: the safe default
     except Exception:  # noqa: BLE001 - router down: retrieval is the safe default

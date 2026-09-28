@@ -51,8 +51,11 @@ def setup():
 
 
 def token(user: str, org: str | None) -> str:
+    # Realistic Clerk shape: RS256 + kid header and an expiry (verify
+    # requires exp — an unexpiring token is a forever-token).
     return jwt.encode({"sub": user, "o": {"id": org} if org else None,
-                       "iat": int(time.time())},
+                       "iat": int(time.time()),
+                       "exp": int(time.time()) + 600},
                       _KEY, algorithm="RS256", headers={"kid": _KID})
 
 
@@ -107,9 +110,13 @@ def test_brain_access_rules():
 
 def test_chat_isolation():
     storage.init()
-    storage.upsert_chat({"id": "iso-a", "brain": "acme_isolated", "org_id": "org_A",
+    # SEC-5: ownership is server-stamped (org=...), never taken from the
+    # record — a client-supplied org_id is ignored by contract.
+    storage.upsert_chat({"id": "iso-a", "brain": "acme_isolated",
+                         "org_id": "org_EVIL",
                          "title": "A chat",
-                         "turns": [{"role": "user", "text": "q"}]})
+                         "turns": [{"role": "user", "text": "q"}]},
+                        org="org_A", brain="acme_isolated")
     chats = storage.list_chats("acme_isolated", org="org_B")
     assert all(c["id"] != "iso-a" for c in chats)
     chats = storage.list_chats("acme_isolated", org="org_A")

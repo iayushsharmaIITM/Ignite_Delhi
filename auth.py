@@ -29,7 +29,6 @@ import json
 import os
 import time
 import urllib.request
-from functools import lru_cache
 
 import jwt
 
@@ -53,15 +52,15 @@ def jwks_url() -> str:
     return url or (f"{issuer()}/.well-known/jwks.json" if issuer() else "")
 
 
-@lru_cache(maxsize=4)
 def _fetch_jwks(url: str) -> dict:
-    """Fetch and cache Clerk's public keys for 10 minutes (module-level lru
-    cache is the cache; TTL enforced by comparing the fetch timestamp)."""
+    """Fetch Clerk's public keys. No cache here — `_jwks` below owns the TTL.
+
+    (An lru_cache used to sit on this function, which silently disabled the
+    TTL: cache hits never re-stamped the timestamp, so keys were fetched once
+    per process and a Clerk rotation broke auth until restart.)
+    """
     with urllib.request.urlopen(url, timeout=10) as resp:
-        keys = json.loads(resp.read().decode())
-    _JWKS_DATA[url] = keys
-    _JWKS_TS[url] = time.time()
-    return keys
+        return json.loads(resp.read().decode())
 
 
 _JWKS_TS: dict = {}
@@ -71,7 +70,8 @@ _JWKS_TTL = 600
 def _jwks(url: str) -> dict:
     ts = _JWKS_TS.get(url)
     if not ts or time.time() - ts > _JWKS_TTL or url not in _JWKS_DATA:
-        return _fetch_jwks(url)
+        _JWKS_DATA[url] = _fetch_jwks(url)
+        _JWKS_TS[url] = time.time()
     return _JWKS_DATA[url]
 
 
@@ -99,8 +99,10 @@ def verify_token(token: str) -> dict | None:
         payload = jwt.decode(
             token,
             PyJWK.from_dict(key).key,
-            algorithms=[headers.get("alg", "RS256")],
-            options={"verify_aud": False},
+            # LOW-7: never take the algorithm from the token header, and
+            # require expiry — an unexpiring token is a forever-token.
+            algorithms=["RS256"],
+            options={"verify_aud": False, "require": ["exp"]},
             leeway=10,
         )
     except Exception:  # noqa: BLE001 - fail closed on any verification problem

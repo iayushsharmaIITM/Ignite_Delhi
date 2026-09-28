@@ -110,11 +110,27 @@ def record_upload(dataset: str, documents: list) -> None:
             manifest = {}
 
         entry = manifest.setdefault(dataset, {})
+        collisions = manifest.setdefault("_collisions", {})
         for doc in documents:
             text = doc.get("text") or ""
             name = doc.get("name")
-            if name and text:
-                entry[_fingerprint(text)] = name
+            if not (name and text):
+                continue
+            # COR-8: first writer wins within a dataset, and a collision is
+            # recorded visibly instead of silently overwriting — a citation
+            # must never resolve to the wrong file quietly. (Resolution
+            # already prefers the tenant's stored real names; the fingerprint
+            # is only the fallback for text_<hash> items.)
+            fp = _fingerprint(text)
+            prior = entry.get(fp)
+            if prior is None:
+                entry[fp] = name
+            elif prior != name:
+                key = f"{dataset}::{fp[:32]}"
+                seen = collisions.setdefault(key, [])
+                for n in (prior, name):
+                    if n not in seen:
+                        seen.append(n)
 
         try:
             os.makedirs(os.path.dirname(UPLOADS), exist_ok=True)
@@ -194,10 +210,23 @@ def for_dataset(dataset: str) -> dict:
     try:
         resolved = _fetch_map(dataset)
     except Exception:  # noqa: BLE001 - citations are an enhancement, never fatal
-        resolved = {}
+        # H4: never cache a failure. Caching {} poisoned source resolution for
+        # the full TTL after a single transient blip — return the stale map if
+        # there is one, else empty, and let the next call retry fresh.
+        with _lock:
+            hit = _cache.get(dataset)
+            return hit[1] if hit else {}
     with _lock:
         _cache[dataset] = (now, resolved)
+        _bound(_cache)
     return resolved
+
+
+def _bound(cache: dict, limit: int = 50) -> None:
+    """H6: cap process-lifetime caches — dataset keys are caller-influenced,
+    so an unbounded map is a memory leak per unique name."""
+    while len(cache) > limit:
+        cache.pop(next(iter(cache)))
 
 
 def _data_items_cached(dataset: str) -> dict:
@@ -215,6 +244,7 @@ def _data_items_cached(dataset: str) -> dict:
         if i.get("id")
     }
     _items_cache[dataset] = (now, m)
+    _bound(_items_cache)
     return m
 
 
@@ -232,21 +262,31 @@ def prewarm(dataset: str) -> None:
         if ev is None:
             ev = threading.Event()
             _prewarm_events[dataset] = ev
+            _bound(_prewarm_events)
             owner = True
         else:
             owner = False
     if not owner:
-        ev.wait(timeout=60)
+        # H5: bounded join — the trailing citations wait was up to 60s for a
+        # best-effort enrichment that already missed its overlap window.
+        ev.wait(timeout=15)
         return
     try:
         _prewarm_fill(dataset)
     finally:
         ev.set()
+        # H6: drop the event once set — waiters hold their own ref; late
+        # joiners simply become owners. Otherwise one entry leaks per dataset
+        # name, and names are caller-influenced.
+        with _prewarm_lock:
+            if _prewarm_events.get(dataset) is ev:
+                del _prewarm_events[dataset]
 
 
 def _prewarm_fill(dataset: str) -> None:
     items_map = _data_items_cached(dataset)
     store = _id_cache.setdefault(dataset, {})
+    _bound(_id_cache)
     missing = [d for d in items_map if d not in store]
     if not missing:
         return
@@ -290,8 +330,14 @@ def enrich(references: list, dataset: str) -> list:
     if not references:
         return []
     dataset = dataset or "default"
-    items_map = _data_items_cached(dataset)
+    # COR-4: the id map is best-effort — a lookup failure here used to
+    # propagate past `done` and mislabel a complete answer as dropped.
+    try:
+        items_map = _data_items_cached(dataset)
+    except Exception:  # noqa: BLE001
+        items_map = {}
     store = _id_cache.setdefault(dataset, {})
+    _bound(_id_cache)
 
     cited = []
     seen = set()
@@ -303,34 +349,40 @@ def enrich(references: list, dataset: str) -> list:
 
     # if a prewarm for this dataset is running (the orchestrator started it
     # when the question arrived), join it — its fetches overlapped the
-    # retrieval, so this wait is usually 0s
+    # retrieval, so this wait is usually 0s (bounded at 15s per H5).
     ev = _prewarm_events.get(dataset)
     if ev and not ev.is_set():
-        ev.wait(timeout=60)
+        ev.wait(timeout=15)
 
     missing = [d for d in cited if d not in store]
     if missing:
-        import cognee_cloud
+        # COR-4 (cont.): resolving the dataset itself can fail (unknown
+        # dataset, tenant down) — that must yield unresolved refs, not raise.
+        try:
+            import cognee_cloud
 
-        dataset_id = cognee_cloud.resolve_id(dataset)
-        corpus = _corpus_fingerprints()
-        corpus.update(_upload_fingerprints(dataset))
+            dataset_id = cognee_cloud.resolve_id(dataset)
+        except Exception:  # noqa: BLE001
+            dataset_id = None
+        if dataset_id is not None:
+            corpus = _corpus_fingerprints()
+            corpus.update(_upload_fingerprints(dataset))
 
-        def fetch(did):
-            try:
-                raw = cognee_cloud.data_raw(dataset_id, did)
-            except Exception:  # noqa: BLE001 - a missing raw must not break the answer
-                raw = None
-            excerpt = re.sub(r"\s+", " ", raw or "").strip()
-            named = (items_map.get(did) or "").strip()
-            named = None if _GENERATED_NAME_RE.match(named) else (named or None)
-            store[did] = {
-                "source": named or corpus.get(_fingerprint(raw)),
-                "excerpt": excerpt[:220],
-            }
+            def fetch(did):
+                try:
+                    raw = cognee_cloud.data_raw(dataset_id, did)
+                except Exception:  # noqa: BLE001 - a missing raw must not break the answer
+                    raw = None
+                excerpt = re.sub(r"\s+", " ", raw or "").strip()
+                named = (items_map.get(did) or "").strip()
+                named = None if _GENERATED_NAME_RE.match(named) else (named or None)
+                store[did] = {
+                    "source": named or corpus.get(_fingerprint(raw)),
+                    "excerpt": excerpt[:220],
+                }
 
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            list(pool.map(fetch, missing))
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                list(pool.map(fetch, missing))
 
     out = []
     for ref in references:

@@ -145,19 +145,28 @@ def require_tenant(request: Request):
 
 
 def brain_allowed(request: Request, brain: str) -> None:
-    """P3 brain authorization: shared brains (demo + company_brain) readable
-    by every authenticated identity; user-created brains only by their org
-    (or the creator when org-less). No-op when auth is off."""
+    """P3 brain authorization: shared brains readable by every authenticated
+    identity; user-created brains only by their org, or by the creator when
+    org-less (SEC-8). No-op when auth is off.
+
+    SEC-2: fail CLOSED. An unknown brain (no row — script-ingested, pre-P3,
+    ops-created) is 403, not allowed. The demo dataset is the one explicit
+    allow: it predates ownership rows and must keep working, including during
+    a Postgres outage (row lookup failure also lands here as None)."""
     if not auth.active():
         return
     identity = getattr(request.state, "identity", None) or {}
+    if brain == DEMO_DATASET:
+        return
     org = identity.get("org_id")
     rec = storage.brain_access(brain)
     if rec is None:
-        return   # nothing stored about this brain yet: demo data
+        raise HTTPException(status_code=403, detail="Unknown brain.")
     if rec.get("is_shared"):
         return
     if rec.get("org_id") and rec.get("org_id") == org:
+        return
+    if rec.get("created_by") and rec.get("created_by") == identity.get("user_id"):
         return
     raise HTTPException(status_code=403,
                         detail="This brain belongs to another workspace.")
@@ -196,6 +205,17 @@ def normalize_brain_name(raw: str) -> str:
     name = re.sub(r"[^a-z0-9_]", "", name)         # drop anything else
     name = re.sub(r"_{2,}", "_", name).strip("_")  # collapse and trim
     return name if BRAIN_NAME_RE.match(name) else ""
+
+
+def safe_dataset(raw: str | None) -> str:
+    """One name, one meaning, at every route edge (SEC-1/NEW-1).
+
+    Authz looks rows up exactly and rows are stored normalized, so every
+    handler must authorize the NORMALIZED name and then use that same name
+    downstream. Unnormalizable input falls back to the demo dataset — the
+    same default the routes already used for a missing name.
+    """
+    return normalize_brain_name(raw or "") or DEMO_DATASET
 
 
 def _pipeline_state(payload) -> str:
@@ -275,7 +295,9 @@ def _load_graph(dataset: str | None = None):
     `fixtures/graph.json` is the original single-brain snapshot and is still
     honoured for the demo, so an older checkout keeps working.
     """
-    target = dataset or DEMO_DATASET
+    # SEC-6: normalize at the edge (a traversal maps to a plain wrong-brain
+    # name, never a path) and confine every candidate inside BRAINS_DIR.
+    target = safe_dataset(dataset)
     cloud_error = None
 
     try:
@@ -285,9 +307,20 @@ def _load_graph(dataset: str | None = None):
     except Exception as exc:  # noqa: BLE001
         cloud_error = str(exc)[:200]
 
-    candidates = [BRAINS_DIR / f"{target}.json"]
-    if target == DEMO_DATASET:
-        candidates.append(GRAPH_FIXTURE)   # legacy single-brain snapshot
+    base = BRAINS_DIR.resolve()
+    legacy = Path(GRAPH_FIXTURE).resolve()
+    candidates = []
+    for cand in [BRAINS_DIR / f"{target}.json"] + (
+            [GRAPH_FIXTURE] if target == DEMO_DATASET else []):
+        try:
+            resolved = cand.resolve()
+        except Exception:  # noqa: BLE001 - unresolvable path: skip it
+            continue
+        # Confined to BRAINS_DIR — except the legacy single-brain snapshot,
+        # which lives one level up by design and is allow-listed exactly.
+        if resolved.parent != base and resolved != legacy:
+            continue
+        candidates.append(cand)
 
     for path in candidates:
         try:
@@ -332,8 +365,9 @@ def health():
         "ok": True,
         "provider": memory_layer.PROVIDER,
         "dataset": DEMO_DATASET,
-        "service": os.getenv("COGNEE_SERVICE_URL", ""),
-        "storage": storage.status(),
+        # LOW-5: /health is unauthenticated — it reports status booleans, not
+        # infrastructure coordinates (no service URL, no DB host).
+        "storage": {"storage": storage.status().get("storage")},
     }
     # Prove the tenant instance is actually reachable, not just configured.
     if payload["provider"] == "cloud":
@@ -382,13 +416,21 @@ def config():
 
 @app.post("/api/chats")
 async def chats_upsert(request: Request):
-    require_tenant(request)
-    record = await request.json()
+    identity = require_tenant(request)
+    # LOW-6: malformed JSON must be 400, not 500.
+    try:
+        record = await request.json()
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="Request body must be JSON.")
     if not record.get("id"):
         raise HTTPException(status_code=422, detail="chat id required")
     if not storage.available():
         raise HTTPException(status_code=503, detail="storage unavailable")
-    return storage.upsert_chat(record)
+    # SEC-5/NEW-4: stamp ownership + brain server-side; the record's own
+    # org_id is ignored (storage.upsert_chat takes the stamped values).
+    org = identity.get("org_id") if isinstance(identity, dict) else None
+    brain = request.query_params.get("brain") or record.get("brain")
+    return storage.upsert_chat(record, org=org, brain=brain)
 
 
 @app.get("/api/chats")
@@ -396,35 +438,54 @@ def chats_list(request: Request, brain: str | None = None):
     identity = require_tenant(request)
     if not storage.available():
         return {"ok": False, "chats": [], "storage": storage.status()}
-    org = identity.get("org_id") if auth.active() else None
+    # NEW-3: a client-supplied brain filter is a brain access — gate it.
+    if brain:
+        brain = safe_dataset(brain)
+        require_dataset_access(request, brain)
+    org = identity.get("org_id") if isinstance(identity, dict) else None
     return {"ok": True, "chats": storage.list_chats(brain, org=org)}
 
 
 @app.get("/api/chats/{chat_id}")
 def chats_get(request: Request, chat_id: str):
-    require_tenant(request)
+    identity = require_tenant(request)
     if not storage.available():
         raise HTTPException(status_code=503, detail="storage unavailable")
+    # LOW-11: identity is not ownership — scope the read; 404 (not 403) so a
+    # foreign id is indistinguishable from a missing one.
+    org = identity.get("org_id") if isinstance(identity, dict) else None
+    chat = storage.get_chat(chat_id, org=org) if auth.active() \
+        else storage.get_chat(chat_id)
     # a miss is a normal sync probe (stale local ids), not an error — the UI
     # falls back to localStorage; 404 here would spam the browser console
-    return {"chat": storage.get_chat(chat_id)}
+    return {"chat": chat}
 
 
 @app.delete("/api/chats/{chat_id}")
 def chats_delete(request: Request, chat_id: str):
-    require_tenant(request)
+    identity = require_tenant(request)
     if not storage.available():
         raise HTTPException(status_code=503, detail="storage unavailable")
+    # SEC-4: identity is not ownership — stamped rows need an org match.
+    # 404 either way: foreign ids are indistinguishable from missing ones.
+    if auth.active():
+        org = identity.get("org_id") if isinstance(identity, dict) else None
+        return {"ok": storage.delete_chat(chat_id, org=org)}
     return {"ok": storage.delete_chat(chat_id)}
 
 
 @app.get("/api/usage")
 def usage(request: Request, days: int = 30):
-    require_tenant(request)
+    identity = require_tenant(request)
     days = max(1, min(days, 365))
     if not storage.available():
         return {"ok": False, "usage": []}
-    return {"ok": True, "usage": storage.usage_summary(days)}
+    # LOW-4: scope metering to the caller's org; auth-off keeps the old
+    # platform-wide view.
+    org = identity.get("org_id") if isinstance(identity, dict) else None
+    rows = storage.usage_summary(days, org=org) if auth.active() \
+        else storage.usage_summary(days)
+    return {"ok": True, "usage": rows}
 
 
 @app.post("/api/summarize")
@@ -432,7 +493,10 @@ async def summarize(request: Request):
     """Rolling-history summarization (P2): older turns compressed into a
     stable summary so multi-turn context stays bounded and cache-friendly."""
     require_tenant(request)
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 - malformed JSON is 400, not 500
+        raise HTTPException(status_code=400, detail="Request body must be JSON.")
     older = body.get("older") or []
     if not older:
         return {"summary": ""}
@@ -451,9 +515,10 @@ async def ask(request: Request, q: str, dataset: str | None = None, context: str
     what was already asked — without it, every turn is a cold start and a
     follow-up question has no referent.
     """
+    # SEC-1/NEW-1: authorize the normalized name and use it everywhere
+    # downstream — one name, one meaning, start to finish.
+    dataset = safe_dataset(dataset)
     require_dataset_access(request, dataset)
-
-    # H5: both are unbounded query parameters, and `context` is interpolated
     # straight into the prompt. Unbounded input is unbounded token cost on every
     # call - a trivial way to inflate the inference bill. Mirrors how
     # documents.py caps uploads: refuse early with a clear reason.
@@ -501,6 +566,7 @@ async def ask(request: Request, q: str, dataset: str | None = None, context: str
 @app.get("/api/graph")
 def graph(request: Request, dataset: str | None = None):
     """The knowledge graph, for the graph view."""
+    dataset = safe_dataset(dataset)
     require_dataset_access(request, dataset)
     g, source = _load_graph(dataset)
     if g is None:
@@ -517,8 +583,9 @@ def stats(request: Request, dataset: str | None = None):
     numNodes 0 until a summary run has been computed, which would render as
     a confidently empty graph.
     """
+    dataset = safe_dataset(dataset)
     require_dataset_access(request, dataset)
-    target = dataset or DEMO_DATASET
+    target = safe_dataset(dataset)
     g, source = _load_graph(target)
     if g is None:
         return {"ok": False, "error": source, "dataset": target, "source": "none"}
@@ -537,8 +604,11 @@ def stats(request: Request, dataset: str | None = None):
 # --------------------------------------------------------------------------
 
 @app.get("/api/brains")
-def list_brains():
+def list_brains(request: Request):
     """Every brain on the tenant. Sizes are fetched per row by the dashboard."""
+    # LOW-10: the tenant's brain inventory is per-account data — require a
+    # caller in Clerk mode. Auth-off keeps the old open behavior.
+    require_tenant(request)
     if memory_layer.PROVIDER != "cloud":
         # Offline: list the brains we hold committed snapshots for, rather than
         # an empty list. A deployment with no tenant should still be able to
@@ -657,12 +727,6 @@ async def create_brain(
         (upload.filename or "untitled", await _read_capped(upload, documents.MAX_FILE_BYTES))
         for upload in files
     ]
-    # P3: register ownership when auth is on — org-owned brains are only
-    # reachable by their workspace (brain_allowed enforces it on read)
-    identity = getattr(request.state, "identity", None) or {}
-    if auth.active():
-        storage.register_brain(safe, identity.get("org_id"),
-                               identity.get("user_id"), shared=False)
     if not payload:
         raise HTTPException(status_code=400, detail="No files were uploaded.")
 
@@ -705,6 +769,17 @@ async def create_brain(
             detail=f"None of the documents could be ingested. {reasons}",
         )
 
+    # SEC-9: register ownership only AFTER the dataset is confirmed created.
+    # Registering before validation/extraction left stale owner rows for brains
+    # that never existed — and ON CONFLICT DO NOTHING then credited a later,
+    # successful create by another org to the first failed writer.
+    # P3: org-owned brains are only reachable by their workspace
+    # (brain_allowed enforces it on read).
+    identity = getattr(request.state, "identity", None) or {}
+    if auth.active():
+        storage.register_brain(safe, identity.get("org_id"),
+                               identity.get("user_id"), shared=False)
+
     # Record which filenames went into this brain so its answers can cite the
     # files the user actually chose. The tenant will not store document names
     # for us — `remember` accepts a `filename` field and silently ignores it —
@@ -738,10 +813,14 @@ async def create_brain(
 
 
 @app.get("/api/brains/{name}/events")
-async def brain_events(name: str, timeout_s: int = 600):
+async def brain_events(request: Request, name: str, timeout_s: int = 600):
     # H4: timeout_s is client-controlled. Unclamped, `?timeout_s=99999999`
     # returns 200 and holds a connection polling the tenant for years.
     timeout_s = max(10, min(timeout_s, 900))
+    # SEC-3: this stream used to have no auth gate at all. Normalize first
+    # (same edge rule as every other route), then authorize.
+    name = safe_dataset(name)
+    require_dataset_access(request, name)
     """Stream ingestion progress as newline-delimited JSON.
 
     Deliberately the same streaming shape /api/ask already proved, rather than
@@ -804,16 +883,13 @@ def delete_brain(request: Request, name: str):
     Cognee's own internal dataset. The demo guard also lives inside
     cognee_cloud.delete_dataset, so neither layer can be bypassed on its own.
     """
-    # Authorisation is evaluated BEFORE the mode guard: an unauthorized caller
-    # must get 401/403 regardless of provider mode, never a 400 that masks the
-    # authz check. (Found by test_tenants under the mock-forced battery.)
-    require_dataset_access(request, name)
-
-    if memory_layer.PROVIDER != "cloud":
-        raise HTTPException(status_code=400, detail="Deletion needs PROVIDER=cloud.")
-
-    # Normalise first, so a case trick such as "Company_Brain" cannot slip past
-    # the reserved check and then match an existing dataset.
+    # SEC-1: normalize FIRST, then authorize the normalized name. The authz
+    # rule looks rows up exactly and rows are stored normalized — authorizing
+    # the raw segment let a case-variant (no row → allow) delete someone
+    # else's brain after normalization. One name, one meaning, start to finish.
+    # (Authorisation still evaluated BEFORE the mode guard: an unauthorized
+    # caller must get 401/403 regardless of provider mode. Found by
+    # test_tenants under the mock-forced battery.)
     safe = normalize_brain_name(name)
     # M1: create_brain REFUSES a name that fails normalisation; delete used to
     # fall through and pass the raw name to delete_dataset. The two routes must
@@ -826,6 +902,13 @@ def delete_brain(request: Request, name: str):
                 "underscores."
             ),
         )
+    require_dataset_access(request, safe)
+
+    if memory_layer.PROVIDER != "cloud":
+        raise HTTPException(status_code=400, detail="Deletion needs PROVIDER=cloud.")
+
+    # Normalise first, so a case trick such as "Company_Brain" cannot slip past
+    # the reserved check and then match an existing dataset.
     if safe in RESERVED_NAMES:
         raise HTTPException(
             status_code=400,
@@ -858,6 +941,7 @@ def source(request: Request, name: str, dataset: str | None = None):
     before it is read. `basename` alone is not enough on its own, so both
     checks run.
     """
+    dataset = safe_dataset(dataset)
     require_dataset_access(request, dataset)
 
     if not name or not re.fullmatch(r"[A-Za-z0-9._ -]{1,120}", name):
@@ -877,7 +961,7 @@ def source(request: Request, name: str, dataset: str | None = None):
     # Skipped for the demo brain: its corpus is on disk, so a miss there is a
     # genuine 404. Without this guard an unknown name fell through to the tenant,
     # which resolves the whole dataset map first and took ~20s to say "not found".
-    target = dataset or DEMO_DATASET
+    target = safe_dataset(dataset)
     if target == DEMO_DATASET:
         raise HTTPException(status_code=404, detail=f"No source document called '{name}'.")
 

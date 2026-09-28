@@ -8,6 +8,7 @@ chats stay bounded and cache-friendly.
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 import requests
@@ -29,7 +30,10 @@ async def summarize_history(text: str) -> str:
     if not key or not text.strip():
         return ""
     try:
-        resp = requests.post(
+        # COR-11: this is async-called from request handlers — a blocking
+        # 90s POST would freeze every concurrent request (/health included).
+        resp = await asyncio.to_thread(
+            requests.post,
             f"{OPENROUTER_BASE}/chat/completions",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json={

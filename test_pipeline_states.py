@@ -119,8 +119,12 @@ async def drive(states: list) -> list:
     # depend on ambient .env saying PROVIDER=cloud, and it makes no network
     # call either way.
     memory_layer.PROVIDER = "cloud"
+    # brain_events now takes (request, name): auth-off battery means the
+    # requireTenant gate passes a bare headers-less request through.
+    from types import SimpleNamespace
+    fake_request = SimpleNamespace(headers={}, state=SimpleNamespace())
     try:
-        response = await app_module.brain_events("probe")
+        response = await app_module.brain_events(fake_request, "probe")
         chunks = []
         async for chunk in response.body_iterator:
             chunks.append(chunk if isinstance(chunk, str) else chunk.decode())

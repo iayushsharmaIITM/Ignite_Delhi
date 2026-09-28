@@ -10,12 +10,16 @@ cited answer. This replaces hope with measurement.
 from __future__ import annotations
 
 import json
+import os
 import time
 import urllib.parse
 import urllib.request
 
 BASE = "http://127.0.0.1:8000"
 DATASET = "company_brain"
+# LOW-1: AUTH_MODE=clerk servers 401 unauthenticated callers — export a Clerk
+# session JWT as AUTH_TOKEN and the battery authenticates.
+TOKEN = os.environ.get("AUTH_TOKEN", "")
 
 # Broad coverage of the corpus: single-doc lookups, cross-doc joins,
 # contradictions, ownership, and deliberately unanswerable controls.
@@ -56,7 +60,9 @@ def ask(question: str, timeout: int = 200):
     url = BASE + "/api/ask?" + urllib.parse.urlencode({"q": question, "dataset": DATASET})
     text, refs, err = "", [], None
     t0 = time.time()
-    with urllib.request.urlopen(url, timeout=timeout) as res:
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {TOKEN}"} if TOKEN else {})
+    with urllib.request.urlopen(req, timeout=timeout) as res:
         for raw in res:
             line = raw.decode().strip()
             if not line:

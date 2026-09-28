@@ -40,7 +40,15 @@ except ImportError:
 
 def _cloud_configured() -> bool:
     """Cheap check that avoids importing requests on the mock path."""
-    return bool(os.getenv("COGNEE_SERVICE_URL") and os.getenv("COGNEE_API_KEY"))
+    url = os.getenv("COGNEE_SERVICE_URL") or ""
+    # H10: loopback OSS runs auth-off (M0.2: both flags false), so no key is
+    # needed — and requiring one silently served FIXTURES for a correctly
+    # configured keyless setup, contradicting ingest.py's loopback rule.
+    # Explicit PROVIDER still wins either way; a missing key against a REMOTE
+    # url still falls back to mock.
+    if url.startswith(("http://localhost", "http://127.0.0.1")):
+        return True
+    return bool(url and os.getenv("COGNEE_API_KEY"))
 
 
 # Explicit PROVIDER wins. Otherwise prefer cloud when it is fully configured,
@@ -70,6 +78,25 @@ def default_dataset() -> str:
     return os.getenv("COGNEE_DATASET", "company_brain")
 
 
+# Social REPLIES (the bot's own greetings/acknowledgements) — these are
+# generated without retrieval, so any stored citations on them are stale.
+_SOCIAL_REPLY_RE = re.compile(
+    r"^\s*(?:h+i+|hello+|hey+|yo+|hiya|good\s*(?:morning|afternoon|evening)|"
+    r"thanks?+(?:\s+you)?|you'?re\s*welcome|"
+    r"i'?m\s*(?:doing\s*)?(?:good|great|fine|well|okay|ok)|"
+    r"hi\s+there|i'?m\s*here\s*to\s*help|how\s*can\s*i\s*help\s*you|"
+    r"just\s*let\s*me\s*know|happy\s*to\s*help)"
+    r".*[!.?]*\s*$",
+    re.IGNORECASE)
+
+
+def _is_social_reply(text: str) -> bool:
+    """True for the bot's own short greetings/acknowledgements — never
+    document-grounded, so stored citations on them are stale by definition."""
+    t = (text or "").strip()
+    return bool(t) and len(t.split()) <= 15 and bool(_SOCIAL_REPLY_RE.match(t))
+
+
 async def recall(query: str, dataset: str | None = None,
                  smalltalk: bool | None = None):
     """Yield events. Async generator so the UI can stream.
@@ -90,7 +117,12 @@ async def recall(query: str, dataset: str | None = None,
     produced = False
     try:
         async for event in _cloud(query, dataset, smalltalk=smalltalk):
-            produced = True
+            # COR-1: track ANSWER TEXT, not events. The orchestrator emits a
+            # stage step before any retrieval — counting every event as
+            # "produced" took the mid-answer branch (and skipped the fixture
+            # fallback) for failures that streamed zero answer text.
+            if event.get("type") == "chunk" and (event.get("text") or "").strip():
+                produced = True
             yield event
         return                      # clean finish - the real answer stands alone
     except Exception as exc:  # noqa: BLE001
@@ -151,35 +183,85 @@ async def _mock(query: str, dataset: str | None = None):
         await asyncio.sleep(0.02)  # makes streaming visible in the demo
 
     if entry.get("references"):
-        yield {"type": "references", "items": entry["references"]}
+        # COR-10: the UI contract is enriched {source, excerpt} objects
+        # (citations.enrich) — bare strings were dropped by the client's
+        # `i.source` filter, so mock mode showed no usable chips. Shape them
+        # the same way: "chunk 1 of <file> — <excerpt>".
+        shaped = []
+        for ref in entry["references"]:
+            if isinstance(ref, dict):
+                shaped.append(ref)
+                continue
+            text = str(ref)
+            m = re.match(r"chunk\s+\d+\s+of\s+(.+?)\s+[—–-]\s*(.*)$", text)
+            if m:
+                shaped.append({"source": m.group(1).strip(),
+                               "excerpt": m.group(2).strip() or text,
+                               "raw": text})
+            else:
+                shaped.append({"source": None, "excerpt": text, "raw": text})
+        yield {"type": "references", "items": shaped}
 
 
 # Greetings and social chitchat: the graph has nothing to say about them, so
 # they are answered WITHOUT citations rather than dressing up unrelated
-# chunks as evidence. Classification is by SOCIAL VOCABULARY (greetings,
-# how-are-you, thanks, identity, goodbyes) with optional filler words — not
-# by exact strings, which is how "hello how are you" once fell through to a
-# 30s retrieval that cited random documents for a greeting.
-_GREET = (r"h+i+|hello+|hey+|yo+|hiya|sup|"
-          r"good\s*(morning|afternoon|evening|day)|how\s*do\s*you\s*do")
-_SOCIAL = (r"how\s*(are|r)\s*(you|u|things|it\s*going)|how('s|\s*is)\s*it\s*going|"
-           r"what('s|\s*is)\s*up|wassup|who\s*(are|r)\s*(you|u)|"
-           r"what\s*(are|r)\s*(you|u)|what\s*can\s*(you|u)\s*do|"
-           r"what\s*do\s*you\s*do|thank\s*you|thanks|ty|thx|"
-           r"great\s*(job|work|stuff)|good\s*(job|work)|nice|cool|"
-           r"bye|goodbye|good\s*night|see\s*(ya|you)|help")
-_FILLER = r"(?:\s*(?:there|team|kestrel|everyone|folks|my\s+friend|all|guys|doc|brain|doing|today|now))*"
-_SMALLTALK_RE = re.compile(
-    r"^\s*(?:(?:" + _GREET + r")[\s!.,?-]*(?:" + _SOCIAL + r")?|(?:" + _SOCIAL + r")?)"
-    + _FILLER + r"[\s!.?,-]*$",
-    re.IGNORECASE)
+# chunks as evidence. COR-6: classification is token-vocabulary based, not
+# substring based. The old regex lists were simultaneously too loose (bare
+# content words like "team"/"today" matched SMALLTALK and skipped retrieval)
+# and too tight ("thank you so much", "namaste" paid a 25s retrieval).
+# Rules: (1) exact match against known social phrases; else (2) every token
+# in the social vocabulary AND at least one core social token AND <= 8 words.
+# A bare content word ("team", "today", "doc") has no core token by
+# construction, so it can never misroute to smalltalk.
+_CORE = frozenset({
+    "hi", "hello", "hey", "yo", "hiya", "sup", "namaste", "hola",
+    "thanks", "thank", "thx", "ty",
+    "bye", "goodbye", "welcome", "sorry",
+    "morning", "afternoon", "evening", "night",
+    "awesome", "nice", "cool", "great", "perfect",
+})
+_FILLER = frozenset({
+    "there", "you", "u", "my", "friend", "friends", "everyone", "folks",
+    "guys", "all", "so", "much", "very", "really", "a", "lot", "ok", "okay",
+    "good", "buenos", "dias", "job", "work", "stuff",
+    "how", "are", "is", "r", "what", "up", "s", "it", "going", "do", "does",
+})
+_SOCIAL_PHRASES = frozenset({
+    "how are you", "how r u", "how is it going", "hows it going",
+    "how do you do", "what is up", "whats up", "what's up",
+    "who are you", "what can you do", "what do you do",
+    "good morning", "good afternoon", "good evening", "good night",
+    "good day", "thank you", "see you", "see ya", "buenos dias",
+    "good job", "good work", "great job", "great work", "nice work",
+    "well done",
+})
 
 
 def _is_smalltalk(query: str) -> bool:
     """True for greetings and social chitchat that the documents cannot
     answer. Word-capped so a real question never misroutes."""
-    q = (query or "").strip()
-    return bool(q) and len(q.split()) <= 8 and bool(_SMALLTALK_RE.match(q))
+    q = (query or "").strip().lower()
+    if not q:
+        return False
+    words = q.split()
+    if len(words) > 8:
+        return False
+    squashed = re.sub(r"[^a-z\s]", "", q)
+    squashed = re.sub(r"\s+", " ", squashed).strip()
+    # Elongated greetings ("hii", "hellooo") — collapse 3+ runs, never 2
+    # ("cool", "good" keep their double letters).
+    squashed = re.sub(r"(.)\1{2,}", r"\1", squashed)
+    # Doubled-letter greetings ("hii", "heyy") that the collapse above keeps:
+    # match the greeting cores with flexible tails before token rules run.
+    if re.fullmatch(r"(h+i+|hello+|hey+|yo+|hiya+|sup+)", squashed):
+        return True
+    if squashed in _SOCIAL_PHRASES:
+        return True
+    tokens = squashed.split()
+    if not tokens:
+        return False
+    return (any(t in _CORE for t in tokens)
+            and all(t in _CORE or t in _FILLER for t in tokens))
 
 
 async def _cloud(query: str, dataset: str | None = None,

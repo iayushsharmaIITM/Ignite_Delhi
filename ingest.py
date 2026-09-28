@@ -86,6 +86,8 @@ def load_documents() -> list:
 
 
 async def ingest_sequential(docs, name):
+    """Queue documents one by one. Returns the number that failed to queue."""
+    failed = 0
     for i, (filename, text) in enumerate(docs, 1):
         t0 = time.time()
         try:
@@ -93,17 +95,22 @@ async def ingest_sequential(docs, name):
             print(f"  [{i}/{len(docs)}] {filename} -> queued ({time.time() - t0:.1f}s)",
                   flush=True)
         except Exception as exc:  # noqa: BLE001
+            failed += 1
             print(f"  [{i}/{len(docs)}] {filename} -> FAILED: {exc}", flush=True)
+    return failed
 
 
 async def ingest_parallel(docs, name, workers):
-    """Fan out across N workers — the same shape as parallel Render task runs."""
+    """Fan out across N workers — the same shape as parallel Render task runs.
+
+    Returns the number that failed to queue."""
     sem = asyncio.Semaphore(workers)
     lock = asyncio.Lock()
     done = 0
+    failed = 0
 
     async def one(filename, text):
-        nonlocal done
+        nonlocal done, failed
         async with sem:
             t0 = time.time()
             try:
@@ -113,9 +120,12 @@ async def ingest_parallel(docs, name, workers):
                     print(f"  [{done}/{len(docs)}] {filename} -> queued "
                           f"({time.time() - t0:.1f}s)", flush=True)
             except Exception as exc:  # noqa: BLE001
+                async with lock:
+                    failed += 1
                 print(f"  {filename} -> FAILED: {exc}", flush=True)
 
     await asyncio.gather(*(one(n, t) for n, t in docs))
+    return failed
 
 
 def main():
@@ -161,24 +171,35 @@ def main():
     t0 = time.time()
     if args.parallel > 1:
         print(f"Queueing {len(docs)} documents across {args.parallel} workers...")
-        asyncio.run(ingest_parallel(docs, name, args.parallel))
+        failed = asyncio.run(ingest_parallel(docs, name, args.parallel))
     else:
         print(f"Queueing {len(docs)} documents sequentially...")
-        asyncio.run(ingest_sequential(docs, name))
+        failed = asyncio.run(ingest_sequential(docs, name))
 
-    print(f"\nAll queued in {time.time() - t0:.1f}s.")
+    # H7: a run where nothing queued (or nothing landed) must exit non-zero —
+    # the old code printed "All queued" and returned 0 on total failure, so an
+    # operator or CI read a green run while zero documents landed.
+    if failed >= len(docs):
+        print(f"\nAll {len(docs)} documents failed to queue — failing the run.")
+        return 1
+    if failed:
+        print(f"\n{failed}/{len(docs)} documents failed to queue.")
+    else:
+        print(f"\nAll queued in {time.time() - t0:.1f}s.")
 
     if args.no_wait:
         print("--no-wait set; the graph is still being built server-side.")
-        return
+        return 1 if failed else 0
 
     print("Waiting for the graph to finish building (this is the slow part)...")
     try:
         state = cc.wait_ready(name, timeout_s=args.timeout)
         print(f"Graph ready: {state}")
     except Exception as exc:  # noqa: BLE001
+        # COR-2: wait_ready raises on terminal FAILURE too, so a failed graph
+        # never reaches the snapshot below — and either way this is exit 1.
         print(f"WARNING: {exc}")
-        return
+        return 1
 
     try:
         g = cc.graph(name)
@@ -200,7 +221,9 @@ def main():
                   f"dataset ({cc.dataset()!r}).")
     except Exception as exc:  # noqa: BLE001
         print(f"Graph unavailable: {exc}")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

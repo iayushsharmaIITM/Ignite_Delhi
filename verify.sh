@@ -22,6 +22,7 @@ QUICK=0
 [ "${1:-}" = "--quick" ] && QUICK=1
 
 export PROVIDER=mock
+export AUTH_MODE=off   # the battery tests the product unauthenticated
 BASE="http://127.0.0.1:8000"
 SERVER_PID=""
 FAILS=0

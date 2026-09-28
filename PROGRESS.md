@@ -84,6 +84,23 @@ Append-only, newest first (BUILD_PLAN.md §4). States are exactly:
 `DONE` | `BLOCKED` (points at a BLOCKERS.md entry) | `WAITING-HUMAN` | `SKIPPED`
 (SKIPPED only ever carries a one-line reason + recorded human approval).
 
+## Bug-fix session — BUGS_AUDIT.md 45 + 14 new — DONE 2026-09-28
+
+DeepSeek v4.1 Flash audit validated TRUE 45/45 (3 subagent sweeps + execution
+proofs for SEC-1/SEC-2). Own hunt added 14: NEW-1..4 (read-route
+normalization gaps, stats traversal, chats brain filter, split-brain) + H1..H10
+(H1 was my M0.3 regression — fixed; H2 blocks SEC-8; H9 402-retries; H10
+PROVIDER-freeze vs loopback rule). All fixed, each proven by execution or
+suite; full battery green (25/25 docs, 13/13 pipe-states, 10/10 tenants, 4/4
+smoke, 5/5 auth isolation, UI zero console errors).
+
+Decisions taken (owner-absent, safe defaults): legacy NULL-org rows
+grandfathered visible/deletable, new writes server-stamped; demo dataset
+explicit allow (fail-closed everything else, incl. DB outage); race kept
+(2x-cost documented) with KESTREL_RACE_RETRIEVAL=0 lever; SEC-5 backfill still
+wants a real owner call. Incidents: colima VM was down (restarted, 26 chats
+intact); one pkill caught the live server (restarted immediately).
+
 ## M1.1/M1.2 — warm routes + light-mode trial LIVE on OpenRouter — UPDATE 7, 2026-09-25
 
 Human provided an **OpenRouter key** (free tier, $250 cap, $0 used) for a

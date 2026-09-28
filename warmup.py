@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -33,16 +34,26 @@ QUESTIONS = [
 
 SLOW = 35.0  # seconds; above this, warn — a judge will notice the wait
 
+# LOW-1: AUTH_MODE=clerk servers 401 unauthenticated callers. Pass a Clerk
+# session JWT via --token (or AUTH_TOKEN env) and these probes authenticate.
+TOKEN = os.environ.get("AUTH_TOKEN", "")
+
+
+def _open(url, timeout):
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {TOKEN}"} if TOKEN else {})
+    return urllib.request.urlopen(req, timeout=timeout)
+
 
 def get(path, timeout=60):
-    with urllib.request.urlopen(BASE + path, timeout=timeout) as res:
+    with _open(BASE + path, timeout) as res:
         return res.status, res.read().decode()
 
 
 def ask(question, timeout=180):
     url = BASE + "/api/ask?q=" + urllib.parse.quote(question)
     text, refs, errored = "", [], None
-    with urllib.request.urlopen(url, timeout=timeout) as res:
+    with _open(url, timeout) as res:
         for raw in res:
             line = raw.decode().strip()
             if not line:
@@ -61,11 +72,15 @@ def ask(question, timeout=180):
 
 
 def main():
-    global BASE
+    global BASE, TOKEN
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://127.0.0.1:8000")
+    ap.add_argument("--token", default="",
+                    help="Clerk session JWT for AUTH_MODE=clerk servers "
+                         "(or AUTH_TOKEN env)")
     args = ap.parse_args()
     BASE = args.base.rstrip("/")
+    TOKEN = args.token or TOKEN
 
     print(f"Warm-up against {BASE}\n")
     problems = []

@@ -100,14 +100,25 @@ def _from_pdf(data: bytes) -> str:
         raise ExtractError(f"could not open PDF: {str(exc)[:120]}") from exc
 
     pages = []
-    for number, page in enumerate(reader.pages, start=1):
-        try:
-            text = page.extract_text() or ""
-        except Exception as exc:  # noqa: BLE001 - one bad page must not lose the rest
-            text = ""
-            _ = exc
-        if text.strip():
-            pages.append(f"[page {number}]\n{text.strip()}")
+    try:
+        page_iter = enumerate(reader.pages, start=1)
+        for number, page in page_iter:
+            try:
+                text = page.extract_text() or ""
+            except Exception as exc:  # noqa: BLE001 - one bad page must not lose the rest
+                text = ""
+                _ = exc
+            if text.strip():
+                pages.append(f"[page {number}]\n{text.strip()}")
+    except Exception as exc:  # noqa: BLE001 - COR-9: iterating reader.pages
+        # on an ENCRYPTED pdf raises FileNotDecryptedError here, outside the
+        # open call above. Convert to ExtractError so extract_many records a
+        # clean per-file failure instead of 500ing the whole batch.
+        raise ExtractError(
+            "password-protected PDF — remove the password and retry"
+            if "decrypt" in type(exc).__name__.lower() or "decrypt" in str(exc).lower()
+            else f"could not read PDF pages: {str(exc)[:120]}"
+        ) from exc
 
     if not pages:
         # The silent-empty case. Say what is actually wrong.
