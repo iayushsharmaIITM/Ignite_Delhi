@@ -183,6 +183,15 @@
   #restore { position:fixed; inset:0; z-index:80; display:flex;
     align-items:center; justify-content:center; background:var(--bg); }
   #restore[hidden] { display:none; }
+  /* in-place chat switch: a reload animation replaces the old-chat ghost —
+     the thread dims and a centered spinner covers the swap window */
+  #switch-fx { position:fixed; inset:0; z-index:75; display:none;
+    align-items:center; justify-content:center; pointer-events:none; }
+  body.switching #switch-fx { display:flex; }
+  #switch-fx .big { width:26px; height:26px; border:2.5px solid var(--line-3);
+    border-top-color:var(--accent); border-radius:50%; }
+  body.switching .app-main { opacity:.3; transition:opacity .15s ease;
+    pointer-events:none; }
   .restore-card { display:inline-flex; align-items:center; gap:9px;
     padding:12px 20px; border-radius:12px; border:1px solid var(--line-2);
     background:var(--panel); color:var(--muted); font-size:13.5px;
@@ -432,6 +441,7 @@
     <div class="greeting" id="greeting">How can I help?</div>
   </div>
 
+  <div id="switch-fx" aria-hidden="true"><span class="spin big"></span></div>
   <div id="restore" hidden>
     <div class="restore-card"><span class="spin"></span> Restoring chat…</div>
   </div>
@@ -972,7 +982,11 @@ async function restoreHistory() {
     }
   }
   if (!saved.length) saved = loadHistory();
-  if (!saved.length) return;
+  // in-place switches arrive with the previous chat still rendered — clear
+  // here so the swap is atomic, and hand the home/chatting state back
+  TURNS.length = 0; SOURCES = []; LAST = null;
+  threadEl.innerHTML = '<div class="placeholder" id="empty"></div>';
+  if (!saved.length) { document.body.classList.remove('chatting'); return; }
   document.body.classList.add('chatting');
   TURNS.push(...saved);
   let lastQuestion = '';
@@ -1841,6 +1855,7 @@ async function switchToChat(chatId, brainHint) {
   if (!chatId || SWITCHING) return;
   if (chatId === CHAT_ID) return;
   SWITCHING = true;
+  document.body.classList.add('switching');   // dim thread + reload spinner
   try {
     // a running stream belongs to the chat being left — the abort path is
     // the correct finalize (partial answer rendered + saved), same as stop
@@ -1855,8 +1870,6 @@ async function switchToChat(chatId, brainHint) {
     CHAT_SESSION_KEY = 'kestrel.currentChat.' + (BRAIN || 'demo');
     try { sessionStorage.removeItem('new'); } catch (e) {}
     TURNS.length = 0; SOURCES = []; LAST = null;
-    threadEl.innerHTML = '<div class="placeholder" id="empty"></div>';
-    document.body.classList.remove('chatting');
     // composer context follows the chat's brain
     const isDemo = !BRAIN || BRAIN === 'demo';
     document.getElementById('brainname').textContent =
@@ -1871,6 +1884,7 @@ async function switchToChat(chatId, brainHint) {
     await restoreHistory();                          // renders turns + chatting class
   } finally {
     SWITCHING = false;
+    document.body.classList.remove('switching');
   }
 }
 window.addEventListener('kestrel:open-chat', (e) => {
