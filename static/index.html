@@ -170,6 +170,16 @@
   .w-step.live::before { content:"◌"; display:inline-block; margin-right:7px;
     color:var(--accent); animation:spin .8s linear infinite; }
 
+  /* P5-era UX: while a ?chat= restore is in flight (Clerk boot + server
+     fetch), cover the page — the empty home state must never flash first */
+  #restore { position:fixed; inset:0; z-index:80; display:flex;
+    align-items:center; justify-content:center; background:var(--bg); }
+  #restore[hidden] { display:none; }
+  .restore-card { display:inline-flex; align-items:center; gap:9px;
+    padding:12px 20px; border-radius:12px; border:1px solid var(--line-2);
+    background:var(--panel); color:var(--muted); font-size:13.5px;
+    box-shadow:var(--shadow); }
+
   /* auth gate (P3): covers the app until the Clerk session exists */
   #auth-gate { position:fixed; inset:0; z-index:100; display:flex;
     align-items:center; justify-content:center;
@@ -414,6 +424,9 @@
     <div class="greeting" id="greeting">How can I help?</div>
   </div>
 
+  <div id="restore" hidden>
+    <div class="restore-card"><span class="spin"></span> Restoring chat…</div>
+  </div>
   <div id="thread-wrap"><div class="wrap"><div id="thread"><div class="placeholder" id="empty"></div></div></div></div>
 
 
@@ -1771,7 +1784,14 @@ async function copyText(value) {
   }
 }
 
-restoreHistory().catch(() => {});
+// A direct link to a chat shows the restore overlay instead of the empty
+// home state — the restore awaits Clerk's boot before the server fetch can
+// carry a token, and that window used to read as "a new empty chat".
+const RESTORING = new URLSearchParams(location.search).has('chat');
+if (RESTORING) document.getElementById('restore').hidden = false;
+restoreHistory().catch(() => {}).finally(() => {
+  if (RESTORING) document.getElementById('restore').hidden = true;
+});
 
 
 
