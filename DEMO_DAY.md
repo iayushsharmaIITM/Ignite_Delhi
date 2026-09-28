@@ -116,6 +116,7 @@ switch is boring.
 | app dead (curl refuses) | `nohup python3 app.py > /tmp/kestrel_app.log 2>&1 &` |
 | 403 on questions | you are signed in as the wrong account — redo step 2 |
 | 401 during warmup | the refresher (Terminal A) died — restart it, re-run warmup |
+| app serves STALE code, or restart dies with "address already in use" | the old server never died: `pkill -f "python3 app.py"` does NOT match (the process is `Python app.py`). Kill by port instead: `lsof -nP -iTCP:8000 -sTCP:LISTEN -t \| xargs kill`, then start again |
 
 ## 6. Do NOT touch on demo morning
 
