@@ -890,6 +890,40 @@ async function restoreHistory() {
       }));
     }
   } catch (e) { /* offline - fall through to localStorage */ }
+  if (!saved.length && String(CHAT_ID).length >= 8) {
+    // Prefix rescue: a truncated or stale chat id (lost trailing chars —
+    // seen in the wild as ?chat=<12 of 13 chars>) resolves to nothing and
+    // blanked the thread. Find the UNIQUE real chat this id was meant to
+    // be, restore it, and silently correct the URL.
+    try {
+      const h2 = await authHeaders();
+      // NO brain filter here: filtering would run the brain gate, and the
+      // literal 'demo' brain has no ownership row (fail-closed 403). The
+      // identity's visible list is exactly what we're allowed to search.
+      const lr = await fetch('/api/chats', { headers: h2 });
+      if (lr.ok) {
+        const list = (await lr.json()).chats || [];
+        const hits = list.filter(c => String(c.id).startsWith(CHAT_ID) && c.id !== CHAT_ID);
+        if (hits.length === 1) {
+          const fr = await fetch('/api/chats/' + encodeURIComponent(hits[0].id),
+                                 { headers: h2 });
+          if (fr.ok) {
+            const fd = await fr.json();
+            if (fd.chat) {
+              saved = (fd.chat.turns || []).map(x => ({
+                role: x.role, text: x.text, sources: x.sources || [],
+                attachments: x.attachments || [], at: x.at ? new Date(x.at).getTime() : undefined,
+              }));
+              const u = new URL(location.href);
+              u.searchParams.set('chat', fd.chat.id);
+              if (fd.chat.brain) u.searchParams.set('brain', fd.chat.brain);
+              history.replaceState(null, '', u);
+            }
+          }
+        }
+      }
+    } catch (e3) { /* rescue is best-effort */ }
+  }
   if (!saved.length) {
     // local-only chat: push it through the server's authoritative strip
     // (smalltalk/social replies lose their stale citations there), then
