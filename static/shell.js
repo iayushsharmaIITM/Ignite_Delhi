@@ -436,7 +436,7 @@
     const up = d.upstream === 'healthy' || d.upstream === 'ready';
     const ok = d.provider === 'mock' || (up && d.auth !== 'failed');
     document.getElementById('sb-led').className = 'led ' + (ok ? 'ok' : 'bad');
-    let label = d.provider;
+    let label = d.backend || d.provider;   // T4: truthful local-vs-tenant
     if (d.auth === 'failed') label += ' ' + T('sb.key_rejected', '· key rejected');
     else if (d.upstream) label += ' · ' + d.upstream;
     document.getElementById('sb-prov').textContent = label;

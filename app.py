@@ -443,6 +443,20 @@ def health():
         # infrastructure coordinates (no service URL, no DB host).
         "storage": {"storage": storage.status().get("storage")},
     }
+    # T4: `provider` names the CLASS of backend ("cloud" = a Cognee API
+    # server, vs mock) — the footer read it as the hosted tenant even when it
+    # is the local OSS container. Report a coarse location instead: no host,
+    # no URL, just which kind of brain this is.
+    try:
+        import cognee_cloud
+        from urllib.parse import urlparse
+
+        _host = urlparse(cognee_cloud._base() or "").hostname or ""
+    except Exception:  # noqa: BLE001 - a label must never break the probe
+        _host = ""
+    payload["backend"] = (
+        "local oss" if _host in ("localhost", "127.0.0.1", "::1") else "cloud tenant"
+    )
     # O4: prove the tenant reachable, but NEVER hang the liveness probe on
     # it — two synchronous tenant calls here once turned tenant slowness
     # into web-tier restart loops. Cached 30s, refresh failures keep stale.
