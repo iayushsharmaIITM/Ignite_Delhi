@@ -24,6 +24,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 QUESTIONS = [
     "Why is the Bluepeak renewal at risk, and what have we promised them?",
@@ -36,12 +37,27 @@ SLOW = 35.0  # seconds; above this, warn — a judge will notice the wait
 
 # LOW-1: AUTH_MODE=clerk servers 401 unauthenticated callers. Pass a Clerk
 # session JWT via --token (or AUTH_TOKEN env) and these probes authenticate.
+# Session JWTs expire in ~60 seconds — too short for a full rehearsal — so
+# --token-file (or AUTH_TOKEN_FILE) names a file that is RE-READ before every
+# request; keep it fresh with any companion process that calls
+# Clerk.session.getToken() on a loop.
 TOKEN = os.environ.get("AUTH_TOKEN", "")
+TOKEN_FILE = os.environ.get("AUTH_TOKEN_FILE", "")
+
+
+def _current_token() -> str:
+    if TOKEN_FILE:
+        try:
+            return Path(TOKEN_FILE).read_text().strip()
+        except OSError:
+            pass
+    return TOKEN
 
 
 def _open(url, timeout):
+    tok = _current_token()
     req = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {TOKEN}"} if TOKEN else {})
+        url, headers={"Authorization": f"Bearer {tok}"} if tok else {})
     return urllib.request.urlopen(req, timeout=timeout)
 
 
@@ -78,9 +94,15 @@ def main():
     ap.add_argument("--token", default="",
                     help="Clerk session JWT for AUTH_MODE=clerk servers "
                          "(or AUTH_TOKEN env)")
+    ap.add_argument("--token-file", default="",
+                    help="file holding a Clerk session JWT, re-read before "
+                         "every request (or AUTH_TOKEN_FILE env) — pair with "
+                         "a refresher loop for rehearsals longer than 60s")
     args = ap.parse_args()
     BASE = args.base.rstrip("/")
+    global TOKEN_FILE
     TOKEN = args.token or TOKEN
+    TOKEN_FILE = args.token_file or TOKEN_FILE
 
     print(f"Warm-up against {BASE}\n")
     problems = []
