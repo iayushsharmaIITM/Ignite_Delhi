@@ -147,8 +147,11 @@
       return html;
     }
 
+    const live = new URLSearchParams(location.search);
+    const liveChat = live.get('chat') || '';
+    const liveBrain = live.get('brain') || 'demo';
     const chatRow = (b, c, timeLabel) => {
-      const active = c.id === currentChat && b === (brain || 'demo');
+      const active = c.id === liveChat && b === (liveBrain || (brain || 'demo'));
       const title = esc(c.title || 'Untitled');
       const csep = b !== 'demo' ? '?brain=' + encodeURIComponent(b) + '&chat=' : '?chat=';
       return '<div class="nav-item chat-item' + (active ? ' active' : '') + '" data-chat-row>' +
@@ -209,6 +212,21 @@
         ' · ' + T('view.sorted', 'sorted by') + ' ' + (view.sort === 'created' ? T('view.created', 'created') : T('view.updated', 'updated')) + '</div>';
     }
   }
+
+  // Chat links switch IN PLACE: the ask page owns the session state and
+  // listens for this event (no navigation, no boot wait, no empty flash).
+  // Modifier-clicks keep the native open-in-new-tab behavior.
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a.chat-link');
+    if (!a) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    const u = new URL(a.href, location.origin);
+    window.dispatchEvent(new CustomEvent('kestrel:open-chat', { detail: {
+      chat: u.searchParams.get('chat'),
+      brain: u.searchParams.get('brain') || 'demo',
+    }}));
+  });
 
   // One delegated listener: the list re-renders often, so per-element handlers
   // would be rebuilt (and lost) on every render.

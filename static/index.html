@@ -532,7 +532,7 @@
 // that lets ONE dashboard serve every brain instead of one UI per brain.
 // Accept `dataset=` as well as `brain=` so a wrong-key URL cannot silently
 // fall back to the demo brain.
-const BRAIN = (() => {
+let BRAIN = (() => {
   const p = new URLSearchParams(location.search);
   return p.get('brain') || p.get('dataset') || '';
 })();
@@ -567,12 +567,12 @@ const TURNS = [];
 let SOURCES = [];
 
 
-const CHATS_KEY = 'kestrel.chats.' + (BRAIN || 'demo');
+let CHATS_KEY = 'kestrel.chats.' + (BRAIN || 'demo');
 const CHAT_MAX = 30;
 const TURNS_MAX = 60;
 
-const CHAT_SESSION_KEY = 'kestrel.currentChat.' + (BRAIN || 'demo');
-const CHAT_ID = (() => {
+let CHAT_SESSION_KEY = 'kestrel.currentChat.' + (BRAIN || 'demo');
+let CHAT_ID = (() => {
   const params = new URLSearchParams(location.search);
   if (params.get('new')) {
     try { sessionStorage.removeItem(CHAT_SESSION_KEY); } catch (e) {}
@@ -591,6 +591,8 @@ function rememberChat() {
   try {
     const url = new URL(location.href);
     url.searchParams.delete('new');
+    if (BRAIN) url.searchParams.set('brain', BRAIN);
+    else url.searchParams.delete('brain');
     if (url.searchParams.get('chat') !== CHAT_ID) {
       url.searchParams.set('chat', CHAT_ID);
       history.replaceState(null, '', url);
@@ -1252,12 +1254,12 @@ function finalize(bubble, q, text, sources) {
         }
       }
     }
-    if (BRAIN) {
+    if (DATASET) {
       const ingestible = files.filter(f => !((f.type || '').startsWith('image/')));
       if (ingestible.length) {
-        work.step('Adding ' + ingestible.length + ' file(s) to ' + BRAIN + '…');
+        work.step('Adding ' + ingestible.length + ' file(s) to ' + DATASET + '…');
         const fd = new FormData();
-        fd.append('name', BRAIN);
+        fd.append('name', DATASET);
         fd.append('append', 'true');
         ingestible.forEach(f => fd.append('files', f));
         fetch('/api/brains', { method: 'POST', body: fd,
@@ -1274,8 +1276,12 @@ function finalize(bubble, q, text, sources) {
   context = context.slice(0, 6000);
 
   try {
+    // 'demo' is the UI-internal name of the demo brain; the canonical
+    // dataset is the server default (DEMO_DATASET=company_brain). Sending
+    // dataset=demo would trip the fail-closed brain gate ("Unknown brain").
+    const DATASET = (BRAIN && BRAIN !== 'demo') ? BRAIN : '';
     const params = new URLSearchParams({ q });
-    if (BRAIN) params.set('dataset', BRAIN);
+    if (DATASET) params.set('dataset', DATASET);
     if (context) params.set('context', context);
 
     const res = await fetch('/api/ask?' + params.toString(),
@@ -1791,6 +1797,68 @@ const RESTORING = new URLSearchParams(location.search).has('chat');
 if (RESTORING) document.getElementById('restore').hidden = false;
 restoreHistory().catch(() => {}).finally(() => {
   if (RESTORING) document.getElementById('restore').hidden = true;
+});
+
+// --- in-place chat switching -------------------------------------------------
+// Sidebar chat clicks no longer navigate. The current chat is saved, the
+// session state (ids, brain, keys) is repointed, the thread is swapped in
+// place, and the URL is pushState'd — no reload, no Clerk re-boot, no flash.
+let SWITCHING = false;
+async function resolveChatBrain(chatId, hint) {
+  // The chat's brain comes from its RECORD (server first, then the local
+  // copy), never from the link — link brain params go stale the moment a
+  // chat is renamed, re-saved or switched in place.
+  try {
+    const h = await authHeaders();
+    const r = await fetch('/api/chats/' + encodeURIComponent(chatId), { headers: h });
+    if (r.ok) {
+      const d = await r.json();
+      if (d.chat && d.chat.brain) return d.chat.brain;
+    }
+  } catch (e) { /* fall through to the local record */ }
+  const me = allChats().find(c => c.id === chatId);
+  return (me && me.brain) || hint || 'demo';
+}
+async function switchToChat(chatId, brainHint) {
+  chatId = String(chatId || '');
+  if (!chatId || SWITCHING) return;
+  if (chatId === CHAT_ID) return;
+  SWITCHING = true;
+  try {
+    // a running stream belongs to the chat being left — the abort path is
+    // the correct finalize (partial answer rendered + saved), same as stop
+    if (IN_FLIGHT && CONTROLLER) {
+      CONTROLLER.abort();
+      await new Promise(r => setTimeout(r, 200));
+    }
+    saveHistory();                                   // persist under OLD ids
+    CHAT_ID = chatId;
+    BRAIN = await resolveChatBrain(chatId, brainHint);
+    CHATS_KEY = 'kestrel.chats.' + (BRAIN || 'demo');
+    CHAT_SESSION_KEY = 'kestrel.currentChat.' + (BRAIN || 'demo');
+    try { sessionStorage.removeItem('new'); } catch (e) {}
+    TURNS.length = 0; SOURCES = []; LAST = null;
+    threadEl.innerHTML = '<div class="placeholder" id="empty"></div>';
+    document.body.classList.remove('chatting');
+    // composer context follows the chat's brain
+    const isDemo = !BRAIN || BRAIN === 'demo';
+    document.getElementById('brainname').textContent =
+      isDemo ? T('brain.demo', 'Demo brain') : BRAIN;
+    input.placeholder = isDemo
+      ? T('composer.placeholder', 'Ask across every document the company has written…')
+      : T('composer.placeholder_brain', 'Ask across the documents you uploaded…');
+    renderChips();
+    document.title = (isDemo ? '' : BRAIN + ' · ') + 'Kestrel Company Brain';
+    rememberChat();                                  // URL + session for the NEW chat
+    window.dispatchEvent(new Event('kestrel:chats')); // sidebar active highlight
+    await restoreHistory();                          // renders turns + chatting class
+  } finally {
+    SWITCHING = false;
+  }
+}
+window.addEventListener('kestrel:open-chat', (e) => {
+  const d = e.detail || {};
+  if (d.chat) switchToChat(d.chat, d.brain);
 });
 
 
