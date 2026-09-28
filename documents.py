@@ -66,6 +66,12 @@ KNOWN_UNSUPPORTED = {
 
 
 class ExtractError(Exception):
+    pass
+
+
+class ExtractEmpty(ExtractError):
+    """The file parsed fine but contains no text layer — a scan/image-only
+    PDF. Callers use this to trigger OCR instead of reporting failure."""
     """A single file could not be turned into text. Message is user-facing."""
 
 
@@ -122,9 +128,8 @@ def _from_pdf(data: bytes) -> str:
 
     if not pages:
         # The silent-empty case. Say what is actually wrong.
-        raise ExtractError(
-            "no extractable text - this PDF is probably a scan or image-only "
-            "(no OCR in this build)"
+        raise ExtractEmpty(
+            "no extractable text - this PDF is probably a scan or image-only"
         )
     return "\n\n".join(pages)
 

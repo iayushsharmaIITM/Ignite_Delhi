@@ -1196,6 +1196,7 @@ function finalize(bubble, q, text, sources) {
           if (r.ok && d.text) {
             context = 'Attached file "' + f.name + '":\n' + d.text.slice(0, 2400) + '\n\n' + context;
             fed += 1;
+            if (d.ocr) work.step(f.name + ' has no text layer — read via OCR');
           } else {
             work.step('Could not read ' + f.name + ' — ' + (d.detail || 'no text') + ' (added to the brain only)');
           }

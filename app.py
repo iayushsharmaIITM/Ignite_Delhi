@@ -54,6 +54,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 import auth  # noqa: E402
 import documents  # noqa: E402
+import ocr  # noqa: F401  (stage-2 attachment OCR)
 import memory_layer  # noqa: E402
 import storage  # noqa: E402
 from memory_layer import recall  # noqa: E402
@@ -654,15 +655,31 @@ async def extract_attachment(request: Request):
     if upload is None or isinstance(upload, str):
         raise HTTPException(status_code=400, detail="Attach one file as 'file'.")
     data = await upload.read()
+    name = upload.filename or "attachment"
+    ocr_used = False
     try:
-        text = documents.extract(upload.filename or "attachment", data)
+        text = documents.extract(name, data)
     except documents.ExtractError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        # Stage 2: scanned pages carry no text layer — read them with the
+        # vision model before giving up (PDF only; DOCX is always layered).
+        ocr_fallback = (
+            isinstance(exc, documents.ExtractEmpty)
+            and name.lower().endswith(".pdf")
+            and ocr.available()
+        )
+        if not ocr_fallback:
+            raise HTTPException(status_code=400, detail=str(exc))
+        try:
+            text, _model = ocr.read_pdf(data)
+            ocr_used = True
+        except RuntimeError as ocr_exc:
+            raise HTTPException(status_code=400, detail=str(ocr_exc))
     except Exception as exc:  # noqa: BLE001 - any parse failure is a 400
         raise HTTPException(
             status_code=400, detail=f"Could not read this file: {exc}"
         ) from exc
-    return {"ok": True, "name": upload.filename, "chars": len(text), "text": text}
+    return {"ok": True, "name": name, "chars": len(text),
+            "text": text, "ocr": ocr_used}
 
 
 @app.get("/api/ask")

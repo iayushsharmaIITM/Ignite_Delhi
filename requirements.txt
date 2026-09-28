@@ -33,3 +33,4 @@ psycopg[binary]==3.2.3
 # P3: Clerk session-JWT verification (auth.py)
 PyJWT==2.10.1
 cryptography==44.0.1
+PyMuPDF==1.26.7
