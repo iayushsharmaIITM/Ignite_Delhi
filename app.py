@@ -54,6 +54,8 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 import auth  # noqa: E402
 import documents  # noqa: E402
+import observe  # P5 observability (fail-open)
+
 import ocr  # noqa: F401  (stage-2 attachment OCR)
 import memory_layer  # noqa: E402
 import storage  # noqa: E402
@@ -246,6 +248,7 @@ def require_dataset_access(request: Request, dataset: str | None) -> None:
                 detail=f"'{dataset}' is not available to this account.",
             )
     brain_allowed(request, dataset or DEMO_DATASET)
+    return identity
 
 
 def normalize_brain_name(raw: str) -> str:
@@ -694,7 +697,7 @@ async def ask(request: Request, q: str, dataset: str | None = None, context: str
     # SEC-1/NEW-1: authorize the normalized name and use it everywhere
     # downstream — one name, one meaning, start to finish.
     dataset = safe_dataset(dataset)
-    require_dataset_access(request, dataset)
+    identity = require_dataset_access(request, dataset)
     # S5: asks cost inference — bound per caller (generous; see _check_rate).
     _check_rate(request, "ask")
     # straight into the prompt. Unbounded input is unbounded token cost on every
@@ -719,17 +722,30 @@ async def ask(request: Request, q: str, dataset: str | None = None, context: str
     async def gen():
         t_ask = time.time()
         answer_chars = 0
+        route = "smalltalk" if raw_smalltalk else "brain"
+        ask_error = None
         yield json.dumps({"stage": "start", "dataset": dataset or DEMO_DATASET}) + "\n"
         try:
             async for event in recall(question, dataset, smalltalk=raw_smalltalk):
                 if event.get("type") == "chunk":
                     answer_chars += len(event.get("text") or "")
+                # P5: the route actually taken, from the orchestrator's own
+                # stage labels — this is the per-route cost split dimension.
+                label = event.get("label", "")
+                if label.startswith("Smalltalk"):
+                    route = "smalltalk"
+                elif label.startswith("Router: general chat"):
+                    route = "chat"
+                elif event.get("stage") == "error":
+                    ask_error = event.get("message")
                 yield json.dumps(event) + "\n"
         except Exception as exc:  # noqa: BLE001 - demo must never white-screen
             # S6: truncate — the untruncated tenant traceback/paths/SQL used
             # to echo to every caller on this one path.
-            yield json.dumps({"stage": "error", "message": str(exc)[:300]}) + "\n"
+            ask_error = str(exc)[:300]
+            yield json.dumps({"stage": "error", "message": ask_error}) + "\n"
         yield json.dumps({"stage": "done"}) + "\n"
+        ms_total = int((time.time() - t_ask) * 1000)
         # metering (P2): estimates = chars/4; the true provider usage lives in
         # the provider dashboard until a usage-exposing recall path exists
         storage.save_llm_call(
@@ -737,7 +753,17 @@ async def ask(request: Request, q: str, dataset: str | None = None, context: str
             model=os.getenv("LLM_MODEL", "brain-llm"),
             est_prompt_tokens=len(question) // 4,
             est_completion_tokens=answer_chars // 4,
-            ms=int((time.time() - t_ask) * 1000),
+            ms=ms_total,
+        )
+        # P5 observability: the same estimate, now with the route dimension,
+        # posted fire-and-forget to Langfuse (no-op without keys).
+        observe.trace(
+            feature="ask", brain=dataset or DEMO_DATASET, route=route,
+            model=os.getenv("LLM_MODEL", "brain-llm"),
+            user=(identity or {}).get("user_id"),
+            est_prompt=len(question) // 4, est_completion=answer_chars // 4,
+            ms=ms_total, ok=ask_error is None, error=ask_error,
+            started_at=t_ask,
         )
 
     return StreamingResponse(gen(), media_type="application/x-ndjson")

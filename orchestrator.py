@@ -270,6 +270,9 @@ def _classify(query: str) -> str:
     a misroute to retrieval costs seconds; a misroute to chat costs trust."""
     import requests
 
+    import observe  # P5 observability (fail-open)
+
+    t0 = time.time()
     key = (os.getenv("OPENROUTER_API_KEY") or "").strip()
     if not key:
         return "brain"
@@ -293,10 +296,18 @@ def _classify(query: str) -> str:
         # negation ("not a chat request") contains CHAT and flipped the route,
         # silently skipping retrieval for a real question.
         first = word.split()[0] if word.split() else ""
-        if first == "CHAT":
-            return "chat"
-        return "brain"   # BRAIN, or anything ambiguous: the safe default
-    except Exception:  # noqa: BLE001 - router down: retrieval is the safe default
+        route = "chat" if first == "CHAT" else "brain"
+        observe.trace(
+            feature="router", route=route, model=os.getenv("ROUTER_MODEL", "openai/gpt-oss-120b"),
+            est_prompt=len(query[-2000:]) // 4, est_completion=len(word) // 4,
+            ms=int((time.time() - t0) * 1000), ok=True,
+        )
+        return route   # BRAIN, or anything ambiguous: the safe default
+    except Exception as exc:  # noqa: BLE001 - router down: retrieval is the safe default
+        observe.trace(
+            feature="router", route="brain", model=os.getenv("ROUTER_MODEL", "openai/gpt-oss-120b"),
+            ms=int((time.time() - t0) * 1000), ok=False, error=str(exc)[:200],
+        )
         return "brain"
 
 

@@ -9,6 +9,7 @@ chats stay bounded and cache-friendly.
 from __future__ import annotations
 
 import asyncio
+import time
 import os
 
 import requests
@@ -26,6 +27,9 @@ def _model() -> str:
 
 async def summarize_history(text: str) -> str:
     """Summarize older-turn text (~12K chars max) into a compact brief."""
+    import observe  # P5 (fail-open)
+
+    t0 = time.time()
     key = _key()
     if not key or not text.strip():
         return ""
@@ -50,6 +54,17 @@ async def summarize_history(text: str) -> str:
             timeout=90,
         )
         resp.raise_for_status()
-        return (resp.json()["choices"][0]["message"].get("content") or "").strip()
-    except Exception:  # noqa: BLE001 - summarization is an enhancement, never fatal
-        return ""
+        out = (resp.json()["choices"][0]["message"].get("content") or "").strip()
+        observe.trace(
+            feature="summarize", model=_model(),
+            est_prompt=len(text[-12000:]) // 4, est_completion=len(out) // 4,
+            ms=int((time.time() - t0) * 1000), ok=True,
+        )
+        return out
+    except Exception as exc:  # noqa: BLE001 - summarization is an enhancement, never fatal
+        observe.trace(
+            feature="summarize", model=_model(),
+            est_prompt=len(text[-12000:]) // 4,
+            ms=int((time.time() - t0) * 1000), ok=False, error=str(exc)[:200],
+        )
+        return 

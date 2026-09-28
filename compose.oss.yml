@@ -55,6 +55,33 @@ services:
       retries: 5
       start_period: 20s
 
+  # P5 observability: local Langfuse (v2 — Postgres-only, no ClickHouse).
+  # Traces land at http://localhost:3000; the app posts to it when
+  # LANGFUSE_* keys are present in .env (no keys = the bridge is a no-op,
+  # so this service is optional).
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: kestrel-langfuse
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://kestrel:${POSTGRES_PASSWORD:-kestrel}@kestrel-db:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-kestrel-local-secret}
+      SALT: ${LANGFUSE_SALT:-kestrel-local-salt}
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_INIT_ORGANIZATION_NAME: ${LANGFUSE_INIT_ORGANIZATION_NAME:-Kestrel}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-kestrel-local}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-pk-lf-local}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-sk-lf-local}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-ayush@kestrel.local}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Ayush}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-kestrel-local-demo}
+    depends_on:
+      - postgres
+
+
 volumes:
   cognee_oss_state:
   cognee_oss_data:

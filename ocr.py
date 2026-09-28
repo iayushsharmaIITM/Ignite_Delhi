@@ -94,6 +94,8 @@ def read_pdf(data: bytes) -> tuple[str, str]:
         })
 
     last = "no models configured"
+    import time as _t
+    t0 = _t.time()
     for model in models:
         try:
             r = requests.post(
@@ -110,6 +112,13 @@ def read_pdf(data: bytes) -> tuple[str, str]:
                 text = ((r.json().get("choices") or [{}])[0]
                         .get("message", {}).get("content") or "").strip()
                 if text:
+                    import observe  # P5 (fail-open)
+                    observe.trace(
+                        feature="ocr", model=model,
+                        est_completion=len(text) // 4,
+                        ms=int((_t.time() - t0) * 1000), ok=True,
+                        meta={"pages": len(pages)},
+                    )
                     return text, model
                 last = f"{model}: empty response"
             else:
