@@ -1181,6 +1181,27 @@ function finalize(bubble, q, text, sources) {
           context = 'Attached file "' + f.name + '":\n' + content + '\n\n' + context;
           fed += 1;
         } catch (e) { /* unreadable - the name still rides along */ }
+      } else if (!texty && !((f.type || '').startsWith('image/')) && context.length < 5200) {
+        // PDFs and DOCX carry their text in binary — the server extracts it
+        // so THIS answer can use it. The brain ingest below only makes the
+        // file answerable in FUTURE asks; without extraction the model is
+        // right to say "there is no PDF here".
+        try {
+          work.step('Extracting text from ' + f.name + '…');
+          const fd = new FormData();
+          fd.append('file', f);
+          const r = await fetch('/api/extract', { method: 'POST', body: fd,
+                                                  headers: await authHeaders() });
+          const d = await r.json();
+          if (r.ok && d.text) {
+            context = 'Attached file "' + f.name + '":\n' + d.text.slice(0, 2400) + '\n\n' + context;
+            fed += 1;
+          } else {
+            work.step('Could not read ' + f.name + ' — ' + (d.detail || 'no text') + ' (added to the brain only)');
+          }
+        } catch (e) {
+          work.step('Could not read ' + f.name + ' — added to the brain only');
+        }
       }
     }
     if (BRAIN) {

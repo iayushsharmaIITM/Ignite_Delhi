@@ -638,6 +638,33 @@ async def summarize(request: Request):
     return {"summary": summary}
 
 
+@app.post("/api/extract")
+async def extract_attachment(request: Request):
+    """Extract text from ONE chat attachment so the CURRENT answer can use it.
+
+    The ask path feeds text-like files client-side, but PDFs and DOCX keep
+    their text in binary — pypdf/python-docx extraction has to happen here.
+    This returns the text and touches nothing else: brain ingest remains the
+    separate, explicit upload that makes the file answerable in FUTURE asks.
+    """
+    require_tenant(request)
+    _check_rate(request, "upload")
+    form = await request.form()
+    upload = form.get("file")
+    if upload is None or isinstance(upload, str):
+        raise HTTPException(status_code=400, detail="Attach one file as 'file'.")
+    data = await upload.read()
+    try:
+        text = documents.extract(upload.filename or "attachment", data)
+    except documents.ExtractError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001 - any parse failure is a 400
+        raise HTTPException(
+            status_code=400, detail=f"Could not read this file: {exc}"
+        ) from exc
+    return {"ok": True, "name": upload.filename, "chars": len(text), "text": text}
+
+
 @app.get("/api/ask")
 async def ask(request: Request, q: str, dataset: str | None = None, context: str | None = None):
     """Stream the answer as newline-delimited JSON so the UI never sits blank.
