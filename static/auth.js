@@ -85,16 +85,21 @@
   // sign-in and the account modal, so Clerk surfaces follow the app theme.
   function appearance() {
     const light = document.documentElement.dataset.theme === 'light';
+    const elements = {
+        header: { display: 'none' },   // our gate card already shows the title
+      }
     return { variables: light ? {
         colorBackground: '#ffffff', colorText: '#201d18', colorForeground: '#201d18',
         colorInputBackground: '#f3f1ec', colorInputText: '#201d18',
         colorPrimary: '#b45309', colorPrimaryForeground: '#ffffff',
         colorMutedForeground: '#6f6a60', colorBorder: 'rgba(28,24,16,.15)',
+        ...elements,
       } : {
         colorBackground: '#232323', colorText: '#e9e9e9', colorForeground: '#e9e9e9',
         colorInputBackground: '#2b2b2b', colorInputText: '#e9e9e9',
         colorPrimary: '#e8863b', colorPrimaryForeground: '#161616',
         colorMutedForeground: '#9b9b9b', colorBorder: 'rgba(255,255,255,.13)',
+        ...elements,
       } };
   }
 

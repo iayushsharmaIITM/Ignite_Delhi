@@ -130,3 +130,11 @@ switch is boring.
 - `docker ps`: cognee-oss healthy, kestrel-db healthy ✅
 - `/health`: provider=cloud, upstream=ready, auth=ok ✅
 - warmup ALL GREEN ×2 with the exact timings in §3 ✅
+
+## Passkeys on 127.0.0.1 (dev-only note)
+
+The sign-in card shows "Use passkey instead"; on 127.0.0.1 it errors with
+`passkey_invalid_rpID_or_domain` because passkeys need a real site origin
+(RP ID). It is a dev-only artifact: on a deployed domain (or localhost with
+a matching Clerk domain config) it disappears. To hide the option in dev,
+disable passkeys under Clerk → Configure → Sign-in & sign-up.
