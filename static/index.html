@@ -21,8 +21,11 @@
      anatomy). #f and #chips live at body level (not inside .app-main), so the
      BODY is the centering flex container here and .app-main dissolves into it
      — the order:1/2/3 rules below then lay the three out as one group. */
+  /* Home stack: anchored upper-middle per owner eye (reference anatomy
+     sits above geometric center). flex-start + viewport-relative top
+     padding keeps it deterministic at any viewport height. */
   body:not(.chatting) { display:flex; flex-direction:column; align-items:center;
-    justify-content:center; min-height:100vh; padding:40px 24px 60px; }
+    justify-content:flex-start; min-height:100vh; padding:10vh 24px 60px; }
   /* Center in the PLAYGROUND, not the viewport: with the menu bar expanded
      the content column starts after it, so the same sidebar width pads the
      left. Collapsed (or narrow screens) need no offset. */
@@ -1901,6 +1904,10 @@ async function copyText(value) {
 // carry a token, and that window used to read as "a new empty chat".
 const RESTORING = new URLSearchParams(location.search).has('chat');
 if (RESTORING) document.getElementById('restore').hidden = false;
+// Never let the browser resurrect a stale scroll position over our own
+// scrollTo(0,0): on reload-after-chat the restored offset pushed the whole
+// home stack down and it read as "not centered".
+try { history.scrollRestoration = 'manual'; } catch (e) {}
 restoreHistory().catch(() => {}).finally(() => {
   if (RESTORING) document.getElementById('restore').hidden = true;
 });
