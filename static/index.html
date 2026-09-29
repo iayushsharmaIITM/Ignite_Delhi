@@ -1007,7 +1007,13 @@ async function restoreHistory() {
   // here so the swap is atomic, and hand the home/chatting state back
   TURNS.length = 0; SOURCES = []; LAST = null;
   threadEl.innerHTML = '<div class="placeholder" id="empty"></div>';
-  if (!saved.length) { document.body.classList.remove('chatting'); return; }
+  if (!saved.length) {
+    document.body.classList.remove('chatting');
+    // Home must open at the top: focusing the composer otherwise scrolls the
+    // page (watermark clipped above the fold on a fresh ?new=1 load).
+    window.scrollTo(0, 0);
+    return;
+  }
   document.body.classList.add('chatting');
   TURNS.push(...saved);
   let lastQuestion = '';
@@ -1243,7 +1249,7 @@ function finalize(bubble, q, text, sources) {
   stick = true;
   document.body.classList.remove('detached');
   scrollToBottom(true);
-  input.focus();
+  input.focus({ preventScroll: true });
 }
 
 
@@ -1466,7 +1472,7 @@ function finalize(bubble, q, text, sources) {
     CONTROLLER = null;
     if (!finalized) {
       setGo(input.value.trim() ? 'ready' : 'idle');
-      input.focus();
+      input.focus({ preventScroll: true });
     }
   }
 }
@@ -1830,7 +1836,7 @@ CLEAR_BTN?.addEventListener('click', async () => {
   buildRail();
   document.body.classList.remove('chatting');
   document.getElementById('draft').style.display = 'none';
-  input.focus();
+  input.focus({ preventScroll: true });
 });
 
 
