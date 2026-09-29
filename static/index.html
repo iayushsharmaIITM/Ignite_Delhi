@@ -167,6 +167,7 @@
     font-size:10px; transition:transform .18s ease; }
   .working:not(.collapsed) .working-head.toggle::after { transform:rotate(90deg); }
   .working-head.toggle:hover .w-elapsed { color:var(--fg); }
+  .w-stopped { color:var(--warn); font-style:italic; }
   .working .spin { width:11px; height:11px; border-radius:50%; flex:none;
           border:2px solid var(--line-3); border-top-color:var(--accent);
           animation:spin .8s linear infinite; display:inline-block; }
@@ -798,7 +799,27 @@ if (BRAIN) {
 document.getElementById('f').addEventListener('submit', e => {
   e.preventDefault();
   menu2.hidden = true; brainMenu.hidden = true;
-  if (IN_FLIGHT) { if (CONTROLLER) CONTROLLER.abort(); return; }   // send -> stop
+  if (IN_FLIGHT) {
+    if (CONTROLLER) CONTROLLER.abort();   // send -> stop
+    // a bot turn opened but never filled (stop during extraction/OCR)
+    // must not linger as an empty bubble - label it honestly; two
+    // sweeps catch every abort race; filled turns are never touched
+    const sweep = () => {
+      const w = [...document.querySelectorAll(".working")].pop();
+      if (w && !w.querySelector(".w-stopped")) {
+        const h = w.querySelector(".working-head");
+        if (h) {
+          const n = document.createElement("span");
+          n.className = "w-stopped";
+          n.textContent = "· stopped";
+          h.append(n);
+        }
+      }
+    };
+    setTimeout(sweep, 2000);
+    setTimeout(sweep, 5000);
+    return;
+  }
   const q = input.value.trim();
   if (q) ask(q);
 });
@@ -1235,6 +1256,7 @@ function finalize(bubble, q, text, sources) {
   // to the current brain so every FUTURE question cites it.
   let context = history;
   let stepTick = null;   // LOW-2: cleared below — one leaked ticker per ask before
+  try {
   if (files.length) {
     const steps = ['Reading attached files…'];
     let si = 0;
@@ -1261,8 +1283,11 @@ function finalize(bubble, q, text, sources) {
           work.step('Extracting text from ' + f.name + '…');
           const fd = new FormData();
           fd.append('file', f);
+          // the ask's abort signal rides along: STOP must stop everything,
+          // including the extraction phase (OCR can run for seconds)
           const r = await fetch('/api/extract', { method: 'POST', body: fd,
-                                                  headers: await authHeaders() });
+                                                  headers: await authHeaders(),
+                                                  signal: CONTROLLER.signal });
           const d = await r.json();
           if (r.ok && d.text) {
             context = 'Attached file "' + f.name + '":\n' + d.text.slice(0, 2400) + '\n\n' + context;
@@ -1272,6 +1297,7 @@ function finalize(bubble, q, text, sources) {
             work.step('Could not read ' + f.name + ' — ' + (d.detail || 'no text') + ' (added to the brain only)');
           }
         } catch (e) {
+          if (CONTROLLER?.signal?.aborted) throw e;   // STOP pressed: stop everything
           work.step('Could not read ' + f.name + ' — added to the brain only');
         }
       }
@@ -1293,6 +1319,18 @@ function finalize(bubble, q, text, sources) {
       }
     }
     if (fed) work.step('Attached content in context — ' + fed + ' file(s)');
+  }
+  } catch (e) {
+    // STOP during the attachment phase: finalize the ask completely —
+    // clear the tick, release the lock, restore the send button — and
+    // abandon the request instead of continuing without the files.
+    if (stepTick) clearInterval(stepTick);
+    const wasAborted = !!(CONTROLLER && CONTROLLER.signal && CONTROLLER.signal.aborted);
+    work.stop(wasAborted);   // wasAborted adds the '. stopped' note to the log
+    IN_FLIGHT = false;
+    setGo(input.value.trim() ? 'ready' : 'idle');
+    if (wasAborted) return;
+    work.step('Attachments could not be read — continuing without them');
   }
   if (stepTick) clearInterval(stepTick);
   context = context.slice(0, 6000);
@@ -1423,7 +1461,7 @@ function finalize(bubble, q, text, sources) {
       }
     }
   } finally {
-    if (!finalized) work.stop();
+    if (!finalized) work.stop(true);
     IN_FLIGHT = finalized ? IN_FLIGHT : false;
     CONTROLLER = null;
     if (!finalized) {
@@ -1630,7 +1668,7 @@ function workStart(turn) {
       box.appendChild(row);
       current = row; currentT0 = Date.now();
     },
-    stop() {
+    stop(stopped) {
       clearInterval(tick);
       if (current) {
         const dur = ((Date.now() - currentT0) / 1000).toFixed(1) + 's';
@@ -1642,6 +1680,12 @@ function workStart(turn) {
       const sp = head.querySelector('.spin');
       if (sp) sp.remove();
       elapsed.textContent = 'Worked · ' + ((Date.now() - t0) / 1000).toFixed(1) + 's';
+      if (stopped) {
+        const note = document.createElement('span');
+        note.className = 'w-stopped';
+        note.textContent = '· stopped';
+        head.append(note);
+      }
       // the process collapses into its header once the result is out —
       // click the header to expand/collapse the step log again
       box.classList.add('collapsed');
@@ -1940,14 +1984,19 @@ fileInput.addEventListener('change', () => { addPicked(fileInput.files); fileInp
 drop2.addEventListener('drop', e => addPicked(e.dataTransfer.files));
 
 function addPicked(list) {
+  // Notes are collected first: renderPicked() rebuilds the list from scratch,
+  // so noting directly would be wiped before it ever paints.
+  const notes = [];
+  const note = (text, cls) => notes.push([text, cls]);
   for (const f of list) {
-    if (picked.length >= MAX_FILES) { fileNote('Only the first ' + MAX_FILES + ' files are used.', 'warn'); break; }
-    if (f.size > MAX_BYTES) { fileNote(f.name + ' is over the 5 MB limit.', 'bad'); continue; }
-    if (!SUPPORTED_HINT.test(f.name)) { fileNote(f.name + ' — unsupported format.', 'bad'); continue; }
+    if (picked.length >= MAX_FILES) { note('Only the first ' + MAX_FILES + ' files are used.', 'warn'); break; }
+    if (f.size > MAX_BYTES) { note(f.name + ' is over the 5 MB limit.', 'bad'); continue; }
+    if (!SUPPORTED_HINT.test(f.name)) { note(f.name + ' — unsupported format.', 'bad'); continue; }
     if (picked.some(p => p.name === f.name && p.size === f.size)) continue;
     picked.push(f);
   }
   renderPicked();
+  notes.forEach(([text, cls]) => fileNote(text, cls));
 }
 
 function fileNote(text, cls) {

@@ -54,6 +54,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 import auth  # noqa: E402
 import documents  # noqa: E402
+import agents  # P6 agent layer
 import observe  # P5 observability (fail-open)
 
 import ocr  # noqa: F401  (stage-2 attachment OCR)
@@ -264,6 +265,14 @@ def normalize_brain_name(raw: str) -> str:
     return name if BRAIN_NAME_RE.match(name) else ""
 
 
+# The UI's display key for the demo brain. Every localStorage namespace,
+# sidebar folder, and default brain param uses "demo" while the dataset is
+# company_brain (DEMO_DATASET) — resolve the alias at the same edge, or
+# fail-closed authz 403s the entire demo surface (no "demo" ownership row
+# can ever exist).
+DEMO_ALIAS = "demo"
+
+
 def safe_dataset(raw: str | None) -> str:
     """One name, one meaning, at every route edge (SEC-1/NEW-1).
 
@@ -272,7 +281,10 @@ def safe_dataset(raw: str | None) -> str:
     downstream. Unnormalizable input falls back to the demo dataset — the
     same default the routes already used for a missing name.
     """
-    return normalize_brain_name(raw or "") or DEMO_DATASET
+    norm = normalize_brain_name(raw or "")
+    if norm == DEMO_ALIAS:
+        return DEMO_DATASET
+    return norm or DEMO_DATASET
 
 
 # S8: compared against NORMALIZED names — so the set holds normalized names.
@@ -544,7 +556,7 @@ async def chats_upsert(request: Request):
     # org_id is ignored (storage.upsert_chat takes the stamped values).
     org = identity.get("org_id") if isinstance(identity, dict) else None
     uid = identity.get("user_id") if isinstance(identity, dict) else None
-    brain = request.query_params.get("brain") or record.get("brain")
+    brain = safe_dataset(request.query_params.get("brain") or record.get("brain"))
     # O6: bound the write — an unbounded turns array holds one transaction
     # inserting thousands of rows and every restore re-reads it all.
     turns = record.get("turns") or []
@@ -673,7 +685,9 @@ async def extract_attachment(request: Request):
         if not ocr_fallback:
             raise HTTPException(status_code=400, detail=str(exc))
         try:
-            text, _model = ocr.read_pdf(data)
+            # COR-11 class: read_pdf blocks (requests) — run it in a worker
+            # thread or it freezes the ENTIRE event loop for every caller
+            text, _model = await asyncio.to_thread(ocr.read_pdf, data)
             ocr_used = True
         except RuntimeError as ocr_exc:
             raise HTTPException(status_code=400, detail=str(ocr_exc))
@@ -683,6 +697,182 @@ async def extract_attachment(request: Request):
         ) from exc
     return {"ok": True, "name": name, "chars": len(text),
             "text": text, "ocr": ocr_used}
+
+
+@app.post("/api/actions/draft")
+async def actions_draft(request: Request):
+    """P6: turn an answered question into a DRAFT email or Slack message.
+
+    The agent only drafts — nothing here sends. Pydantic AI gives typed
+    outputs (to/subject/body or channel/text) so the UI renders real fields.
+    """
+    identity = require_tenant(request)
+    _check_rate(request, "ask")
+    body = await request.json()
+    kind = (body.get("kind") or "email").lower()
+    question = (body.get("question") or "")[:2000]
+    answer = (body.get("answer") or "")[:12000]
+    sources = [s for s in (body.get("sources") or []) if isinstance(s, str)][:20]
+    instructions = (body.get("instructions") or "")[:1000]
+    if not answer:
+        raise HTTPException(status_code=400, detail="No answer text to draft from.")
+    try:
+        if kind == "email":
+            draft = await agents.draft_email(
+                question, answer, sources, instructions,
+                recipient=body.get("recipient"))
+            payload = draft.model_dump()
+        elif kind == "message":
+            draft = await agents.draft_message(
+                question, answer, sources, instructions,
+                channel_hint=body.get("channel") or "")
+            payload = draft.model_dump()
+        else:
+            raise HTTPException(status_code=400, detail="Unknown draft kind.")
+    except Exception as exc:  # noqa: BLE001 - agent failures are surfaced, not fatal
+        raise HTTPException(status_code=502, detail=f"Draft agent failed: {str(exc)[:200]}")
+    observe.trace(feature=f"draft-{kind}", model=agents._model(),
+                  user=(identity or {}).get("user_id"), brain=body.get("brain"),
+                  ok=True, meta={"sources": len(sources)})
+    return {"ok": True, "kind": kind, "draft": payload}
+
+
+@app.post("/api/actions/send")
+async def actions_send(request: Request):
+    """P6: the APPROVAL GATE. Sends an explicitly reviewed draft through the
+    configured transport. Unconfigured transports are a clean 503, and the
+    send is traced (who sent what, where)."""
+    identity = require_tenant(request)
+    body = await request.json()
+    kind = (body.get("kind") or "").lower()
+    draft = body.get("draft") or {}
+    try:
+        if kind == "email":
+            if not agents.email_configured():
+                raise HTTPException(status_code=503, detail=(
+                    "Email sending is not configured on this instance "
+                    "(SMTP_HOST/SMTP_USER/SMTP_PASS required)."))
+            d = agents.EmailDraft(**draft)
+            result = await asyncio.to_thread(agents.send_email, d)
+        elif kind == "slack":
+            if not agents.slack_configured():
+                raise HTTPException(status_code=503, detail=(
+                    "Slack sending is not configured on this instance "
+                    "(SLACK_WEBHOOK_URL required)."))
+            d = agents.MessageDraft(**draft)
+            result = await asyncio.to_thread(agents.send_slack, d)
+        else:
+            raise HTTPException(status_code=400, detail="Unknown send kind.")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - transport errors surface cleanly
+        raise HTTPException(status_code=502, detail=f"Send failed: {str(exc)[:200]}")
+    observe.trace(feature=f"send-{kind}", model=None,
+                  user=(identity or {}).get("user_id"), ok=result.get("sent", False),
+                  meta={"to": result.get("to") or result.get("status")})
+    return {"ok": True, "result": result}
+
+
+@app.get("/api/connectors/status")
+def connectors_status(request: Request):
+    """Which connector transports are configured — the UI renders honest
+    states instead of dead buttons."""
+    require_tenant(request)
+    return {
+        "email_send": agents.email_configured(),
+        "slack_send": agents.slack_configured(),
+        "slack_read": bool(os.getenv("SLACK_BOT_TOKEN")),
+        "gmail_read": bool(os.getenv("GMAIL_USER") and os.getenv("GMAIL_APP_PASSWORD")),
+    }
+
+
+@app.post("/api/connectors/import")
+async def connectors_import(request: Request):
+    """P6 connector: pull EXTERNAL messages (Slack channel history, Gmail
+    inbox) into a brain through the same ingest primitive as uploads —
+    imported text becomes citable like any uploaded document. Env-gated:
+    SLACK_BOT_TOKEN for Slack, GMAIL_USER/GMAIL_APP_PASSWORD for Gmail."""
+    identity = require_tenant(request)
+    _check_rate(request, "upload")
+    body = await request.json()
+    source = (body.get("source") or "").lower()
+    brain = safe_dataset(body.get("brain"))
+    if not brain:
+        raise HTTPException(status_code=400, detail="A valid target brain is required.")
+    require_dataset_access(request, brain)
+    limit = max(1, min(int(body.get("limit") or 25), 100))
+    docs: list[dict] = []
+
+    if source == "slack":
+        token = os.getenv("SLACK_BOT_TOKEN", "")
+        channel = body.get("channel") or ""
+        if not token or not channel:
+            raise HTTPException(status_code=503, detail=(
+                "Slack import is not configured (SLACK_BOT_TOKEN + channel id)."))
+        import requests as _rq
+        hist = _rq.get("https://slack.com/api/conversations.history",
+                       headers={"Authorization": f"Bearer {token}"},
+                       params={"channel": channel, "limit": limit}, timeout=30).json()
+        if not hist.get("ok"):
+            raise HTTPException(status_code=400,
+                                detail="Slack history failed: " + str(hist.get("error"))[:120])
+        for msg in reversed(hist.get("messages") or []):
+            txt = (msg.get("text") or "").strip()
+            if txt:
+                docs.append({"name": f"slack-{msg.get('ts', 'msg')}.txt", "text": txt})
+    elif source == "gmail":
+        user, pwd = os.getenv("GMAIL_USER", ""), os.getenv("GMAIL_APP_PASSWORD", "")
+        if not user or not pwd:
+            raise HTTPException(status_code=503, detail=(
+                "Gmail import is not configured (GMAIL_USER + GMAIL_APP_PASSWORD)."))
+        import imaplib, email as _email
+        from email.header import decode_header as _dh
+
+        def _dec(v):
+            parts = _dh(v or "")
+            return "".join(p.decode(c or "utf-8") if isinstance(p, bytes) else p
+                           for p, c in parts)
+
+        imap = imaplib.IMAP4_SSL("imap.gmail.com")
+        imap.login(user, pwd)
+        imap.select("INBOX")
+        _, ids = imap.search(None, "ALL")
+        batch = ids[0].split()[-limit:]
+        for mid in reversed(batch):
+            _, data = imap.fetch(mid, "(RFC822)")
+            msg = _email.message_from_bytes(data[0][1])
+            body_text = ""
+            if msg.is_multipart():
+                for part in msg.walk():
+                    if part.get_content_type() == "text/plain":
+                        body_text = part.get_payload(decode=True).decode(
+                            part.get_content_charset() or "utf-8", "ignore")
+                        break
+            else:
+                body_text = msg.get_payload(decode=True).decode(
+                    msg.get_content_charset() or "utf-8", "ignore")
+            if body_text.strip():
+                docs.append({"name": f"email-{_dec(msg.get('Subject'))[:60] or mid.decode()}.txt",
+                             "text": f"From: {_dec(msg.get('From'))}\nSubject: {_dec(msg.get('Subject'))}\n\n{body_text}"})
+        imap.logout()
+    else:
+        raise HTTPException(status_code=400, detail="Unknown connector source.")
+
+    if not docs:
+        return {"ok": True, "imported": 0, "brain": brain}
+    results = []
+    for d in docs[:limit]:
+        try:
+            await memory_layer.remember(d["text"][:50000], brain, d["name"])
+            results.append({"name": d["name"], "ok": True})
+        except Exception as exc:  # noqa: BLE001 - report per-doc failures
+            results.append({"name": d["name"], "ok": False, "error": str(exc)[:150]})
+    imported = sum(1 for r in results if r["ok"])
+    observe.trace(feature=f"import-{source}", brain=brain,
+                  user=(identity or {}).get("user_id"),
+                  ok=imported > 0, meta={"imported": imported})
+    return {"ok": True, "imported": imported, "failed": len(results) - imported,
+            "brain": brain, "docs": results}
 
 
 @app.get("/api/ask")

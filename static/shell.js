@@ -388,7 +388,12 @@
   (async function hydrateChats() {
     try {
       const h = window.KestrelAuth ? await window.KestrelAuth.authHeaders() : {};
-      const brains = new Set(['demo']);
+      // No hardcoded 'demo': the server resolves it to company_brain, so a
+      // 'demo' entry re-fetched every company_brain chat and stored a
+      // duplicate copy under kestrel.chats.demo — deletes then cleaned the
+      // wrong key and the row came back. Brains come from the server list
+      // plus whatever keys already exist locally.
+      const brains = new Set();
       try {
         const rb = await fetch('/api/brains', { headers: h });
         if (rb.ok) ((await rb.json()).brains || []).forEach(b => {
@@ -402,6 +407,33 @@
           if (k && k.indexOf('kestrel.chats.') === 0)
             brains.add(k.slice('kestrel.chats.'.length));
         }
+      } catch (e) {}
+      const knownIds = new Set();
+      let changedHeal = false;
+      try {
+        // One-time self-heal: drop cross-key duplicates already stored
+        // (same id under two brain keys). Keep the first key that holds it.
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf('kestrel.chats.') === 0) keys.push(k);
+        }
+        keys.forEach(k => {
+          let arr = [];
+          try { arr = JSON.parse(localStorage.getItem(k) || '[]'); } catch (e) {}
+          const kept = arr.filter(c => {
+            if (!c || !c.id || knownIds.has(c.id)) return false;
+            knownIds.add(c.id);
+            return true;
+          });
+          if (kept.length !== arr.length) {
+            try {
+              if (kept.length) localStorage.setItem(k, JSON.stringify(kept));
+              else localStorage.removeItem(k);
+              changedHeal = true;
+            } catch (e) {}
+          }
+        });
       } catch (e) {}
       let changed = false;
       for (const b of brains) {
@@ -418,17 +450,19 @@
         catch (e) { local = []; }
         const seen = new Set(local.map(c => c.id));
         rows.forEach(s => {
-          if (s && s.id && !seen.has(s.id)) {
+          // Cross-key dedupe: one chat id lives under exactly one key, or
+          // deletes clean the wrong copy and the row resurrects.
+          if (s && s.id && !seen.has(s.id) && !knownIds.has(s.id)) {
             local.unshift({ id: s.id, title: s.title || 'Untitled',
                             at: s.at || Date.now(), turns: s.turns || [] });
-            seen.add(s.id); changed = true;
+            seen.add(s.id); knownIds.add(s.id); changed = true;
           }
         });
         if (changed) try {
           localStorage.setItem(key, JSON.stringify(local.slice(0, 100)));
         } catch (e) {}
       }
-      if (changed) renderChats();
+      if (changed || changedHeal) renderChats();
     } catch (e) { /* local-only view stands */ }
   })();
   // index.html dispatches this after saving; the sidebar is otherwise built once

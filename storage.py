@@ -149,13 +149,16 @@ def _demo() -> str:
 
 def _norm_brain(raw) -> str:
     """Local brain-name normalizer (mirrors app.safe_dataset without the
-    import — app imports storage, so storage cannot import app)."""
+    import — app imports storage, so storage cannot import app). Maps the UI
+    'demo' alias to the real dataset; unknown/empty falls back per _demo()."""
     import re as _re
     name = (raw or "").strip().lower()
     name = _re.sub(r"[\s\-.]+", "_", name)
     name = _re.sub(r"[^a-z0-9_]", "", name)
     name = _re.sub(r"_{2,}", "_", name).strip("_")
-    return name if _re.fullmatch(r"[a-z0-9][a-z0-9_]{2,39}", name) else ""
+    if not _re.fullmatch(r"[a-z0-9][a-z0-9_]{2,39}", name):
+        return ""
+    return _demo() if name == "demo" else name
 
 
 def _est_tokens(text: str) -> int:
