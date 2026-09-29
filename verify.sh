@@ -80,7 +80,7 @@ note server "up (pid $SERVER_PID, mock fixtures)"
 # Runs before the live-server suites: it drives app.py through TestClient, so
 # it must not race the mock server for the real port.
 if python3 connectors_test.py > /tmp/kestrel_verify_conn.log 2>&1; then
-  note connectors "PASS  84/84"
+  note connectors "PASS  90/90"
 else
   note connectors "FAIL — see /tmp/kestrel_verify_conn.log"
   FAILS=$((FAILS + 1))

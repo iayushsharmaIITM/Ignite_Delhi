@@ -463,6 +463,7 @@ kbd {
 .conn-import .tbtn { flex:none; }
 .conn-note { font-size:12.5px; color:var(--muted); margin-top:10px; }
 .conn-note.bad { color:#e0655a; }
+.conn-import .tbtn[disabled], .conn-import input[disabled] { opacity:.42; cursor:not-allowed; }
 
 /* Clerk's component sheet is CORS-dark to our JS, and some of its internals
    (the "Primary" badge, row action buttons) resolve to near-invisible alpha

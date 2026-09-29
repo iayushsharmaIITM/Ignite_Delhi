@@ -1,3 +1,39 @@
+## P6 connectors UX pass — the shelf stopped lying 2026-09-29
+
+Built the OAuth+vault layer, then drove the shelf in a real browser as the
+signed-in owner. Four things were rendering states the backend could not serve.
+
+  * A Connect button sat next to a "Coming soon" pill on the Gmail row. Both
+    at once, meaning opposite things; pressing it 503s. Connect is now gated
+    on the instance actually having an OAuth client registered.
+  * Import controls were always live even with nothing connected — same lie,
+    one click deeper. Inputs and the Import button now disable, so the shelf
+    offers no action it cannot perform.
+  * The inverse bug, found immediately after: gating Disconnect on
+    `configured` too meant that removing the OAuth client from an instance
+    orphaned a live grant with no way to revoke it. Disconnect is now gated
+    on whether a grant EXISTS, which is the right question.
+  * `/api/connectors/status` reported `slack_read: true` while the grant sat
+    in `needs_reconnect` — the one state where the transport definitively
+    cannot serve an import. `slack_read`/`gmail_read` are now `== "connected"`.
+
+Verified in the browser against a seeded owner grant, not by reading the code:
+unconfigured renders pill-only with imports disabled; a live grant renders
+"Connected" + Disconnect + enabled imports; clicking Disconnect flips that row
+to "Coming soon" and leaves Slack untouched (per-row isolation); a
+`needs_reconnect` grant shows the warn pill and stops advertising the read
+transport. The Disconnect click round-trips through the real
+`POST /api/connectors/disconnect` and re-renders from the refreshed status.
+
+Suite grew 84 -> 90 checks to lock the last two in: a dead grant must not
+advertise gmail/slack read, and the env token alone must. Battery green:
+documents 25/25, pipe-states 13/13, connectors 90/90, tenants 10/10,
+smoke 4/4, UI PASS.
+
+Also pinned `pydantic-ai-slim[openai]==2.51.0` in requirements.txt — the line
+that shipped the P6 agent layer had been left unpinned while every other
+dependency in the file is exact, so a container rebuild was not reproducible.
+
 ## P6 connectors part 1 — OAuth connect flow + encrypted token vault 2026-09-29
 
 Connectors were four read-only rows behind a "Coming soon" pill. They now have

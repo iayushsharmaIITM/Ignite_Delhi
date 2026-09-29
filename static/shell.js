@@ -721,28 +721,47 @@
       const oauth = st.oauth || {};
       const g = (oauth.google || {}).state || 'unconfigured';
       const s = (oauth.slack || {}).state || 'unconfigured';
-      const gBtn = (g === 'connected')
-        ? '<button type="button" class="tbtn" data-conn="dis-google">Disconnect</button>'
-        : '<button type="button" class="tbtn hot" data-conn="con-google">Connect</button>';
-      const sBtn = (s === 'connected')
-        ? '<button type="button" class="tbtn" data-conn="dis-slack">Disconnect</button>'
-        : '<button type="button" class="tbtn hot" data-conn="con-slack">Connect</button>';
+      // A Connect button next to a "Coming soon" pill is a lie: pressing it
+      // would 503. Show Connect only once the instance has an OAuth client.
+      // Disconnect is gated on the opposite thing — whether a grant EXISTS —
+      // otherwise removing the client from the instance would orphan a live
+      // grant with no way to revoke it from the UI.
+      const connectBtn = (provider, configured, stt) => {
+        if (stt !== 'unconfigured') {
+          return '<button type="button" class="tbtn" data-conn="dis-' + provider + '">Disconnect</button>';
+        }
+        if (!configured) return '';
+        return '<button type="button" class="tbtn hot" data-conn="con-' + provider + '">Connect</button>';
+      };
+      const gBtn = connectBtn('google', (oauth.google || {}).configured, g);
+      const sBtn = connectBtn('slack', (oauth.slack || {}).configured, s);
       const orow = (name, desc, stt, btn) =>
         '<div class="conn-row"><div><div class="conn-nm">' + name + '</div>' +
         '<div class="conn-ds">' + desc + '</div></div><div class="conn-act">' +
         pill(stt) + btn + '</div></div>';
+      // Import controls are only live when the transport actually is. A
+      // disabled button plus the reason beats a live one that 503s.
+      const impBtn = (act, ready) =>
+        '<button type="button" class="tbtn" data-conn="' + act + '"' +
+        (ready ? '' : ' disabled') + '>Import</button>';
+      const slackReady = st.slack_read && s === 'connected';
+      const gmailReady = st.gmail_read && g === 'connected';
       sheet.innerHTML =
         '<div class="km-head"><h2>' + T('conn.title', 'Connectors') + '</h2>' +
         '<button type="button" class="km-x" data-km-close>✕</button></div>' +
         '<p class="km-sub">' + T('conn.sub', 'Send answers out, pull conversations in.') + '</p>' +
         '<div class="conn-sec">' + T('conn.read', 'Read into brains') + '</div>' +
+        orow(T('conn.slack_read', 'Slack import'),
+             T('conn.slack_read_d', 'Pull channel history into a brain'), s, sBtn) +
+        '<div class="conn-import"><input id="conn-slack-channel" placeholder="Slack channel ID (C…)" autocomplete="off"' +
+        (slackReady ? '' : ' disabled') + '>' +
+        '<input id="conn-brain" placeholder="brain" value="company_brain" autocomplete="off">' +
+        impBtn('imp-slack', slackReady) + '</div>' +
         orow(T('conn.gmail_read', 'Gmail import'),
              T('conn.gmail_read_d', 'Pull inbox mail into a brain'), g, gBtn) +
-        '<div class="conn-import"><input id="conn-slack-channel" placeholder="Slack channel ID (C…)" autocomplete="off">' +
-        '<input id="conn-brain" placeholder="brain" value="company_brain" autocomplete="off">' +
-        '<button type="button" class="tbtn" data-conn="imp-slack">Import</button></div>' +
-        '<div class="conn-import"><input id="conn-gmail-q" placeholder="Gmail search (blank = inbox)" autocomplete="off">' +
-        '<button type="button" class="tbtn" data-conn="imp-gmail">Import</button></div>' +
+        '<div class="conn-import"><input id="conn-gmail-q" placeholder="Gmail search (blank = inbox)" autocomplete="off"' +
+        (gmailReady ? '' : ' disabled') + '>' +
+        impBtn('imp-gmail', gmailReady) + '</div>' +
         '<div class="conn-note" id="conn-note" hidden></div>' +
         '<div class="conn-sec">' + T('conn.send', 'Send on approval') + '</div>' +
         orow(T('conn.email', 'Email'), T('conn.email_d', 'Draft answers as email, send on approval'),

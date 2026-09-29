@@ -790,11 +790,14 @@ def connectors_status(request: Request):
     return {
         "email_send": agents.email_configured(),
         "slack_send": agents.slack_configured(),
+        # Read transports are usable only in the `connected` state. A
+        # needs_reconnect grant cannot serve an import — advertising it true
+        # would send the user to a 503.
         "slack_read": _cx.connection_state(
-            "slack", identity, os.getenv("SLACK_BOT_TOKEN")) != "unconfigured",
+            "slack", identity, os.getenv("SLACK_BOT_TOKEN")) == "connected",
         "gmail_read": _cx.connection_state(
             "google", identity, os.getenv("GMAIL_APP_PASSWORD")
-            if os.getenv("GMAIL_USER") else "") != "unconfigured",
+            if os.getenv("GMAIL_USER") else "") == "connected",
         "oauth": {p: {"configured": _cx.provider_configured(p),
                        "state": _cx.connection_state(p, identity)}
                   for p in ("google", "slack")},

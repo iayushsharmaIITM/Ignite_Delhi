@@ -212,9 +212,14 @@ def main() -> int:
     check("revoked -> needs reconnect", cx.connection_state("google", IDENT),
           "needs_reconnect")
     check("revoked -> no retry loop", cx.google_access_token(IDENT), None)
-    check("ui surfaces reconnect",
-          client.get("/api/connectors/status").json()["oauth"]["google"]["state"],
+    st_body = client.get("/api/connectors/status").json()
+    check("ui surfaces reconnect", st_body["oauth"]["google"]["state"],
           "needs_reconnect")
+    # A needs_reconnect grant cannot serve an import. Advertising the read
+    # transport true here would walk the user straight into a 503.
+    check("dead grant does not advertise gmail read", st_body["gmail_read"], False)
+    check("client config still reported", st_body["oauth"]["google"]["configured"],
+          True)
 
     stub_token_endpoint(ConnectionError("provider unreachable"))
     cx.put_credential("google", IDENT, {"access_token": "ya29.STALE",
@@ -277,10 +282,17 @@ def main() -> int:
     check("slack bad state still guarded", r.headers["location"],
           "/?connect_error=bad_state")
     check("slack token resolved", cx.slack_token(IDENT), "xoxb-TEST")
+    check("live slack grant advertises read",
+          client.get("/api/connectors/status").json()["slack_read"], True)
     os.environ["SLACK_BOT_TOKEN"] = "xoxb-env"
     check("vault beats env", cx.slack_token(IDENT), "xoxb-TEST")
     cx.mark_needs_reconnect("slack", IDENT)
     check("reconnect falls back to env", cx.slack_token(IDENT), "xoxb-env")
+    st_body = client.get("/api/connectors/status").json()
+    check("slack state is reconnect", st_body["oauth"]["slack"]["state"],
+          "needs_reconnect")
+    check("dead slack grant does not advertise read", st_body["slack_read"], False)
+    check("but the env token alone does", cx.slack_token(IDENT), "xoxb-env")
     del os.environ["SLACK_BOT_TOKEN"]
 
     section("disconnect")
