@@ -152,6 +152,17 @@ h1, .display {
   display: flex; align-items: center; gap: 12px;
   padding: 20px 18px 16px; border-bottom: 1px solid var(--line);
 }
+.brand .grow { flex: 1; }
+/* sidebar retract: chevron in the brand row collapses the whole menu bar;
+   the floating toggle re-opens it. State persists across reloads. */
+.sb-collapse { flex: none; width: 26px; height: 26px; border-radius: 7px;
+  border: 1px solid transparent; background: none; color: var(--muted-2);
+  cursor: pointer; font-size: 14px; line-height: 1; }
+.sb-collapse:hover { border-color: var(--line-2); color: var(--fg); }
+body.sb-collapsed { --sb-w: 0px; }
+body.sb-collapsed .shell { transform: translateX(-100%); }
+body.sb-collapsed .sb-toggle { display: block; }
+.shell { transition: transform .2s ease; }
 .brand .mark {
   width: 34px; height: 34px; border-radius: 9px; flex: none;
   background: linear-gradient(155deg, #f49d54, #d96f1f 78%);

@@ -235,8 +235,17 @@
     const menu = document.getElementById('sb-viewmenu');
     const inList = box && box.contains(e.target);
     const inMenu = menu && menu.contains(e.target);
+    // Brand-row collapse button lives outside list/menu — handle first.
+    const collapseBtn0 = e.target.closest('[data-action="sb-collapse"]');
+    if (collapseBtn0) {
+      const collapsed = !document.body.classList.contains('sb-collapsed');
+      document.body.classList.toggle('sb-collapsed', collapsed);
+      try { localStorage.setItem('kestrel.sb.collapsed', collapsed ? '1' : '0'); } catch (e2) {}
+      return;
+    }
     if (!inList && !inMenu) { closeViewMenu(); return; }
     const btn = e.target.closest('[data-action]');
+    // (sb-collapse is handled above, before the list/menu gate.)
     if (!btn) { if (inList) closeViewMenu(); return; }
     e.preventDefault();
     const action = btn.dataset.action;
@@ -319,6 +328,8 @@
       '<div class="mark">◆</div>' +
       '<div><div class="name">Kestrel</div>' +
       '<div class="sub">Company Brain</div></div>' +
+      '<div class="grow"></div>' +
+      '<button type="button" class="sb-collapse" data-action="sb-collapse" title="Retract sidebar" aria-label="Retract sidebar">«</button>' +
     '</div>' +
     '<nav class="nav">' +
       '<div class="nav-label" data-nav-label>' + T('nav.workspace', 'Workspace') + '</div>' + links +
@@ -331,7 +342,22 @@
   toggle.type = 'button';
   toggle.setAttribute('aria-label', 'Toggle navigation');
   toggle.textContent = '☰';
-  toggle.addEventListener('click', () => shell.classList.toggle('open'));
+  toggle.addEventListener('click', () => {
+    // Collapsed (any viewport): expand the bar. Otherwise the legacy mobile
+    // behaviour: slide the off-canvas bar in/out.
+    if (document.body.classList.contains('sb-collapsed')) {
+      document.body.classList.remove('sb-collapsed');
+      try { localStorage.setItem('kestrel.sb.collapsed', '0'); } catch (e) {}
+      return;
+    }
+    shell.classList.toggle('open');
+  });
+
+  // Restore the persisted retract state before first paint matters.
+  try {
+    if (localStorage.getItem('kestrel.sb.collapsed') === '1')
+      document.body.classList.add('sb-collapsed');
+  } catch (e) {}
 
   document.body.insertBefore(toggle, document.body.firstChild);
   document.body.insertBefore(shell, document.body.firstChild);
