@@ -17,8 +17,13 @@
      chatting: transcript + the composer docked bottom, slim and quiet       */
 
   .app-main { padding-bottom:0; }
-  body:not(.chatting) .app-main {
-    justify-content:center; align-items:center; padding:40px 24px 60px; }
+  /* Home is a centered stack (greeting + composer + chips, like the reference
+     anatomy). #f and #chips live at body level (not inside .app-main), so the
+     BODY is the centering flex container here and .app-main dissolves into it
+     — the order:1/2/3 rules below then lay the three out as one group. */
+  body:not(.chatting) { display:flex; flex-direction:column; align-items:center;
+    justify-content:center; min-height:100vh; padding:40px 24px 60px; }
+  body:not(.chatting) .app-main { display:contents; }
   body:not(.chatting) #home { display:flex; flex-direction:column; align-items:center;
     width:100%; max-width:680px; order:1; }
   body:not(.chatting) #thread-wrap, body:not(.chatting) #draft { display:none; }
@@ -203,12 +208,22 @@
     align-items:center; justify-content:center;
     background:var(--bg); }
   #auth-gate[hidden] { display:none; }
-  .auth-card { width:min(420px, 92vw); padding:34px 30px; border-radius:16px;
+  .auth-card { width:min(460px, 94vw); padding:34px 30px; border-radius:16px;
     border:1px solid var(--line-2); background:var(--panel);
-    box-shadow:var(--shadow-lg); text-align:center; }
+    box-shadow:var(--shadow-lg); text-align:center; overflow:visible; }
   .auth-title { font-size:20px; font-weight:600; margin-bottom:6px; }
   .auth-sub { font-size:13px; color:var(--muted); margin-bottom:22px; }
+  /* Clerk renders its own card inside our mount — center it as a block and
+     keep it inside our card. Without this the component overflows to one
+     side and the gate reads as two misaligned stacked cards. */
+  #clerk-mount { display:flex; justify-content:center; }
+  #clerk-mount > div { max-width:100%; }
+  #clerk-mount .cl-card, #clerk-mount .cl-cardBox { max-width:100%; margin:0 auto; }
   body.locked .app-main, body.locked form#f { filter:blur(6px) saturate(.6);
+    pointer-events:none; user-select:none; }
+  /* display:contents gives .app-main no box in home mode, so the lock blur
+     would not render there — apply it to the content nodes directly. */
+  body.locked #home, body.locked #chips { filter:blur(6px) saturate(.6);
     pointer-events:none; user-select:none; }
   /* Clerk's component sheet is CORS-dark to our JS; its social button ships
      black text at 62% alpha, unreadable on the dark card. Our own variables

@@ -543,7 +543,8 @@
       chevItem('theme', 'theme', T('set.theme', 'App theme')) +
       '<div class="set-sep"></div>' +
       item('usage', 'chart', T('set.usage', 'Usage stats')) +
-      item('upgrade', 'rocket', T('set.upgrade', 'Upgrade'));
+      item('upgrade', 'rocket', T('set.upgrade', 'Upgrade')) +
+      item('connectors', 'plug', T('set.connectors', 'Connectors'));
     if (window.KestrelAuth && window.KestrelAuth.state().signedIn) {
       html += '<div class="set-sep"></div>' +
         item('account', 'person', T('set.account', 'Manage account')) +
@@ -658,18 +659,56 @@
       '<div class="tp">' + price + ' <small>' + per + '</small></div>' +
       '<ul>' + feats.map(f => '<li>' + f + '</li>').join('') + '</ul>' +
       '<button type="button" class="tbtn' + (hot ? ' hot' : '') + '" ' + (btn.disabled ? 'disabled' : '') + '>' + btn.label + '</button></div>';
+    // Owner pricing (Sep 2026): starts at $20/mo; every plan ships as
+    // coming-soon until billing publishes. Amounts are literals on purpose —
+    // prices are not translated, only the surrounding copy is.
+    const soon = { label: T('up.soon', 'Coming soon'), disabled: true };
     const body = '<div class="tiers">' +
-      tier('', T('up.free', 'Free'), '₹0', T('up.per_mo', '/mo'),
+      tier('hot', T('up.starter', 'Starter'), '$20', T('up.per_mo', '/mo'),
         [T('up.free_f1'), T('up.free_f2'), T('up.free_f3')],
-        { label: T('up.current', 'Current plan'), disabled: true }) +
-      tier('hot', T('up.pro', 'Pro'), '₹999', T('up.per_mo', '/mo'),
+        soon, true) +
+      tier('', T('up.pro', 'Pro'), '$50', T('up.per_mo', '/mo'),
         [T('up.pro_f1'), T('up.pro_f2'), T('up.pro_f3')],
-        { label: T('up.soon', 'Coming soon'), disabled: true }) +
-      tier('', T('up.biz', 'Business'), '₹1,999', T('up.per_mo', '/mo'),
+        soon) +
+      tier('', T('up.biz', 'Business'), '$99', T('up.per_mo', '/mo'),
         [T('up.biz_f1'), T('up.biz_f2'), T('up.biz_f3')],
-        { label: T('up.soon', 'Coming soon'), disabled: true }) +
+        soon) +
       '</div><p class="km-note">' + T('up.note', '') + '</p>';
     km(T('up.title', 'Upgrade Kestrel'), T('upg.sub', ''), body);
+  }
+
+  function openConnectors() {
+    // Connector shelf: every transport the backend already speaks, with an
+    // honest live state. Unconfigured transports read "Coming soon" until
+    // their credentials land — no dead buttons, no silent failures.
+    const pill = ok =>
+      '<span class="conn-pill ' + (ok ? 'on' : 'soon') + '">' +
+      (ok ? T('conn.on', 'Connected') : T('conn.soon', 'Coming soon')) + '</span>';
+    const row = (name, desc, ok) =>
+      '<div class="conn-row"><div><div class="conn-nm">' + name + '</div>' +
+      '<div class="conn-ds">' + desc + '</div></div>' + pill(ok) + '</div>';
+    const scrim = km(T('conn.title', 'Connectors'),
+      T('conn.sub', 'Send answers out, pull conversations in.'), '<div class="u-empty">…</div>');
+    const sheet = scrim.querySelector('.km-sheet');
+    const paint = (st) => {
+      st = st || {};
+      sheet.innerHTML =
+        '<div class="km-head"><h2>' + T('conn.title', 'Connectors') + '</h2>' +
+        '<button type="button" class="km-x" data-km-close>✕</button></div>' +
+        '<p class="km-sub">' + T('conn.sub', 'Send answers out, pull conversations in.') + '</p>' +
+        row(T('conn.email', 'Email'), T('conn.email_d', 'Draft answers as email, send on approval'), !!st.email_send) +
+        row(T('conn.slack_send', 'Slack send'), T('conn.slack_send_d', 'Post answers to a channel on approval'), !!st.slack_send) +
+        row(T('conn.slack_read', 'Slack import'), T('conn.slack_read_d', 'Pull channel history into a brain'), !!st.slack_read) +
+        row(T('conn.gmail_read', 'Gmail import'), T('conn.gmail_read_d', 'Pull inbox mail into a brain'), !!st.gmail_read);
+    };
+    paint(null);
+    (async () => {
+      try {
+        const h = await window.KestrelAuth.authHeaders();
+        const r = await fetch('/api/connectors/status', { headers: h });
+        paint(r.ok ? await r.json() : null);
+      } catch (e) { paint(null); }
+    })();
   }
 
   // ------------------------------------------------------------- wiring
@@ -688,6 +727,7 @@
       if (which === 'theme') { openThemeMenu(set); return; }
       if (which === 'usage') { closeSettings(); openUsage(); return; }
       if (which === 'upgrade') { closeSettings(); openUpgrade(); return; }
+      if (which === 'connectors') { closeSettings(); openConnectors(); return; }
       if (which === 'account') { closeSettings(); window.KestrelAuth.openAccount(); return; }
       if (which === 'signout') { closeSettings(); await window.KestrelAuth.signOut(); return; }
       if (which === 'signin') { location.href = '/'; return; }
