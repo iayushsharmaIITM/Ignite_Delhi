@@ -32,6 +32,8 @@ services:
     volumes:
       - cognee_oss_state:/app/.cognee
       - cognee_oss_data:/cognee-storage
+      - ./patches/native_adapter.py:/app/cognee/infrastructure/llm/structured_output_framework/litellm_native/native_adapter.py:ro
+      - ./patches/stream_completion.py:/app/cognee/infrastructure/llm/streaming/stream_completion.py:ro
     # O2: without this, a host reboot starts the app before Postgres is
     # ready, and the app's one-shot storage.init degrades it for its whole
     # lifetime (now also self-heals via retry — belt and suspenders).
