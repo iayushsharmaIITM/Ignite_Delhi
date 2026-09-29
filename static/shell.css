@@ -159,8 +159,8 @@ h1, .display {
   border: 1px solid transparent; background: none; color: var(--muted-2);
   cursor: pointer; font-size: 14px; line-height: 1; }
 .sb-collapse:hover { border-color: var(--line-2); color: var(--fg); }
-body.sb-collapsed { --sb-w: 0px; }
-body.sb-collapsed .shell { transform: translateX(-100%); }
+body.sb-collapsed .shell { transform: translateX(calc(-1 * var(--sb-w))); }
+body.sb-collapsed .app-main { margin-left: 0; }
 body.sb-collapsed .sb-toggle { display: block; }
 .shell { transition: transform .2s ease; }
 .brand .mark {

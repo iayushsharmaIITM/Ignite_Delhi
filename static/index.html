@@ -47,6 +47,11 @@
        margin:0; padding:22px 44px 18px;
        background:linear-gradient(180deg, rgba(22,22,22,0), var(--bg) 40%);
        backdrop-filter:blur(10px); }
+  /* Retracted sidebar: the composer and rail reclaim the freed column.
+     (Explicit offsets — never by zeroing --sb-w, which collapses .shell's
+     own width and turns translateX(-100%) into a no-op spill.) */
+  body.sb-collapsed #f { left:0; }
+  body.sb-collapsed #rail { left:8px; }
   #f .field { flex:1; max-width:780px; margin:0 auto; }
   body { padding-bottom:120px; }
   body:not(.chatting) { padding-bottom:0; }
