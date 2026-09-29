@@ -72,17 +72,23 @@ def read_pdf(data: bytes) -> tuple[str, str]:
     """
     import requests
 
-    key = os.getenv("LLM_API_KEY", "")
+    import llm
+
+    # OCR key comes from the shared endpoint resolution (Token Harbor
+    # primary). Previously this read an LLM_API_KEY that nothing ever set,
+    # so OCR always raised "not configured".
+    key = llm.api_key()
     if not key:
         raise RuntimeError("OCR is not configured on this instance (no model key).")
+    # DeepSeek-only per owner decision (gpt-oss routed out entirely). The
+    # vision variant reads scans; v4.1-flash handles every text path.
     models = [
         m.strip() for m in os.getenv(
-            "KESTREL_OCR_MODELS",
-            "openai/gpt-6-luna,google/gemma-4-31b-it:free,qwen/qwen3.8-27b:free",
+            "KESTREL_OCR_MODELS", llm.default_model()
         ).split(",") if m.strip()
     ]
     endpoint = os.getenv(
-        "KESTREL_OCR_ENDPOINT", "https://openrouter.ai/api/v1/chat/completions"
+        "KESTREL_OCR_ENDPOINT", llm.chat_url()
     )
 
     pages = _render(data)
@@ -106,7 +112,7 @@ def read_pdf(data: bytes) -> tuple[str, str]:
                     "max_tokens": 4000,
                 },
                 headers={"Authorization": f"Bearer {key}"},
-                timeout=120,
+                timeout=90,
             )
             if r.status_code == 200:
                 text = ((r.json().get("choices") or [{}])[0]

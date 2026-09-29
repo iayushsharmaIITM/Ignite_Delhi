@@ -41,7 +41,7 @@ RACERS = [
     ("vector retrieval agent", "RAG_COMPLETION"),
 ]
 
-OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+import llm  # shared endpoint resolution (Token Harbor primary, OpenRouter fallback)
 
 
 async def answer(query: str, dataset: str | None, smalltalk: bool = False):
@@ -273,15 +273,15 @@ def _classify(query: str) -> str:
     import observe  # P5 observability (fail-open)
 
     t0 = time.time()
-    key = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+    key = llm.api_key()
     if not key:
         return "brain"
     try:
         resp = requests.post(
-            f"{OPENROUTER_BASE}/chat/completions",
+            llm.chat_url(),
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json={
-                "model": os.getenv("ROUTER_MODEL", "openai/gpt-oss-120b"),
+                "model": os.getenv("ROUTER_MODEL", llm.default_model()),
                 "messages": [
                     {"role": "system", "content": ROUTER_INSTRUCTION},
                     {"role": "user", "content": query[-2000:]},
@@ -298,14 +298,14 @@ def _classify(query: str) -> str:
         first = word.split()[0] if word.split() else ""
         route = "chat" if first == "CHAT" else "brain"
         observe.trace(
-            feature="router", route=route, model=os.getenv("ROUTER_MODEL", "openai/gpt-oss-120b"),
+            feature="router", route=route, model=os.getenv("ROUTER_MODEL", llm.default_model()),
             est_prompt=len(query[-2000:]) // 4, est_completion=len(word) // 4,
             ms=int((time.time() - t0) * 1000), ok=True,
         )
         return route   # BRAIN, or anything ambiguous: the safe default
     except Exception as exc:  # noqa: BLE001 - router down: retrieval is the safe default
         observe.trace(
-            feature="router", route="brain", model=os.getenv("ROUTER_MODEL", "openai/gpt-oss-120b"),
+            feature="router", route="brain", model=os.getenv("ROUTER_MODEL", llm.default_model()),
             ms=int((time.time() - t0) * 1000), ok=False, error=str(exc)[:200],
         )
         return "brain"
@@ -316,16 +316,16 @@ def _direct_chat_general(query: str) -> str:
     import requests
     from datetime import datetime
 
-    key = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+    key = llm.api_key()
     if not key:
         return "I can answer questions about your company's documents — try me on those."
     try:
         now = datetime.now().strftime("%A, %d %B %Y, %H:%M local time")
         resp = requests.post(
-            f"{OPENROUTER_BASE}/chat/completions",
+            llm.chat_url(),
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json={
-                "model": os.getenv("SUMMARIZER_MODEL", "openai/gpt-oss-120b"),
+                "model": os.getenv("SUMMARIZER_MODEL", llm.default_model()),
                 "messages": [
                     {"role": "system",
                      "content": "You are Kestrel, a company brain. This message is "
@@ -360,15 +360,15 @@ def _direct_chat(query: str) -> str:
                 "I answer with cited sources from your contracts, tickets and meetings.")
     import requests
 
-    key = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+    key = llm.api_key()
     if not key:
         return "Hello! Ask me anything about your company documents."
     try:
         resp = requests.post(
-            f"{OPENROUTER_BASE}/chat/completions",
+            llm.chat_url(),
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json={
-                "model": os.getenv("SUMMARIZER_MODEL", "openai/gpt-oss-120b"),
+                "model": os.getenv("SUMMARIZER_MODEL", llm.default_model()),
                 "messages": [
                     {"role": "system",
                      "content": "You are Kestrel, a company brain that answers from the "

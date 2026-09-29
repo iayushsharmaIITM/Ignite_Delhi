@@ -1,9 +1,9 @@
 """Summarizer (P2): compress older conversation turns into a stable summary.
 
-Uses the platform LLM via OpenRouter (the same key that powers the local
-brain) when OPENROUTER_API_KEY is set; otherwise returns "" and the caller
-falls back to raw truncation. Summaries feed the ask-context so multi-turn
-chats stay bounded and cache-friendly.
+Uses the platform LLM (llm.py: Token Harbor primary, OpenRouter fallback)
+when a key is set; otherwise returns "" and the caller falls back to raw
+truncation. Summaries feed the ask-context so multi-turn chats stay bounded
+and cache-friendly.
 """
 
 from __future__ import annotations
@@ -14,15 +14,15 @@ import os
 
 import requests
 
-OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+import llm
 
 
 def _key() -> str:
-    return os.getenv("OPENROUTER_API_KEY", "").strip()
+    return llm.api_key()
 
 
 def _model() -> str:
-    return os.getenv("SUMMARIZER_MODEL", "openai/gpt-oss-120b")
+    return os.getenv("SUMMARIZER_MODEL", llm.default_model())
 
 
 async def summarize_history(text: str) -> str:
@@ -38,7 +38,7 @@ async def summarize_history(text: str) -> str:
         # 90s POST would freeze every concurrent request (/health included).
         resp = await asyncio.to_thread(
             requests.post,
-            f"{OPENROUTER_BASE}/chat/completions",
+            llm.chat_url(),
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json={
                 "model": _model(),
