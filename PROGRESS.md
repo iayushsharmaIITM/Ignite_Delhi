@@ -1,3 +1,71 @@
+## P6 connectors part 1 — OAuth connect flow + encrypted token vault 2026-09-29
+
+Connectors were four read-only rows behind a "Coming soon" pill. They now have
+a real connect path: the browser never sees a token, and a grant that dies
+degrades to "reconnect" instead of erroring mid-sync.
+
+New `connectors.py` — five layers, each independently testable:
+  * `PROVIDERS` registry: Google + Slack authorize/token URLs and MINIMAL
+    scopes. Gmail + Drive read-only; Slack gets channels/groups history and
+    users:read. `chat:write` is deliberately absent from the read grant —
+    sending keeps using the separate approval-gated path.
+  * Fernet vault in a `connector_credentials` table keyed (provider, owner_key)
+    where owner_key is `org_id|user_id` — the same identity shape as
+    `storage._owner_clause`, so a grant can never outlive the tenant that made
+    it. Key comes only from `CONNECTOR_VAULT_KEY`; no key means reads behave
+    as unconfigured and WRITES RAISE rather than silently dropping a grant
+    (a silently-dropped OAuth grant is the worst possible failure: the UI
+    says "connected" and everything 401s later).
+  * Server-side `state` binding: random token -> {identity, provider, exp}.
+    Single-use, and consumed by ANY pop attempt including a wrong-provider
+    one — an attacker who can probe states cannot test one against several
+    providers and keep a live token usable.
+  * `google_access_token()` — the whole reason this design exists. Access
+    tokens live ~1h. Expired -> silent refresh + persist rotation. A provider
+    refusal that means the grant is GONE (invalid_grant / invalid_token /
+    unauthorized_client) flips the row to `needs_reconnect`. A transport blip
+    (DNS, timeout, 5xx) does NOT — it hands back the stale token and leaves the
+    row connected, because a flaky network must never force a re-consent.
+
+`app.py`: `GET /api/connectors/oauth/{provider}/start` (302 to consent),
+`GET .../callback` (validate state -> exchange -> encrypt -> `/?connected=`),
+`POST /api/connectors/disconnect`. `/api/connectors/status` now reports an
+`oauth` block with per-provider `configured` + `state`, and `slack_read` /
+`gmail_read` fall back to the legacy env token only when one is actually set.
+Gmail import prefers the OAuth grant (Gmail REST) and falls back to IMAP app
+password; Slack import resolves the vault token before `SLACK_BOT_TOKEN` and
+downgrades to needs_reconnect on `invalid_auth`.
+
+UI (`shell.js`/`shell.css`/`index.html`): the shelf splits into "Read into
+brains" and "Send on approval", OAuth rows get real Connect/Disconnect buttons
+in a popup flow with polling, and both import paths are driven from the sheet
+with inline result notes. `/` toasts the OAuth landing and strips the query
+params so a reload does not re-toast.
+
+Bugs found and fixed while testing (all caught by the new suite, not by hand):
+  * NULL `expires_at` made Postgres unable to infer the param type —
+    `IndeterminateDatatype` on every Slack-style no-expiry write. Fixed with an
+    explicit `::double precision` cast.
+  * `connection_state(env_fallback=True)` returned "connected" when NOTHING was
+    configured, so a fresh instance advertised two transports it could not
+    serve. Signature now takes the env token itself and checks it is non-empty.
+  * An orphaned `try {` in `rememberChat()` (left by a reverted edit) broke
+    every script in index.html — the UI battery caught it as a console syntax
+    error while all four other suites passed.
+
+New `connectors_test.py`, 84 checks, wired into `verify.sh` as suite 3. Runs
+in-process via TestClient with the token endpoint stubbed, so it needs no
+network and no browser: covers ciphertext-at-rest, refresh rotation, revoked vs
+blurred distinction, cross-identity isolation, state forgery/replay/burn, and
+that no token material ever reaches a client response. Battery: documents
+25/25, pipe-states 13/13, connectors 84/84, tenants 10/10, smoke 4/4, UI PASS.
+
+Still to do in P6: cursor-based sync workers (Gmail historyId, Drive changes
+tokens, Slack per-channel cursors) + the checkpoint table, and MCP send behind
+the existing approval gate. Both need a registered OAuth client to exercise
+for real; `PUBLIC_BASE_URL` and the vault key are in `.env` (gitignored) and
+the suite passes a fake client so the flow is proven without credentials.
+
 ## Router sub-agent — non-brain queries bypass retrieval 2026-09-27
 
 Owner request: queries unrelated to the brain must fast-track. Design: the

@@ -32,6 +32,7 @@ import os
 import re
 import threading
 import time
+import urllib.parse
 from pathlib import Path
 
 # --- environment must load BEFORE memory_layer is imported ---------------
@@ -138,6 +139,11 @@ class NoCacheStaticFiles(StaticFiles):
 app.mount("/static", NoCacheStaticFiles(directory=os.path.join(HERE, "static")), name="static")
 
 storage.init()   # Postgres persistence (P2): degrades to unavailable
+try:
+    import connectors
+    connectors.init_vault()   # P6: OAuth credential vault (no-op without CONNECTOR_VAULT_KEY)
+except Exception:
+    pass
 
 GRAPH_FIXTURE = os.path.join(HERE, "fixtures", "graph.json")
 # Per-brain snapshots, written by snapshot.py. Committed, so a deployment with
@@ -776,14 +782,85 @@ async def actions_send(request: Request):
 @app.get("/api/connectors/status")
 def connectors_status(request: Request):
     """Which connector transports are configured — the UI renders honest
-    states instead of dead buttons."""
+    states instead of dead buttons. Vault rows win; legacy env tokens count
+    as configured (dev/legacy path)."""
     require_tenant(request)
+    identity = getattr(request.state, "identity", None)
+    import connectors as _cx
     return {
         "email_send": agents.email_configured(),
         "slack_send": agents.slack_configured(),
-        "slack_read": bool(os.getenv("SLACK_BOT_TOKEN")),
-        "gmail_read": bool(os.getenv("GMAIL_USER") and os.getenv("GMAIL_APP_PASSWORD")),
+        "slack_read": _cx.connection_state(
+            "slack", identity, os.getenv("SLACK_BOT_TOKEN")) != "unconfigured",
+        "gmail_read": _cx.connection_state(
+            "google", identity, os.getenv("GMAIL_APP_PASSWORD")
+            if os.getenv("GMAIL_USER") else "") != "unconfigured",
+        "oauth": {p: {"configured": _cx.provider_configured(p),
+                       "state": _cx.connection_state(p, identity)}
+                  for p in ("google", "slack")},
     }
+
+
+@app.get("/api/connectors/oauth/{provider}/start")
+def connectors_oauth_start(request: Request, provider: str):
+    """302 the browser to the provider's consent screen. Identity is bound
+    server-side into `state` — the token that comes back can only ever land
+    on the identity that started the flow."""
+    from fastapi.responses import RedirectResponse
+    import connectors as _cx
+    identity = require_tenant(request)
+    if provider not in _cx.PROVIDERS:
+        raise HTTPException(status_code=404, detail="Unknown provider.")
+    if not _cx.vault_configured():
+        raise HTTPException(status_code=503, detail=(
+            "Connector vault has no key (CONNECTOR_VAULT_KEY)."))
+    if not _cx.provider_configured(provider):
+        raise HTTPException(status_code=503, detail=(
+            f"{provider} OAuth is not configured on this instance."))
+    return RedirectResponse(_cx.authorize_url(provider, identity),
+                            status_code=302)
+
+
+@app.get("/api/connectors/oauth/{provider}/callback")
+def connectors_oauth_callback(request: Request, provider: str,
+                              code: str | None = None, state: str | None = None,
+                              error: str | None = None):
+    """Provider redirects here. Validates state, exchanges the code, stores
+    the encrypted grant, lands on /?connected=<provider> for the UI toast."""
+    from fastapi.responses import RedirectResponse
+    import connectors as _cx
+    if error:
+        return RedirectResponse(f"/?connect_error={urllib.parse.quote(error[:80])}",
+                                status_code=302)
+    if provider not in _cx.PROVIDERS or not code or not state:
+        return RedirectResponse("/?connect_error=bad_callback", status_code=302)
+    identity = _cx.pop_state(state, provider)
+    if identity is None:
+        return RedirectResponse("/?connect_error=bad_state", status_code=302)
+    try:
+        tokens, scopes = _cx.exchange_code(provider, code)
+        _cx.put_credential(provider, identity, tokens, scopes=scopes)
+    except Exception as exc:
+        return RedirectResponse(
+            "/?connect_error=" + urllib.parse.quote(str(exc)[:80]),
+            status_code=302)
+    return RedirectResponse(f"/?connected={provider}", status_code=302)
+
+
+@app.post("/api/connectors/disconnect")
+async def connectors_disconnect(request: Request):
+    """Forget a grant (vault row deleted). Stops future syncs; already
+    imported documents stay cited — disconnect is not un-ingest."""
+    import connectors as _cx
+    identity = require_tenant(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    provider = (body.get("provider") or "").lower()
+    if provider not in _cx.PROVIDERS:
+        raise HTTPException(status_code=400, detail="Unknown provider.")
+    return {"ok": _cx.delete_credential(provider, identity)}
 
 
 @app.post("/api/connectors/import")
@@ -804,15 +881,21 @@ async def connectors_import(request: Request):
     docs: list[dict] = []
 
     if source == "slack":
-        token = os.getenv("SLACK_BOT_TOKEN", "")
+        import connectors as _cx
+        # Vault bot token first (per-user OAuth grant), legacy env token
+        # second. Rotation surfaces as invalid_auth → flip to reconnect.
+        token = _cx.slack_token(identity) or ""
         channel = body.get("channel") or ""
         if not token or not channel:
             raise HTTPException(status_code=503, detail=(
-                "Slack import is not configured (SLACK_BOT_TOKEN + channel id)."))
+                "Slack import is not configured (connect Slack in Settings, "
+                "or set SLACK_BOT_TOKEN + channel id)."))
         import requests as _rq
         hist = _rq.get("https://slack.com/api/conversations.history",
                        headers={"Authorization": f"Bearer {token}"},
                        params={"channel": channel, "limit": limit}, timeout=30).json()
+        if hist.get("error") == "invalid_auth":
+            _cx.mark_needs_reconnect("slack", identity)
         if not hist.get("ok"):
             raise HTTPException(status_code=400,
                                 detail="Slack history failed: " + str(hist.get("error"))[:120])
@@ -821,40 +904,96 @@ async def connectors_import(request: Request):
             if txt:
                 docs.append({"name": f"slack-{msg.get('ts', 'msg')}.txt", "text": txt})
     elif source == "gmail":
-        user, pwd = os.getenv("GMAIL_USER", ""), os.getenv("GMAIL_APP_PASSWORD", "")
-        if not user or not pwd:
-            raise HTTPException(status_code=503, detail=(
-                "Gmail import is not configured (GMAIL_USER + GMAIL_APP_PASSWORD)."))
-        import imaplib, email as _email
-        from email.header import decode_header as _dh
+        import connectors as _cx
+        # OAuth grant first (Gmail REST API, per-user), IMAP app-password
+        # second (legacy env path). Either way the text lands identically.
+        gtok = _cx.google_access_token(identity)
+        if gtok:
+            import requests as _grq
+            try:
+                lr = _grq.get(
+                    "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+                    headers={"Authorization": f"Bearer {gtok}"},
+                    params={"maxResults": limit, "q": body.get("query") or ""},
+                    timeout=30)
+                if lr.status_code == 401:
+                    _cx.mark_needs_reconnect("google", identity)
+                    raise HTTPException(status_code=401, detail=(
+                        "Gmail grant expired or revoked — reconnect Google in Settings."))
+                lr.raise_for_status()
+                msgs = lr.json().get("messages", [])
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=(
+                    f"Gmail list failed: {exc}")[:150])
+            for m in reversed(msgs):
+                try:
+                    full = _grq.get(
+                        f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m['id']}",
+                        headers={"Authorization": f"Bearer {gtok}"},
+                        params={"format": "full"}, timeout=30).json()
+                    heads = {h["name"].lower(): h["value"]
+                             for h in full.get("payload", {}).get("headers", [])}
+                    import base64 as _b64
 
-        def _dec(v):
-            parts = _dh(v or "")
-            return "".join(p.decode(c or "utf-8") if isinstance(p, bytes) else p
-                           for p, c in parts)
+                    def _walk(part):
+                        if part.get("mimeType", "").startswith("text/plain") \
+                                and part.get("body", {}).get("data"):
+                            return _b64.urlsafe_b64decode(
+                                part["body"]["data"]).decode("utf-8", "ignore")
+                        for sub in part.get("parts", []):
+                            found = _walk(sub)
+                            if found:
+                                return found
+                        return ""
 
-        imap = imaplib.IMAP4_SSL("imap.gmail.com")
-        imap.login(user, pwd)
-        imap.select("INBOX")
-        _, ids = imap.search(None, "ALL")
-        batch = ids[0].split()[-limit:]
-        for mid in reversed(batch):
-            _, data = imap.fetch(mid, "(RFC822)")
-            msg = _email.message_from_bytes(data[0][1])
-            body_text = ""
-            if msg.is_multipart():
-                for part in msg.walk():
-                    if part.get_content_type() == "text/plain":
-                        body_text = part.get_payload(decode=True).decode(
-                            part.get_content_charset() or "utf-8", "ignore")
-                        break
-            else:
-                body_text = msg.get_payload(decode=True).decode(
-                    msg.get_content_charset() or "utf-8", "ignore")
-            if body_text.strip():
-                docs.append({"name": f"email-{_dec(msg.get('Subject'))[:60] or mid.decode()}.txt",
-                             "text": f"From: {_dec(msg.get('From'))}\nSubject: {_dec(msg.get('Subject'))}\n\n{body_text}"})
-        imap.logout()
+                    txt = _walk(full.get("payload", {}))
+                    if txt.strip():
+                        docs.append({
+                            "name": f"gmail-{(heads.get('subject') or m['id'])[:60]}.txt",
+                            "text": f"From: {heads.get('from', '')}\n"
+                                    f"Subject: {heads.get('subject', '')}\n\n{txt}"})
+                except Exception:
+                    continue
+            if not docs:
+                return {"ok": True, "imported": 0, "brain": brain}
+        else:
+            user, pwd = os.getenv("GMAIL_USER", ""), os.getenv("GMAIL_APP_PASSWORD", "")
+            if not user or not pwd:
+                raise HTTPException(status_code=503, detail=(
+                    "Gmail import is not configured (connect Google in Settings, "
+                    "or set GMAIL_USER + GMAIL_APP_PASSWORD)."))
+            import imaplib, email as _email
+            from email.header import decode_header as _dh
+
+            def _dec(v):
+                parts = _dh(v or "")
+                return "".join(p.decode(c or "utf-8") if isinstance(p, bytes) else p
+                               for p, c in parts)
+
+            imap = imaplib.IMAP4_SSL("imap.gmail.com")
+            imap.login(user, pwd)
+            imap.select("INBOX")
+            _, ids = imap.search(None, "ALL")
+            batch = ids[0].split()[-limit:]
+            for mid in reversed(batch):
+                _, data = imap.fetch(mid, "(RFC822)")
+                msg = _email.message_from_bytes(data[0][1])
+                body_text = ""
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        if part.get_content_type() == "text/plain":
+                            body_text = part.get_payload(decode=True).decode(
+                                part.get_content_charset() or "utf-8", "ignore")
+                            break
+                else:
+                    body_text = msg.get_payload(decode=True).decode(
+                        msg.get_content_charset() or "utf-8", "ignore")
+                if body_text.strip():
+                    docs.append({"name": f"email-{_dec(msg.get('Subject'))[:60] or mid.decode()}.txt",
+                                 "text": f"From: {_dec(msg.get('From'))}\nSubject: {_dec(msg.get('Subject'))}\n\n{body_text}"})
+            imap.logout()
     else:
         raise HTTPException(status_code=400, detail="Unknown connector source.")
 

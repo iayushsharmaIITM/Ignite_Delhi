@@ -34,3 +34,6 @@ psycopg[binary]==3.2.3
 PyJWT==2.10.1
 cryptography==44.0.1
 PyMuPDF==1.26.7
+# P6 agent layer (agents.py) — structured draft/send models over the shared
+# llm.py endpoint. Pinned like everything else here so a rebuild is identical.
+pydantic-ai-slim[openai]==2.51.0

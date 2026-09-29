@@ -705,36 +705,113 @@
 
   function openConnectors() {
     // Connector shelf: every transport the backend already speaks, with an
-    // honest live state. Unconfigured transports read "Coming soon" until
-    // their credentials land — no dead buttons, no silent failures.
-    const pill = ok =>
-      '<span class="conn-pill ' + (ok ? 'on' : 'soon') + '">' +
-      (ok ? T('conn.on', 'Connected') : T('conn.soon', 'Coming soon')) + '</span>';
-    const row = (name, desc, ok) =>
-      '<div class="conn-row"><div><div class="conn-nm">' + name + '</div>' +
-      '<div class="conn-ds">' + desc + '</div></div>' + pill(ok) + '</div>';
+    // honest live state. OAuth rows get Connect/Disconnect buttons (popup
+    // flow, vault-backed); import rows pull straight into a brain.
+    const pill = st =>
+      st === 'connected'
+        ? '<span class="conn-pill on">' + T('conn.on', 'Connected') + '</span>'
+      : st === 'needs_reconnect'
+        ? '<span class="conn-pill warn">' + T('conn.reconnect', 'Reconnect') + '</span>'
+        : '<span class="conn-pill soon">' + T('conn.soon', 'Coming soon') + '</span>';
     const scrim = km(T('conn.title', 'Connectors'),
       T('conn.sub', 'Send answers out, pull conversations in.'), '<div class="u-empty">…</div>');
     const sheet = scrim.querySelector('.km-sheet');
     const paint = (st) => {
       st = st || {};
+      const oauth = st.oauth || {};
+      const g = (oauth.google || {}).state || 'unconfigured';
+      const s = (oauth.slack || {}).state || 'unconfigured';
+      const gBtn = (g === 'connected')
+        ? '<button type="button" class="tbtn" data-conn="dis-google">Disconnect</button>'
+        : '<button type="button" class="tbtn hot" data-conn="con-google">Connect</button>';
+      const sBtn = (s === 'connected')
+        ? '<button type="button" class="tbtn" data-conn="dis-slack">Disconnect</button>'
+        : '<button type="button" class="tbtn hot" data-conn="con-slack">Connect</button>';
+      const orow = (name, desc, stt, btn) =>
+        '<div class="conn-row"><div><div class="conn-nm">' + name + '</div>' +
+        '<div class="conn-ds">' + desc + '</div></div><div class="conn-act">' +
+        pill(stt) + btn + '</div></div>';
       sheet.innerHTML =
         '<div class="km-head"><h2>' + T('conn.title', 'Connectors') + '</h2>' +
         '<button type="button" class="km-x" data-km-close>✕</button></div>' +
         '<p class="km-sub">' + T('conn.sub', 'Send answers out, pull conversations in.') + '</p>' +
-        row(T('conn.email', 'Email'), T('conn.email_d', 'Draft answers as email, send on approval'), !!st.email_send) +
-        row(T('conn.slack_send', 'Slack send'), T('conn.slack_send_d', 'Post answers to a channel on approval'), !!st.slack_send) +
-        row(T('conn.slack_read', 'Slack import'), T('conn.slack_read_d', 'Pull channel history into a brain'), !!st.slack_read) +
-        row(T('conn.gmail_read', 'Gmail import'), T('conn.gmail_read_d', 'Pull inbox mail into a brain'), !!st.gmail_read);
+        '<div class="conn-sec">' + T('conn.read', 'Read into brains') + '</div>' +
+        orow(T('conn.gmail_read', 'Gmail import'),
+             T('conn.gmail_read_d', 'Pull inbox mail into a brain'), g, gBtn) +
+        '<div class="conn-import"><input id="conn-slack-channel" placeholder="Slack channel ID (C…)" autocomplete="off">' +
+        '<input id="conn-brain" placeholder="brain" value="company_brain" autocomplete="off">' +
+        '<button type="button" class="tbtn" data-conn="imp-slack">Import</button></div>' +
+        '<div class="conn-import"><input id="conn-gmail-q" placeholder="Gmail search (blank = inbox)" autocomplete="off">' +
+        '<button type="button" class="tbtn" data-conn="imp-gmail">Import</button></div>' +
+        '<div class="conn-note" id="conn-note" hidden></div>' +
+        '<div class="conn-sec">' + T('conn.send', 'Send on approval') + '</div>' +
+        orow(T('conn.email', 'Email'), T('conn.email_d', 'Draft answers as email, send on approval'),
+             st.email_send ? 'connected' : 'unconfigured', '') +
+        orow(T('conn.slack_send', 'Slack send'), T('conn.slack_send_d', 'Post answers to a channel on approval'),
+             st.slack_send ? 'connected' : 'unconfigured', '');
     };
-    paint(null);
-    (async () => {
+    const note = (msg, bad) => {
+      const n = sheet.querySelector('#conn-note');
+      if (!n) return;
+      n.hidden = false;
+      n.textContent = msg;
+      n.classList.toggle('bad', !!bad);
+    };
+    const refresh = async () => {
       try {
         const h = await window.KestrelAuth.authHeaders();
         const r = await fetch('/api/connectors/status', { headers: h });
         paint(r.ok ? await r.json() : null);
       } catch (e) { paint(null); }
-    })();
+    };
+    sheet.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-conn]');
+      if (!b) return;
+      const h = await window.KestrelAuth.authHeaders();
+      const act = b.dataset.conn;
+      if (act === 'con-google' || act === 'con-slack') {
+        const provider = act.split('-')[1];
+        // Popup OAuth: polls for close, then refreshes state. The callback
+        // lands on /?connected=<provider> in the popup only.
+        const w = window.open('/api/connectors/oauth/' + provider + '/start',
+                              'kestrel-oauth', 'width=520,height=640');
+        if (!w) { note('Popup blocked — allow popups and retry.', true); return; }
+        const iv = setInterval(() => {
+          if (w.closed) { clearInterval(iv); refresh(); }
+        }, 800);
+        return;
+      }
+      if (act === 'dis-google' || act === 'dis-slack') {
+        await fetch('/api/connectors/disconnect', { method: 'POST', headers: h,
+          body: JSON.stringify({ provider: act.split('-')[1] }) });
+        refresh();
+        return;
+      }
+      const brain = (sheet.querySelector('#conn-brain') || {}).value || 'company_brain';
+      if (act === 'imp-slack') {
+        const channel = (sheet.querySelector('#conn-slack-channel') || {}).value || '';
+        if (!channel) { note('Enter a Slack channel ID first.', true); return; }
+        note('Importing Slack history…');
+        const r = await fetch('/api/connectors/import', { method: 'POST', headers: h,
+          body: JSON.stringify({ source: 'slack', channel, brain, limit: 25 }) });
+        const d = await r.json().catch(() => ({}));
+        note(r.ok ? `Imported ${d.imported || 0} messages into ${brain}.`
+                  : `Import failed: ${d.detail || r.status}`, !r.ok);
+        return;
+      }
+      if (act === 'imp-gmail') {
+        const q = (sheet.querySelector('#conn-gmail-q') || {}).value || '';
+        note('Importing Gmail…');
+        const r = await fetch('/api/connectors/import', { method: 'POST', headers: h,
+          body: JSON.stringify({ source: 'gmail', query: q, brain, limit: 25 }) });
+        const d = await r.json().catch(() => ({}));
+        note(r.ok ? `Imported ${d.imported || 0} emails into ${brain}.`
+                  : `Import failed: ${d.detail || r.status}`, !r.ok);
+        return;
+      }
+    });
+    paint(null);
+    refresh();
   }
 
   // ------------------------------------------------------------- wiring

@@ -62,7 +62,6 @@ else
   note pipe-states "FAIL — see /tmp/kestrel_verify_pipe.log"
   FAILS=$((FAILS + 1))
 fi
-
 # --- start the mock server once, for tenants + smoke + UI --------------------
 python3 app.py > /tmp/kestrel_verify_server.log 2>&1 &
 SERVER_PID=$!
@@ -77,7 +76,17 @@ if [ -z "$up" ]; then
 fi
 note server "up (pid $SERVER_PID, mock fixtures)"
 
-# --- 3. tenant isolation (live-server test; config written + restored) ------
+# --- 3. connector vault + OAuth contract (in-process, no browser) ------------
+# Runs before the live-server suites: it drives app.py through TestClient, so
+# it must not race the mock server for the real port.
+if python3 connectors_test.py > /tmp/kestrel_verify_conn.log 2>&1; then
+  note connectors "PASS  84/84"
+else
+  note connectors "FAIL — see /tmp/kestrel_verify_conn.log"
+  FAILS=$((FAILS + 1))
+fi
+
+# --- 4. tenant isolation (live-server test; config written + restored) ------
 if python3 test_tenants.py --with-tenants > /tmp/kestrel_verify_tenants.log 2>&1; then
   note tenants "PASS  10/10"
 else
@@ -85,7 +94,7 @@ else
   FAILS=$((FAILS + 1))
 fi
 
-# --- 4. web-tier smoke -------------------------------------------------------
+# --- 5. web-tier smoke -------------------------------------------------------
 if python3 smoke.py > /tmp/kestrel_verify_smoke.log 2>&1; then
   note smoke "PASS  4/4"
 else
@@ -93,7 +102,7 @@ else
   FAILS=$((FAILS + 1))
 fi
 
-# --- 5. UI smoke --------------------------------------------------------------
+# --- 6. UI smoke --------------------------------------------------------------
 if [ "$QUICK" -eq 1 ]; then
   note ui "SKIP  (--quick)"
 else

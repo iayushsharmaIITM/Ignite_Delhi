@@ -1908,6 +1908,27 @@ if (RESTORING) document.getElementById('restore').hidden = false;
 // scrollTo(0,0): on reload-after-chat the restored offset pushed the whole
 // home stack down and it read as "not centered".
 try { history.scrollRestoration = 'manual'; } catch (e) {}
+// OAuth landing: /?connected=<provider> (popup flow) or ?connect_error=.
+// Toast once via the working line, then clean the URL so reloads don't re-toast.
+try {
+  const _cu = new URL(location.href);
+  const _done = _cu.searchParams.get("connected");
+  const _failed = _cu.searchParams.get("connect_error");
+  if (_done || _failed) {
+    _cu.searchParams.delete("connected");
+    _cu.searchParams.delete("connect_error");
+    history.replaceState(null, "", _cu);
+    setTimeout(() => {
+      try {
+        const msg = _done
+          ? `${_done[0].toUpperCase() + _done.slice(1)} connected — import from Settings → Connectors.`
+          : `Connect failed: ${_failed}`;
+        if (typeof work !== "undefined" && work.step) work.step(msg);
+        else alert(msg);
+      } catch (e) {}
+    }, 800);
+  }
+} catch (e) {}
 restoreHistory().catch(() => {}).finally(() => {
   if (RESTORING) document.getElementById('restore').hidden = true;
 });
