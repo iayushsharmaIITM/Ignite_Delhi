@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+/*
+ * Kestrel design tokens - shadcn/ui theme mapped to the Deck palette.
+ * Dark charcoal (#1a1a1a/#212121), one orange accent (#E8873A).
+ */
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-card: var(--panel);
+  --color-card-foreground: var(--fg);
+  --color-popover: var(--panel);
+  --color-popover-foreground: var(--fg);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-ink);
+  --color-secondary: var(--panel-2);
+  --color-secondary-foreground: var(--fg-2);
+  --color-muted: var(--panel-2);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--wash);
+  --color-accent-foreground: var(--fg);
+  --color-destructive: var(--bad);
+  --color-border: var(--line-2);
+  --color-input: var(--panel-2);
+  --color-ring: var(--accent);
+  --color-sidebar: var(--bg-2);
+  --color-sidebar-foreground: var(--fg);
+  --color-sidebar-border: var(--line);
+  --color-sidebar-accent: var(--wash-2);
+
+  --radius-card: 12px;
+  --radius-chip: 9999px;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root {
+  --bg: #1a1a1a;
+  --bg-2: #161616;
+  --panel: #212121;
+  --panel-2: #2b2b2b;
+  --panel-3: #333333;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-2: rgba(255, 255, 255, 0.13);
+  --line-3: rgba(255, 255, 255, 0.22);
+  --fg: #ececec;
+  --fg-2: #c9c9c9;
+  --muted: #9a9a9a;
+  --muted-2: #6b6b6b;
+  --accent: #e8873a;
+  --accent-2: #f49d54;
+  --accent-ink: #1a1206;
+  --accent-soft: rgba(232, 134, 59, 0.45);
+  --accent-dim: rgba(232, 134, 59, 0.12);
+  --accent-glow: rgba(232, 134, 59, 0.1);
+  --wash: rgba(255, 255, 255, 0.05);
+  --wash-2: rgba(255, 255, 255, 0.07);
+  --wash-3: rgba(255, 255, 255, 0.04);
+  --good: #4ade80;
+  --bad: #f07070;
+  --warn: #e5c07b;
+  --radius: 12px;
+}
+
+/* Light theme - same hues on warm paper */
+html[data-theme="light"] {
+  --bg: #f7f5f2;
+  --bg-2: #efede8;
+  --panel: #ffffff;
+  --panel-2: #f3f1ec;
+  --panel-3: #eae7e1;
+  --line: rgba(28, 24, 16, 0.09);
+  --line-2: rgba(28, 24, 16, 0.15);
+  --line-3: rgba(28, 24, 16, 0.26);
+  --fg: #201d18;
+  --fg-2: #45413a;
+  --muted: #5f5a52;
+  --muted-2: #6f6a60;
+  --accent: #b45309;
+  --accent-2: #e8863b;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(180, 83, 9, 0.5);
+  --accent-dim: rgba(180, 83, 9, 0.12);
+  --accent-glow: rgba(180, 83, 9, 0.14);
+  --wash: rgba(28, 24, 16, 0.05);
+  --wash-2: rgba(28, 24, 16, 0.075);
+  --wash-3: rgba(28, 24, 16, 0.04);
+  --good: #16a34a;
+  --bad: #c53030;
+  --warn: #b45309;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 14.5px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+::selection { background: rgba(232, 134, 59, 0.3); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-2); border-radius: 999px;
+  border: 3px solid transparent; background-clip: content-box;
+}
