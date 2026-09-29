@@ -470,3 +470,28 @@ kbd {
    colors in the dark theme. Our own variables keep them readable in both. */
 .cl-badge { color: var(--fg-2) !important; background: var(--panel-2) !important;
   border: 1px solid var(--line-2) !important; }
+
+/* Configure access dialog (Slack scope picker) + workspace views */
+.acc-group { display:flex; flex-direction:column; gap:8px; margin-bottom:14px; }
+.acc-radio { display:flex; gap:10px; align-items:flex-start; padding:10px 12px;
+  border:1px solid var(--line-2); border-radius:10px; cursor:pointer; }
+.acc-radio:has(input:checked) { border-color:var(--accent-soft); background:var(--accent-dim); }
+.acc-radio input { margin-top:3px; }
+.acc-nm { font-size:13.5px; font-weight:600; color:var(--fg); }
+.acc-rec { font-size:10px; color:var(--accent); border:1px solid var(--accent-soft);
+  padding:1px 6px; border-radius:999px; margin-left:6px; font-weight:700; }
+.acc-ds { font-size:12px; color:var(--muted); margin-top:2px; }
+.acc-toggle { display:flex; gap:10px; align-items:center; margin:6px 0 14px; cursor:pointer; }
+.acc-toggle input { display:none; }
+.acc-slider { width:34px; height:19px; border-radius:999px; background:var(--panel-3);
+  position:relative; flex:none; transition:background .15s ease; }
+.acc-slider::after { content:""; position:absolute; top:2px; left:2px; width:15px; height:15px;
+  border-radius:50%; background:var(--fg); transition:left .15s ease; }
+.acc-toggle input:checked + .acc-slider { background:var(--accent); }
+.acc-toggle input:checked + .acc-slider::after { left:17px; background:var(--accent-ink); }
+.acc-cta { margin-top:14px; }
+.ws-row { margin-bottom:12px; }
+.ws-panel { margin-top:8px; padding:8px; border:1px solid var(--line);
+  border-radius:8px; display:flex; flex-direction:column; gap:6px; }
+.ws-panel[hidden] { display:none; }
+.ws-msgs hr { border:0; border-top:1px solid var(--line); margin:8px 0; }

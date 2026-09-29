@@ -751,8 +751,11 @@
         '<button type="button" class="km-x" data-km-close>✕</button></div>' +
         '<p class="km-sub">' + T('conn.sub', 'Send answers out, pull conversations in.') + '</p>' +
         '<div class="conn-sec">' + T('conn.read', 'Read into brains') + '</div>' +
-        orow(T('conn.slack_read', 'Slack import'),
-             T('conn.slack_read_d', 'Pull channel history into a brain'), s, sBtn) +
+        orow(T('conn.slack_read', 'Slack'),
+             T('conn.slack_read_d', 'Connect a workspace — read channels, pull history'),
+             s, s === 'unconfigured'
+               ? '<button type="button" class="tbtn hot" data-conn="cfg-slack">Configure access</button>'
+               : '<button type="button" class="tbtn" data-conn="ws-slack">Workspaces</button>') +
         '<div class="conn-import"><input id="conn-slack-channel" placeholder="Slack channel ID (C…)" autocomplete="off"' +
         (slackReady ? '' : ' disabled') + '>' +
         '<input id="conn-brain" placeholder="brain" value="company_brain" autocomplete="off">' +
@@ -788,6 +791,17 @@
       if (!b) return;
       const h = await window.KestrelAuth.authHeaders();
       const act = b.dataset.conn;
+      if (act === 'cfg-slack') {
+        closeConnectors = true;
+        document.querySelector('.km-scrim')?.remove();
+        openSlackAccess();
+        return;
+      }
+      if (act === 'ws-slack') {
+        document.querySelector('.km-scrim')?.remove();
+        openSlackWorkspaces();
+        return;
+      }
       if (act === 'con-google' || act === 'con-slack') {
         const provider = act.split('-')[1];
         // Popup OAuth: polls for close, then refreshes state. The callback
@@ -830,6 +844,143 @@
       }
     });
     paint(null);
+    refresh();
+  }
+
+  // --- "Configure access" modal (Slack scope picker) --------------------------
+  // Modeled on the Notion AI connector dialog: two radios + one toggle, then
+  // Slack's own consent screen. The scope set is built server-side from the
+  // query params, so the client never hardcodes scope names.
+  function openSlackAccess() {
+    const km2 = km(T('acc.title', 'Configure access'),
+      T('acc.sub', 'Pick which type of access Kestrel will have'),
+      '<div class="acc-group">' +
+      '<label class="acc-radio"><input type="radio" name="acc-mode" value="read_post" checked>' +
+      '<div><div class="acc-nm">' + T('acc.rp', 'Read and post messages') +
+      ' <span class="acc-rec">' + T('acc.recommended', 'Recommended') + '</span></div>' +
+      '<div class="acc-ds">' + T('acc.rp_d', 'The app can read and post messages to Slack channels.') + '</div></div></label>' +
+      '<label class="acc-radio"><input type="radio" name="acc-mode" value="read">' +
+      '<div><div class="acc-nm">' + T('acc.ro', 'Read messages only') + '</div>' +
+      '<div class="acc-ds">' + T('acc.ro_d', 'The app can read messages in Slack channels.') + '</div></div></label>' +
+      '</div>' +
+      '<label class="acc-toggle"><input type="checkbox" id="acc-private" checked>' +
+      '<span class="acc-slider"></span><div><div class="acc-nm">' + T('acc.priv', 'Allow private content access') + '</div>' +
+      '<div class="acc-ds">' + T('acc.priv_d', 'Includes direct messages (personal agents only) and private channels.') + '</div></label>' +
+      '<div class="acc-cta"><button type="button" class="tbtn hot" id="acc-go">' + T('acc.connect', 'Connect') + '</button></div>');
+    km2.querySelector('#acc-go').addEventListener('click', () => {
+      const mode = (km2.querySelector('input[name=acc-mode]:checked') || {}).value || 'read_post';
+      const priv = km2.querySelector('#acc-private')?.checked ? 1 : 0;
+      window.location.href = '/api/connectors/slack/connect?mode=' + mode + '&private=' + priv;
+    });
+  }
+
+  // --- connected-workspace view: list, browse channels, read, post ----------
+  function openSlackWorkspaces() {
+    const km2 = km(T('ws.title', 'Slack workspaces'),
+      T('ws.sub', 'Connected workspaces and their access level'),
+      '<div class="u-empty">…</div>');
+    const sheet = km2.querySelector('.km-sheet');
+    const refresh = async () => {
+      try {
+        const h = await window.KestrelAuth.authHeaders();
+        const r = await fetch('/api/connectors/slack/workspaces', { headers: h });
+        const d = await r.json();
+        const ws = d.workspaces || [];
+        if (!ws.length) {
+          sheet.innerHTML = '<div class="km-head"><h2>' + T('ws.title', 'Slack workspaces') + '</h2>' +
+            '<button type="button" class="km-x" data-km-close>✕</button></div>' +
+            '<div class="u-empty">' + T('ws.none', 'No workspaces connected yet.') + '</div>';
+          return;
+        }
+        sheet.innerHTML = ws.map(w => {
+          const canPost = (w.scopes || '').includes('chat:write');
+          return '<div class="ws-row" data-team="' + w.team_id + '">' +
+            '<div class="conn-row"><div><div class="conn-nm">' + (w.team_name || w.team_id) + '</div>' +
+            '<div class="conn-ds">' + (w.mode === 'read_post'
+              ? T('ws.rp', 'Read + post') : T('ws.ro', 'Read only')) +
+              (w.private ? ' · ' + T('ws.priv', 'private access') : '') + '</div></div>' +
+            '<div class="conn-act"><button type="button" class="tbtn" data-ws="ch">' +
+              T('ws.channels', 'Channels') + '</button>' +
+            (canPost ? '<button type="button" class="tbtn" data-ws="post">' + T('ws.post', 'Post') + '</button>' : '') +
+            '<button type="button" class="tbtn" data-ws="dis">' + T('ws.disconnect', 'Disconnect') + '</button></div></div>' +
+            '<div class="ws-panel" hidden></div></div>';
+        }).join('') +
+        '<div class="acc-cta"><button type="button" class="tbtn hot" id="ws-add">' +
+          T('acc.connect', 'Connect') + '</button></div>';
+      } catch (e) {
+        sheet.innerHTML = '<div class="u-empty">Could not load workspaces.</div>';
+      }
+    };
+    sheet.addEventListener('click', async (e) => {
+      const row = e.target.closest('.ws-row');
+      const btn = e.target.closest('[data-ws]');
+      if (!row || !btn) return;
+      const team = row.dataset.team;
+      const panel = row.querySelector('.ws-panel');
+      const act = btn.dataset.ws;
+      if (act === 'dis') {
+        await fetch('/api/connectors/slack/' + encodeURIComponent(team) + '/disconnect',
+                    { method: 'POST', headers: await window.KestrelAuth.authHeaders() });
+        refresh();
+        return;
+      }
+      if (act === 'ch') {
+        panel.hidden = false;
+        panel.innerHTML = '<div class="u-empty">…</div>';
+        try {
+          const h = await window.KestrelAuth.authHeaders();
+          const r = await fetch('/api/connectors/slack/' + encodeURIComponent(team) + '/channels',
+                                { headers: h });
+          const d = await r.json();
+          panel.innerHTML = '<div class="acc-ds">' + T('ws.pick', 'Pick a channel to read:') + '</div>' +
+            (d.channels || []).map(c => '<button type="button" class="tbtn ws-chan" data-chan="' + c.id + '">' +
+              '#' + c.name + (c.private ? ' 🔒' : '') + '</button>').join(' ') +
+            '<div class="ws-msgs"></div>';
+        } catch (err) { panel.innerHTML = '<div class="u-empty">…</div>'; }
+        return;
+      }
+      if (act === 'post') {
+        panel.hidden = false;
+        panel.innerHTML = '<input class="ws-post-channel" placeholder="channel ID (C…)" autocomplete="off">' +
+          '<textarea class="ws-post-text" rows="2" placeholder="message"></textarea>' +
+          '<button type="button" class="tbtn hot ws-post-go">' + T('ws.post', 'Post') + '</button>';
+        panel.querySelector('.ws-post-go').addEventListener('click', async () => {
+          const channel = panel.querySelector('.ws-post-channel').value.trim();
+          const text = panel.querySelector('.ws-post-text').value;
+          if (!channel || !text) return;
+          const h = await window.KestrelAuth.authHeaders();
+          const r = await fetch('/api/connectors/slack/' + encodeURIComponent(team) + '/post',
+              { method: 'POST', headers: { ...h, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel, text }) });
+          const d = await r.json().catch(() => ({}));
+          panel.querySelector('.ws-post-text').value = r.ok ? '' : text;
+          const note2 = document.createElement('div');
+          note2.className = 'acc-ds';
+          note2.textContent = r.ok ? '✓ posted' : (d.detail || 'failed');
+          panel.append(note2);
+        });
+        return;
+      }
+      const chan = btn.dataset.chan;
+      if (chan) {
+        const msgs = row.querySelector('.ws-msgs');
+        msgs.hidden = false;
+        msgs.innerHTML = '<div class="u-empty">…</div>';
+        try {
+          const h = await window.KestrelAuth.authHeaders();
+          const r = await fetch('/api/connectors/slack/' + encodeURIComponent(team) +
+                                '/messages?channel=' + encodeURIComponent(chan) + '&limit=20',
+                                { headers: h });
+          const d = await r.json();
+          msgs.innerHTML = (d.messages || []).map(m =>
+            '<div class="conn-ds"><b>' + (m.user || '?') + '</b> · ' + m.ts_date + '<br>' +
+            (m.text || '').slice(0, 300) + '</div>').join('<hr>') ||
+            '<div class="u-empty">No messages.</div>';
+        } catch (err) {
+          msgs.innerHTML = '<div class="u-empty">Could not read messages.</div>';
+        }
+      }
+    });
     refresh();
   }
 

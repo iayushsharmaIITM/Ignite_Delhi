@@ -142,6 +142,7 @@ storage.init()   # Postgres persistence (P2): degrades to unavailable
 try:
     import connectors
     connectors.init_vault()   # P6: OAuth credential vault (no-op without CONNECTOR_VAULT_KEY)
+    connectors.init_slack_workspaces()   # P6: per-workspace Slack grants
 except Exception:
     pass
 
@@ -804,6 +805,128 @@ def connectors_status(request: Request):
     }
 
 
+@app.get("/api/connectors/slack/connect")
+def slack_connect(request: Request, mode: str = "read_post", private: int = 0):
+    """Scope-picker entry: the dialog's choices become the Slack scope set.
+    Redirects to Slack's consent screen; identity + choices bind into state."""
+    from fastapi.responses import RedirectResponse
+    import connectors as _cx
+    identity = require_tenant(request)
+    if not _cx.vault_configured():
+        raise HTTPException(status_code=503, detail=(
+            "Connector vault has no key (CONNECTOR_VAULT_KEY)."))
+    if not _cx.provider_configured("slack"):
+        raise HTTPException(status_code=503, detail=(
+            "Slack OAuth is not configured on this instance."))
+    mode = mode if mode in ("read", "read_post") else "read_post"
+    return RedirectResponse(
+        _cx.slack_connect_url(identity, mode, bool(private)), status_code=302)
+
+
+@app.get("/api/connectors/slack/workspaces")
+def slack_workspaces_list(request: Request):
+    """Connected workspaces + granted access level — no tokens, ever."""
+    import connectors as _cx
+    identity = require_tenant(request)
+    return {"ok": True, "workspaces": _cx.slack_list_workspaces(identity)}
+
+
+def _slack_ws(identity, team_id: str) -> dict:
+    import connectors as _cx
+    ws = _cx.slack_get_workspace(identity, team_id)
+    if not ws or not ws.get("bot_token"):
+        raise HTTPException(status_code=404,
+                            detail="That Slack workspace is not connected (or was disconnected).")
+    scopes = (ws.get("scopes") or "")
+    if "invalid_auth" in scopes or "token_revoked" in scopes:
+        raise HTTPException(status_code=403, detail=(
+            "The saved Slack token was revoked — reconnect the workspace."))
+    return ws
+
+
+@app.get("/api/connectors/slack/{team_id}/channels")
+def slack_channels_route(request: Request, team_id: str,
+                         types: str = "public_channel,private_channel",
+                         cursor: str = ""):
+    """conversations.list — private channels appear only when the grant
+    included groups:read (and only if the bot was invited)."""
+    identity = require_tenant(request)
+    ws = _slack_ws(identity, team_id)
+    import connectors as _cx
+    try:
+        out = _cx.slack_channels(ws["bot_token"], types, cursor=cursor, limit=100)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, **out}
+
+
+@app.get("/api/connectors/slack/{team_id}/messages")
+def slack_messages_route(request: Request, team_id: str, channel: str,
+                         limit: int = 50, cursor: str = ""):
+    """conversations.history with cursor pagination. DM/MPIM channels
+    require the USER token (bot tokens cannot read them)."""
+    identity = require_tenant(request)
+    ws = _slack_ws(identity, team_id)
+    limit = max(1, min(limit, 200))
+    token = ws["bot_token"]
+    if channel.startswith("D") and ws.get("user_token"):
+        token = ws["user_token"]   # DMs/MPIMs are user-token territory
+    import connectors as _cx
+    try:
+        out = _cx.slack_history(token, channel, limit=limit, cursor=cursor)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "channel": channel, **out}
+
+
+@app.post("/api/connectors/slack/{team_id}/post")
+async def slack_post_route(request: Request, team_id: str):
+    """chat.postMessage — refused 403 unless the grant actually included
+    chat:write. The read-only access level can never post."""
+    identity = require_tenant(request)
+    _check_rate(request, "ask")
+    ws = _slack_ws(identity, team_id)
+    if "chat:write" not in (ws.get("scopes") or ""):
+        raise HTTPException(status_code=403, detail=(
+            "This workspace granted read-only access — posting requires "
+            "reconnecting with 'Read and post messages'."))
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 - LOW-6 class
+        raise HTTPException(status_code=400, detail="Request body must be JSON.")
+    channel = (body.get("channel") or "").strip()
+    text = (body.get("text") or "").strip()
+    if not channel or not text:
+        raise HTTPException(status_code=400, detail="channel and text are required.")
+    if len(text) > 4000:
+        raise HTTPException(status_code=413, detail="Message text too long (4000 char max).")
+    import connectors as _cx
+    try:
+        out = _cx.slack_post(ws["bot_token"], channel, text)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    observe.trace(feature="slack-post", model=None,
+                  user=(request.state.identity or {}).get("user_id")
+                  if hasattr(request.state, "identity") else None,
+                  ok=True, meta={"channel": channel})
+    return {"ok": True, **out}
+
+
+@app.post("/api/connectors/slack/{team_id}/disconnect")
+async def slack_disconnect_route(request: Request, team_id: str):
+    """auth.revoke at Slack, then delete the stored workspace. The grant is
+    gone from both sides after this."""
+    identity = require_tenant(request)
+    import connectors as _cx
+    ws = _cx.slack_get_workspace(identity, team_id)
+    revoked = False
+    if ws and ws.get("bot_token"):
+        import asyncio as _aio
+        revoked = await _aio.to_thread(_cx.slack_revoke, ws["bot_token"])
+    removed = _cx.slack_delete_workspace(identity, team_id)
+    return {"ok": True, "revoked": revoked, "removed": removed}
+
+
 @app.get("/api/connectors/oauth/{provider}/start")
 def connectors_oauth_start(request: Request, provider: str):
     """302 the browser to the provider's consent screen. Identity is bound
@@ -837,11 +960,21 @@ def connectors_oauth_callback(request: Request, provider: str,
                                 status_code=302)
     if provider not in _cx.PROVIDERS or not code or not state:
         return RedirectResponse("/?connect_error=bad_callback", status_code=302)
-    identity = _cx.pop_state(state, provider)
-    if identity is None:
+    rec = _cx.pop_state_full(state, provider)
+    if rec is None:
         return RedirectResponse("/?connect_error=bad_state", status_code=302)
+    identity, extra = rec.get("identity") or {}, rec.get("extra") or {}
     try:
         tokens, scopes = _cx.exchange_code(provider, code)
+        if provider == "slack" and extra.get("mode"):
+            # scope-picker flow: one row per WORKSPACE, with the access
+            # level the user chose in the dialog
+            mode = extra.get("mode") or "read"
+            _cx.slack_put_workspace(
+                identity, tokens.get("team_id") or "unknown",
+                tokens.get("team") or "", tokens, scopes,
+                mode, bool(extra.get("private")),
+                bot_user_id=tokens.get("bot_user_id", ""))
         _cx.put_credential(provider, identity, tokens, scopes=scopes)
     except Exception as exc:
         return RedirectResponse(

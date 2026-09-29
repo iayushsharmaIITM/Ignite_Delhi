@@ -211,6 +211,261 @@ def delete_credential(provider: str, identity: dict | None) -> bool:
         return False
 
 
+
+# ==========================================================================
+# P6 Slack for general users: multi-workspace, scope-picker, read/post
+# ---------------------------------------------------------------------------
+# The single-grant flow above connects ONE Slack workspace with fixed read
+# scopes. This layer adds what general users need, modeled on the Notion-style
+# "Configure access" dialog:
+#
+#   * a scope picker (read-only vs read+post, private-channel toggle) — the
+#     dialog choice is just a different scope set sent to Slack
+#   * one bot token per workspace (bot tokens are workspace-scoped), stored
+#     encrypted per (identity, team)
+#   * channels list / message read / post-message, with post refused 403
+#     unless chat:write was actually granted
+#   * disconnect through auth.revoke
+#
+# Slack error mapping: 429 honors Retry-After; not_in_channel, missing_scope,
+# invalid_auth and token_revoked surface as human sentences, never raw codes.
+# ==========================================================================
+
+SLACK_SCOPE_SETS = {
+    "read":      ["channels:read", "channels:history"],
+    "read_post": ["channels:read", "channels:history", "chat:write"],
+}
+SLACK_PRIVATE_BOT = ["groups:read", "groups:history"]
+SLACK_PRIVATE_USER = ["im:history", "mpim:history"]
+
+
+def slack_scope_set(mode: str, private: bool) -> tuple[list, list]:
+    """Dialog choice -> (bot_scopes, user_scopes). DMs need USER tokens —
+    bot tokens cannot read IM/MPIM, which is why the toggle requests
+    user_scopes when private access is on."""
+    bot = list(SLACK_SCOPE_SETS.get(mode if mode in SLACK_SCOPE_SETS else "read"))
+    if private:
+        bot += [s for s in SLACK_PRIVATE_BOT if s not in bot]
+    user = list(SLACK_PRIVATE_USER) if private else []
+    return bot, user
+
+
+def slack_connect_url(identity: dict | None, mode: str, private: bool) -> str:
+    """Authorize URL for the chosen access level. state binds identity +
+    the requested mode/private so the callback stores what was consented."""
+    cfg = PROVIDERS["slack"]
+    bot, user = slack_scope_set(mode, private)
+    token = mint_state(identity, "slack",
+                       extra={"mode": mode, "private": bool(private)})
+    params = {
+        "client_id": os.getenv(cfg["client_id_env"], "").strip(),
+        "redirect_uri": redirect_uri("slack"),
+        "response_type": "code",
+        "scope": ",".join(bot),
+        "state": token,
+    }
+    if user:
+        params["user_scope"] = ",".join(user)
+    return cfg["auth_url"] + "?" + urllib.parse.urlencode(params)
+
+
+def init_slack_workspaces() -> bool:
+    """CREATE TABLE IF NOT EXISTS slack_workspaces. True when usable."""
+    if not vault_configured():
+        return False
+    try:
+        import psycopg
+        from storage import DATABASE_URL
+        with psycopg.connect(DATABASE_URL, autocommit=True) as conn, conn.cursor() as cur:
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS slack_workspaces (
+                     owner_key text NOT NULL,
+                     team_id text NOT NULL,
+                     team_name text NOT NULL DEFAULT '',
+                     blob text NOT NULL,
+                     scopes text NOT NULL DEFAULT '',
+                     mode text NOT NULL DEFAULT 'read',
+                     private boolean NOT NULL DEFAULT false,
+                     bot_user_id text NOT NULL DEFAULT '',
+                     connected timestamptz NOT NULL DEFAULT now(),
+                     PRIMARY KEY (owner_key, team_id)
+                   )""")
+        return True
+    except Exception:
+        return False
+
+
+def slack_put_workspace(identity: dict | None, team_id: str, team_name: str,
+                        tokens: dict, scopes: str, mode: str, private: bool,
+                        bot_user_id: str = "") -> None:
+    if not vault_configured():
+        raise RuntimeError("CONNECTOR_VAULT_KEY is not set — vault writes refused.")
+    blob = encrypt_blob({
+        "bot_token": tokens.get("bot_token", ""),
+        "user_token": tokens.get("user_token", ""),
+        "bot_user_id": bot_user_id,
+    })
+    import psycopg
+    from storage import DATABASE_URL
+    with psycopg.connect(DATABASE_URL, autocommit=True) as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO slack_workspaces
+                 (owner_key, team_id, team_name, blob, scopes, mode, private,
+                  bot_user_id, connected)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
+               ON CONFLICT (owner_key, team_id) DO UPDATE SET
+                 team_name = EXCLUDED.team_name, blob = EXCLUDED.blob,
+                 scopes = EXCLUDED.scopes, mode = EXCLUDED.mode,
+                 private = EXCLUDED.private, bot_user_id = EXCLUDED.bot_user_id,
+                 connected = now()""",
+            (_owner_key(identity), team_id, team_name, blob, scopes,
+             mode, bool(private), bot_user_id))
+
+
+def slack_list_workspaces(identity: dict | None) -> list[dict]:
+    """Connected workspaces WITHOUT tokens — the UI list only ever sees
+    team info, mode and scopes."""
+    try:
+        import psycopg
+        from storage import DATABASE_URL
+        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT team_id, team_name, scopes, mode, private, connected
+                   FROM slack_workspaces WHERE owner_key = %s
+                   ORDER BY connected DESC""",
+                (_owner_key(identity),))
+            rows = cur.fetchall()
+        return [{"team_id": r[0], "team_name": r[1], "scopes": r[2],
+                 "mode": r[3], "private": r[4], "connected": str(r[5])}
+                for r in rows]
+    except Exception:
+        return []
+
+
+def slack_get_workspace(identity: dict | None, team_id: str) -> dict | None:
+    """Decrypted workspace tokens + meta, or None."""
+    try:
+        import psycopg
+        from storage import DATABASE_URL
+        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT team_name, blob, scopes, mode, private
+                   FROM slack_workspaces WHERE owner_key = %s AND team_id = %s""",
+                (_owner_key(identity), team_id))
+            row = cur.fetchone()
+        if not row:
+            return None
+        data = decrypt_blob(row[1])
+        return {"team_id": team_id, "team_name": row[0],
+                "bot_token": data.get("bot_token", ""),
+                "user_token": data.get("user_token", ""),
+                "bot_user_id": data.get("bot_user_id", ""),
+                "scopes": row[2], "mode": row[3], "private": row[4]}
+    except Exception:
+        return None
+
+
+def slack_delete_workspace(identity: dict | None, team_id: str) -> bool:
+    try:
+        import psycopg
+        from storage import DATABASE_URL
+        with psycopg.connect(DATABASE_URL, autocommit=True) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM slack_workspaces WHERE owner_key = %s AND team_id = %s",
+                        (_owner_key(identity), team_id))
+            return cur.rowcount > 0
+    except Exception:
+        return False
+
+
+def _slack_error(data: dict) -> RuntimeError:
+    """Slack error code -> a sentence a user can act on."""
+    code = (data.get("error") or "unknown").strip()
+    human = {
+        "not_in_channel": "The app is not a member of that conversation — invite it with /invite @Kestrel first.",
+        "missing_scope": "The saved access level does not cover this action — reconnect with broader access.",
+        "invalid_auth": "The saved Slack token was revoked or rotated — reconnect the workspace.",
+        "token_revoked": "The workspace revoked this app — reconnect to restore access.",
+        "channel_not_found": "That channel does not exist (or the app cannot see it).",
+        "is_archived": "That channel is archived.",
+        "ratelimited": "Slack rate-limited the request — try again shortly.",
+    }.get(code, code)
+    return RuntimeError(human)
+
+
+def _slack_get(token: str, method: str, params: dict) -> dict:
+    """Slack GET with 429 Retry-After backoff (bounded: 2 retries)."""
+    import requests
+    params = dict(params or {})
+    for attempt in range(3):
+        r = requests.get(f"https://slack.com/api/{method}",
+                         headers={"Authorization": f"Bearer {token}"},
+                         params=params, timeout=30)
+        if r.status_code == 429:
+            wait = int(r.headers.get("Retry-After") or 2)
+            if attempt == 2:
+                break
+            time.sleep(min(wait, 30))
+            continue
+        break
+    data = r.json()
+    if not data.get("ok"):
+        raise _slack_error(data)
+    return data
+
+
+def _slack_post_json(token: str, method: str, body: dict) -> dict:
+    import requests
+    for attempt in range(3):
+        r = requests.post(f"https://slack.com/api/{method}",
+                          headers={"Authorization": f"Bearer {token}",
+                                   "Content-Type": "application/json"},
+                          json=body, timeout=30)
+        if r.status_code == 429:
+            wait = int(r.headers.get("Retry-After") or 2)
+            if attempt == 2:
+                break
+            time.sleep(min(wait, 30))
+            continue
+        break
+    data = r.json()
+    if not data.get("ok"):
+        raise _slack_error(data)
+    return data
+
+
+def slack_channels(token: str, types: str, cursor: str = "", limit: int = 100) -> dict:
+    data = _slack_get(token, "conversations.list",
+                      {"types": types, "limit": limit,
+                       **({"cursor": cursor} if cursor else {}),
+                       "exclude_archived": True})
+    chans = [{"id": c.get("id"), "name": c.get("name"),
+              "private": c.get("is_private", False),
+              "member": c.get("is_member", False)}
+             for c in data.get("channels", [])]
+    return {"channels": chans, "cursor": (data.get("response_metadata") or {}).get("next_cursor", "")}
+
+
+def slack_history(token: str, channel: str, limit: int = 50, cursor: str = "") -> dict:
+    data = _slack_get(token, "conversations.history",
+                      {"channel": channel, "limit": limit,
+                       **({"cursor": cursor} if cursor else {})})
+    msgs = [{"ts": m.get("ts"), "user": m.get("user"), "text": m.get("text", ""),
+             "ts_date": time.strftime("%Y-%m-%d %H:%M", time.gmtime(float(m.get("ts", 0) or 0)))}
+            for m in data.get("messages", []) if not m.get("subtype")]
+    return {"messages": msgs, "cursor": (data.get("response_metadata") or {}).get("next_cursor", "")}
+
+
+def slack_post(token: str, channel: str, text: str) -> dict:
+    data = _slack_post_json(token, "chat.postMessage", {"channel": channel, "text": text})
+    return {"ts": data.get("ts"), "channel": data.get("channel")}
+
+
+def slack_revoke(token: str) -> bool:
+    try:
+        return bool(_slack_post_json(token, "auth.revoke", {"test": True}).get("ok"))
+    except Exception:
+        return False
+
 def connection_state(provider: str, identity: dict | None,
                      env_token: str | None = None) -> str:
     """connected | needs_reconnect | unconfigured — what the UI pill shows.
@@ -244,10 +499,14 @@ def provider_configured(provider: str) -> bool:
                 and os.getenv(cfg["client_secret_env"], "").strip())
 
 
-def mint_state(identity: dict | None, provider: str) -> str:
+def mint_state(identity: dict | None, provider: str,
+               extra: dict | None = None) -> str:
     token = secrets.token_urlsafe(24)
-    _states[token] = {"identity": identity or {},
-                      "provider": provider, "exp": time.time() + STATE_TTL}
+    rec = {"identity": identity or {}, "provider": provider,
+           "exp": time.time() + STATE_TTL}
+    if extra:
+        rec["extra"] = extra
+    _states[token] = rec
     return token
 
 
@@ -256,6 +515,15 @@ def pop_state(token: str, provider: str) -> dict | None:
     if not rec or rec.get("provider") != provider or rec["exp"] < time.time():
         return None
     return rec["identity"]
+
+
+def pop_state_full(token: str, provider: str) -> dict | None:
+    """Whole state record (identity + extra) or None. The scope-picker flow
+    needs the extra payload — the choices that were consented to."""
+    rec = _states.pop(token, None)
+    if not rec or rec.get("provider") != provider or rec["exp"] < time.time():
+        return None
+    return rec
 
 
 def authorize_url(provider: str, identity: dict | None) -> str:
@@ -293,12 +561,20 @@ def exchange_code(provider: str, code: str) -> tuple[dict, str]:
         if not data.get("ok"):
             raise RuntimeError("Slack refused the code: "
                                + str(data.get("error", "?"))[:120])
+        team = data.get("team") or {}
+        authed = data.get("authed_user") or {}
+        # v2 payload: bot token (workspace-scoped), the authed user's token
+        # when user_scopes were requested (DMs), team identity, bot user id.
         return ({
             "access_token": data.get("access_token", ""),
             # Bot tokens do not expire; rotation surfaces as invalid_auth.
             "refresh_token": "",
             "expires_at": 0,
-            "team": (data.get("team") or {}).get("name", ""),
+            "team": team.get("name", ""),
+            "team_id": team.get("id", ""),
+            "bot_token": data.get("access_token", ""),
+            "user_token": authed.get("access_token", ""),
+            "bot_user_id": data.get("bot_user_id", ""),
         }, ",".join((data.get("scope") or "").split(",")))
     # google
     if "access_token" not in data:
