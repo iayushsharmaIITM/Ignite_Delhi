@@ -1151,7 +1151,9 @@ async def connectors_import(request: Request):
 
 
 @app.get("/api/ask")
-async def ask(request: Request, q: str, dataset: str | None = None, context: str | None = None):
+async def ask(request: Request, q: str, dataset: str | None = None,
+              context: str | None = None, tz: str | None = None,
+              local_time: str | None = None):
     """Stream the answer as newline-delimited JSON so the UI never sits blank.
 
     `context` carries the preceding turns of the conversation. It is prepended
@@ -1181,6 +1183,10 @@ async def ask(request: Request, q: str, dataset: str | None = None, context: str
         )
 
     question = q if not context else f"{context.strip()}\n\nFollow-up question: {q}"
+    # additive client hint (UI sends browser timezone + local time): lets
+    # "what time is it?" answer without asking the user's location
+    if tz and local_time:
+        q = f"[Client local time: {local_time} ({tz})]\n{q}"
 
     raw_smalltalk = memory_layer._is_smalltalk(q)
 

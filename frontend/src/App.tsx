@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { Sidebar } from "@/components/Sidebar"
 import { PromptBox } from "@/components/PromptBox"
 import { DEFAULT_BRAIN, greeting } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-type Turn = { role: "user" | "bot"; text: string }
+type Source = { source: string; excerpt?: string }
+type Turn = { role: "user" | "bot"; text: string; sources?: Source[] }
 
 const CHIPS = [
   "Summarise what is in this brain",
@@ -23,6 +26,7 @@ export default function App() {
   const [turns, setTurns] = useState<Turn[]>([])
   const [streaming, setStreaming] = useState(false)
   const [input, setInput] = useState("")
+  const [sourcesPanel, setSourcesPanel] = useState<{ title: string; excerpt?: string } | null>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const [greet, setGreet] = useState(greeting)
 
@@ -184,14 +188,62 @@ export default function App() {
                 <div key={i} className={cn("mb-6", t.role === "user" && "flex justify-end")}>
                   <div
                     className={cn(
-                      "whitespace-pre-wrap",
                       t.role === "user"
-                        ? "max-w-[85%] rounded-2xl rounded-br-md border border-border bg-secondary px-4 py-3 text-foreground"
+                        ? "max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md border border-border bg-secondary px-4 py-3 text-foreground"
                         : "text-foreground/90",
                     )}
                   >
-                    {t.text}
+                    {t.role === "bot" ? (
+                      <div className="prose-invert max-w-none [&_a]:text-primary [&_code]:rounded [&_code]:bg-panel-2 [&_code]:px-1 [&_h2]:mt-4 [&_h2]:text-[15px] [&_h2]:font-semibold [&_li]:marker:text-primary [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-border [&_pre]:bg-panel-2 [&_pre]:p-3 [&_pre]:text-[13px] [&_table]:w-full [&_table]:border-collapse [&_td]:border-b [&_td]:border-border [&_td]:px-2 [&_th]:border-b-2 [&_th]:border-border [&_th]:px-2 [&_th]:text-left [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{t.text}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      t.text
+                    )}
                   </div>
+                  {t.role === "bot" && t.sources && t.sources.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Cited sources">
+                      {t.sources.map((s, si) => (
+                        <button
+                          key={si}
+                          type="button"
+                          onClick={() => setSourcesPanel({ title: s.source, excerpt: s.excerpt })}
+                          className="rounded-full border border-border px-2.5 py-0.5 font-mono text-[11px] text-muted-foreground hover:border-primary hover:text-primary"
+                        >
+                          {si + 1}. {s.source}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {t.role === "bot" && (
+                    <div className="mt-1.5 flex gap-1">
+                      <button
+                        type="button"
+                        aria-label="Copy answer"
+                        className="rounded p-1 text-muted-foreground hover:bg-wash hover:text-foreground"
+                        onClick={() => navigator.clipboard.writeText(t.text)}
+                      >
+                        ⧉
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Regenerate"
+                        className="rounded p-1 text-muted-foreground hover:bg-wash hover:text-foreground"
+                        onClick={() => {
+                          const prev = turns[i - 1]
+                          if (prev && prev.role === "user") {
+                            setTurns((cur) => cur.slice(0, i - 1))
+                            handleSend(prev.text)
+                          }
+                        }}
+                      >
+                        ↻
+                      </button>
+                      <span className="px-1 text-[11px] text-muted-foreground">
+                        {new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  )}
                 </div>
               ))}
               {streaming && (
@@ -200,6 +252,29 @@ export default function App() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+        {sourcesPanel && (
+          <div
+            className="fixed inset-y-0 right-0 z-40 w-[420px] max-w-full overflow-y-auto border-l
+                        border-border bg-card p-6 shadow-2xl"
+            role="dialog"
+            aria-label="Cited source"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-foreground">{sourcesPanel.title}</h2>
+              <button
+                type="button"
+                aria-label="Close source panel"
+                className="rounded p-1 text-muted-foreground hover:text-foreground"
+                onClick={() => setSourcesPanel(null)}
+              >
+                ✕
+              </button>
+            </div>
+            <pre className="whitespace-pre-wrap rounded-lg border border-border bg-panel-2 p-4 text-[13px] text-foreground/90">
+              {sourcesPanel.excerpt || "The cited passage is not available for this reference."}
+            </pre>
           </div>
         )}
         {turns.length > 0 && (
