@@ -19,10 +19,20 @@ OPENROUTER_MODEL = "deepseek/deepseek-v4.1-flash"
 
 
 def _pair() -> tuple[str | None, str, str]:
+    """Route policy (Phase 4, decision D5/F5): the free Token Harbor
+    collection is approved for LOCAL/synthetic use only. In beta/production
+    environments (`APP_ENV` != local) the free route is refused outright —
+    no silent fallback; the paid OpenRouter DeepSeek route is the only
+    generation path."""
+    env = os.getenv("APP_ENV", "local").strip().lower()
     th = os.getenv("TOKENHARBOR_API_KEY", "").strip()
+    o = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if env in ("beta", "prod", "production"):
+        if o:
+            return (OPENROUTER_BASE, o, OPENROUTER_MODEL)
+        return (None, "", OPENROUTER_MODEL)
     if th:
         return (HARBOR_BASE, th, HARBOR_MODEL)
-    o = os.getenv("OPENROUTER_API_KEY", "").strip()
     if o:
         return (OPENROUTER_BASE, o, OPENROUTER_MODEL)
     return (None, "", OPENROUTER_MODEL)

@@ -1,0 +1,37 @@
+# Staged cutover config (PR-8) — used ONLY by ops/cutover_162.sh after the
+# founder unlock. Identical to compose.oss.yml except the image is the
+# digest-pinned candidate. Volumes are the SAME kestrel_brains_* volumes.
+services:
+  cognee-oss:
+    image: sha256:9afe3416a2df745c6044813ddc5c1c5c77bf727a5ae78f386b8db6e51f8687ca
+    container_name: cognee-oss
+    restart: unless-stopped
+    ports:
+      - "8888:8000"
+    env_file:
+      - .env.oss
+    volumes:
+      - cognee_oss_state:/app/.cognee
+      - cognee_oss_data:/cognee-storage
+      - ./patches/native_adapter.py:/app/cognee/infrastructure/llm/structured_output_framework/litellm_native/native_adapter.py:ro
+      - ./patches/stream_completion.py:/app/cognee/infrastructure/llm/streaming/stream_completion.py:ro
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: kestrel-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kestrel
+      POSTGRES_PASSWORD: kestrel
+      POSTGRES_DB: kestrel
+    ports:
+      - "5433:5432"
+    volumes:
+      - kestrel_db:/var/lib/postgresql/data
+
+volumes:
+  cognee_oss_state:
+  cognee_oss_data:
+  kestrel_db:
