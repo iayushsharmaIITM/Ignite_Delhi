@@ -363,15 +363,120 @@ def process_job(job: dict) -> None:
         conn.commit()
 
 
+def reclaim_expired_leases() -> int:
+    """Phase 1: an orphaned job (worker died mid-EXTRACTING/INGESTING/VERIFYING)
+    must never remain invisible. Expired-lease active jobs move to
+    RECONCILIATION_REQUIRED — the recovery routine (not a blind retry) decides
+    the honest outcome from the upstream pipeline state."""
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """update brain_jobs set state='RECONCILIATION_REQUIRED',
+                   error_code='LEASE_EXPIRED', lease_owner=null,
+                   lease_expires_at=null, updated_at=now()
+               where state in ('EXTRACTING','INGESTING','VERIFYING')
+                 and lease_expires_at is not null and lease_expires_at < now()""")
+        n = cur.rowcount
+        if n:
+            conn.commit()
+            log.warning("reclaimed %d expired-lease job(s) -> RECONCILIATION_REQUIRED", n)
+        return n
+
+
+def recover_reconciliation(max_attempts: int = 3) -> int:
+    """Decide the honest outcome for RECONCILIATION_REQUIRED jobs.
+
+    Upstream state rules the result: pipeline ERRORED/FAILED -> job FAILED;
+    COMPLETED -> verify inventory and publish if fully verifiable; still
+    running -> left alone. Jobs are never resubmitted here. After
+    max_attempts inconclusive passes the job FAILs visibly instead of
+    hiding forever.
+    """
+    import cognee_cloud as cc
+    handled = 0
+    with _conn() as conn, conn.cursor() as cur:
+        jobs = cur.execute(
+            """select id, brain_id, generation_id, attempt from brain_jobs
+               where state='RECONCILIATION_REQUIRED'
+                 and (lease_expires_at is null or lease_expires_at < now())
+               order by created_at limit 5 for update skip locked""").fetchall()
+    for job in jobs:
+        job_id, brain_id, generation_id = job["id"], job["brain_id"], job["generation_id"]
+        with _conn() as conn, conn.cursor() as cur:
+            gen = cur.execute(
+                "select backend_dataset_name, backend_dataset_id from brain_generations where id=%s",
+                (generation_id,)).fetchone()
+        if not gen:
+            with _conn() as conn, conn.cursor() as cur:
+                _fail(cur, job_id, brain_id, "RECOVERY:NO_GENERATION")
+                conn.commit()
+            handled += 1
+            continue
+        name = gen["backend_dataset_name"]
+        try:
+            state = cc.status(name)
+            kind = cc.terminal_kind(state)
+        except Exception as exc:  # noqa: BLE001 - tenant down: stay put
+            log.warning("recovery deferred for %s: %s", job_id, str(exc)[:120])
+            continue
+        with _conn() as conn, conn.cursor() as cur:
+            if kind == "failure":
+                _fail(cur, job_id, brain_id, f"RECOVERY:PIPELINE_ERRORED")
+                conn.commit()
+                handled += 1
+                continue
+            if kind == "success":
+                ds_id = gen["backend_dataset_id"] or _resolve_dataset(name)
+                items = cc.data_items(ds_id)
+                by_name = {i.get("name"): i.get("id") for i in items if isinstance(i, dict)}
+                rows = cur.execute(
+                    """select f.client_file_id, st.filename from brain_job_files f
+                       join brain_job_staging st on st.job_id=f.job_id
+                                            and st.client_file_id=f.client_file_id
+                       where f.job_id=%s and f.document_version_id is not null""",
+                    (job_id,)).fetchall()
+                unverified = [r["filename"] for r in rows if by_name.get(r["filename"]) is None]
+                brain = cur.execute(
+                    "select state, mutation_generation from brains where id=%s", (brain_id,)).fetchone()
+                if unverified or brain["state"] != "CREATING":
+                    cur.execute(
+                        """update brain_jobs set error_code='RECOVERY:INVENTORY_INCOMPLETE',
+                               attempt=attempt+1, updated_at=now() where id=%s""", (job_id,))
+                    _job_event(cur, job_id, {"event": "recovery_incomplete",
+                                             "unverified": unverified})
+                    if job["attempt"] + 1 >= max_attempts:
+                        _fail(cur, job_id, brain_id, "RECOVERY:UNRESOLVED")
+                    conn.commit()
+                    handled += 1
+                    continue
+                cur.execute(
+                    """update brain_generations set state='ACTIVE', backend_dataset_id=%s,
+                           inventory_verified_at=now() where id=%s""", (ds_id, generation_id))
+                cur.execute(
+                    "update brains set state='READY', active_generation_id=%s where id=%s",
+                    (generation_id, brain_id))
+                cur.execute(
+                    """update brain_jobs set state='SUCCEEDED', error_code=null,
+                           updated_at=now() where id=%s""", (job_id,))
+                _job_event(cur, job_id, {"event": "recovered_published", "verified": len(rows)})
+                cur.execute("delete from brain_job_staging where job_id=%s", (job_id,))
+                conn.commit()
+                handled += 1
+                continue
+            # still running upstream: leave for a later pass
+    return handled
+
+
 def worker_loop(poll_seconds: float = 2.0) -> None:
     log.info("lifecycle worker %s started", WORKER_ID)
     while True:
         try:
-            job = claim_job()
-            if job:
-                process_job(job)
-            else:
-                time.sleep(poll_seconds)
+            reclaim_expired_leases()
+            if recover_reconciliation() == 0:
+                job = claim_job()
+                if job:
+                    process_job(job)
+                else:
+                    time.sleep(poll_seconds)
         except Exception as exc:  # noqa: BLE001 - the worker never dies
             log.exception("worker iteration failed: %s", str(exc)[:200])
             time.sleep(poll_seconds)
