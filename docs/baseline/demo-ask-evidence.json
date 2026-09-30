@@ -1,0 +1,17 @@
+{
+ "question": "Why is the Bluepeak renewal at risk, and what have we promised them?",
+ "answer_chars": 1148,
+ "answer_head": "**Why the Bluepeak renewal is at risk**\n\n- **SLA breach:** July 9 P1 outage (47 min) dropped July 2026 uptime to 99.89%, below the 99.9% SLA in MSA-2025-0114.\n- **Credit dispute:** Bluepeak is entitled to a service credit; the proposed 25% goodwill credit exceeds policy caps (10% for sub-120-min events; >20% requires CFO sign-off). Approval is pending with Nadia Osei and the CFO.\n- **Procurement h",
+ "references": [
+  "09_chat_incident-response.md",
+  "04_chat_bluepeak-renewal.md",
+  "07_policy_SEC-review-01.md"
+ ],
+ "source_open": {
+  "name": "09_chat_incident-response.md",
+  "ok": true,
+  "origin": "corpus",
+  "text_chars": 1881,
+  "text_head": "# #incident-response \u2014 chat thread\n\n**Channel:** #incident-response\n**Date:** 9 July 2026\n\n---\n\n**pagerduty-bot** 02:14\n:rotating_light: ALERT \u2014 pulse-api error rate 41% (threshold 5%). Paging on-call"
+ }
+}

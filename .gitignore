@@ -37,3 +37,6 @@ screenshots/*.tmp
 # OSS migration local state (BUILD_PLAN.md M0.1)
 .env.oss
 cognee_oss_state/
+
+# bulky baseline logs (sanitized copies live in docs/baseline/)
+var/

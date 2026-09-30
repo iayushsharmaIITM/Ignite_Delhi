@@ -1,0 +1,9 @@
+== Kestrel verification battery (PROVIDER=mock) ==
+[documents] PASS  25/25
+[pipe-states] PASS  13/13
+[server] up (pid 15481, mock fixtures)
+[connectors] PASS  90/90
+[tenants] PASS  10/10
+[smoke] PASS  4/4
+[ui] PASS
+== done: 0 failing suite(s) ==
