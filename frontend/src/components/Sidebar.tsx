@@ -77,6 +77,7 @@ export function Sidebar({
       aria-label="Kestrel navigation"
       className={cn(
         "flex h-full flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out",
+        "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:shadow-2xl",
         collapsed ? "w-0 overflow-hidden opacity-0" : "w-[268px] opacity-100",
       )}
     >

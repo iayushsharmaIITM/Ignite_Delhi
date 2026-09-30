@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
+import { PanelLeft } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import { PromptBox } from "@/components/PromptBox"
 import { Connectors } from "@/components/Connectors"
 import { Toaster } from "@/components/ui/sonner"
+import { Button } from "@/components/ui/button"
 import { DEFAULT_BRAIN, greeting } from "@/lib/api"
 import { cn } from "@/lib/utils"
+
+const Markdown = lazy(() => import("@/components/Markdown"))
 
 type Source = { source: string; excerpt?: string }
 type Turn = { role: "user" | "bot"; text: string; sources?: Source[] }
@@ -19,9 +21,45 @@ const CHIPS = [
   "Is everything consistent?",
 ]
 
+// Mirrors the legacy shell's attachment contract: text-like files ride
+// client-side, binary documents extract server-side, everything ingestible
+// also lands in the current brain for FUTURE questions.
+const TEXTY = /\.(txt|md|csv|json|py|js|ts|jsx|tsx|java|go|rs|c|cpp|h|hpp|sh|sql|yaml|yml|toml|ini|cfg|html|css)$/i
+const CONTEXT_CAP = 6000
+
+async function buildContext(files: File[], signal: AbortSignal | undefined): Promise<string> {
+  let context = ""
+  for (const f of files) {
+    if (context.length >= 5200) break
+    const texty = (f.type || "").startsWith("text/") || TEXTY.test(f.name)
+    const imagey = (f.type || "").startsWith("image/")
+    try {
+      if (texty) {
+        const content = (await f.slice(0, 16 * 1024).text()).slice(0, 2400)
+        context = `Attached file "${f.name}":\n${content}\n\n${context}`
+      } else if (!imagey) {
+        const fd = new FormData()
+        fd.append("file", f)
+        const r = await fetch("/api/extract", { method: "POST", body: fd, signal })
+        const d = await r.json()
+        if (r.ok && d.text) {
+          context = `Attached file "${f.name}":\n${String(d.text).slice(0, 2400)}\n\n${context}`
+          if (d.ocr) toast.message(`${f.name} has no text layer — read via OCR`)
+        } else {
+          toast.warning(`Could not read ${f.name} — added to the brain only`)
+        }
+      }
+    } catch (e) {
+      if (signal?.aborted) throw e
+      toast.warning(`Could not read ${f.name} — added to the brain only`)
+    }
+  }
+  return context.slice(0, CONTEXT_CAP)
+}
+
 export default function App() {
   const [collapsed, setCollapsed] = useState(
-    localStorage.getItem("kestrel.sidebar.collapsed") === "1",
+    localStorage.getItem("kestrel.sidebar.collapsed") === "1" || window.innerWidth < 768,
   )
   const [brain, setBrain] = useState(
     new URLSearchParams(location.search).get("brain") || DEFAULT_BRAIN,
@@ -30,6 +68,7 @@ export default function App() {
   const [streaming, setStreaming] = useState(false)
   const [input, setInput] = useState("")
   const [sourcesPanel, setSourcesPanel] = useState<{ title: string; excerpt?: string } | null>(null)
+  const [stage, setStage] = useState<string | null>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const [greet, setGreet] = useState(greeting)
   const [view, setView] = useState<"chat" | "connectors">(
@@ -67,10 +106,11 @@ export default function App() {
     )
   }
 
-  const ask = useCallback(async (q: string) => {
+  const ask = useCallback(async (q: string, files: File[] = []) => {
     setTurns((t) => [...t, { role: "user", text: q }])
     setStreaming(true)
-    ;(window as unknown as { CONTROLLER?: AbortController }).CONTROLLER = new AbortController()
+    const controller = new AbortController()
+    ;(window as unknown as { CONTROLLER?: AbortController }).CONTROLLER = controller
     let text = ""
     try {
       const params = new URLSearchParams({ q })
@@ -78,9 +118,28 @@ export default function App() {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
       params.set("tz", tz)
       params.set("local_time", new Date().toISOString())
-      const res = await fetch(`/api/ask?${params}`, {
-        signal: (window as unknown as { CONTROLLER?: AbortController }).CONTROLLER?.signal,
-      })
+      if (files.length) {
+        setStage("Reading attached files…")
+        const context = await buildContext(files, controller.signal)
+        if (context) params.set("context", context)
+        const ingestible = files.filter((f) => !(f.type || "").startsWith("image/"))
+        if (brain && brain !== "demo" && ingestible.length) {
+          setStage(`Adding ${ingestible.length} file(s) to ${brain}…`)
+          const fd = new FormData()
+          fd.append("name", brain)
+          fd.append("append", "true")
+          ingestible.forEach((f) => fd.append("files", f))
+          fetch("/api/brains", { method: "POST", body: fd, signal: controller.signal })
+            .then((r) => r.json())
+            .then((d) => {
+              if (d.ok || d.partial) toast.success(`Added to ${brain} — answerable in future questions`)
+              else toast.warning(`Upload rejected: ${d.detail || "HTTP error"}`)
+            })
+            .catch(() => toast.warning("Upload failed: no response from server"))
+        }
+      }
+      setStage("Thinking…")
+      const res = await fetch(`/api/ask?${params}`, { signal: controller.signal })
       const reader = res.body!.getReader()
       const dec = new TextDecoder()
       let buf = ""
@@ -109,6 +168,22 @@ export default function App() {
               })
             }
             scrollBottom()
+          } else if (ev.type === "references") {
+            const items: Source[] = (ev.items || []).map((s: { source?: string; excerpt?: string }) => ({
+              source: s.source || "source",
+              excerpt: s.excerpt,
+            }))
+            setTurns((t) => {
+              const copy = [...t]
+              const idx = botIdx >= 0 ? botIdx : copy.length - 1
+              if (copy[idx]?.role === "bot") copy[idx] = { ...copy[idx], sources: items }
+              return copy
+            })
+          } else if (ev.stage && ev.stage !== "done" && !ev.message) {
+            setStage(
+              ev.stage === "start" ? "Searching the brain…" :
+              ev.stage === "ready" ? "Composing the answer…" : ev.stage,
+            )
           }
         }
       }
@@ -119,21 +194,18 @@ export default function App() {
       }
     } finally {
       setStreaming(false)
+      setStage(null)
       scrollBottom()
     }
   }, [brain])
 
-  const handleSend = (q: string) => {
+  const handleSend = (q: string, files: File[] = []) => {
+    if (!q.trim()) return
     setInput(q)
-    ask(q)
+    ask(q, files)
   }
   const handleStop = () => {
     ;(window as unknown as { CONTROLLER?: AbortController }).CONTROLLER?.abort()
-  }
-  const handleAttach = (files: FileList) => {
-    // P6 connectors + extraction feed on the legacy path; the new UI wires
-    // the same /api/extract route in the next step.
-    alert(`Attached ${files.length} file(s) — extraction wiring lands in step 7.`)
   }
   const openView = (v: "chat" | "connectors") => {
     setView(v)
@@ -157,6 +229,7 @@ export default function App() {
     const u = new URL(location.href)
     u.searchParams.set("chat", chatId)
     history.pushState(null, "", u)
+    if (window.innerWidth < 768) setCollapsed(true)
   }
   const newChat = () => {
     const u = new URL(location.href)
@@ -170,6 +243,26 @@ export default function App() {
 
   return (
     <div className="flex h-full">
+      <a
+        href="#kestrel-main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-primary-foreground"
+      >
+        Skip to chat
+      </a>
+      {collapsed && (
+        <Button
+          variant="secondary"
+          size="icon"
+          aria-label="Expand sidebar"
+          onClick={() => {
+            localStorage.setItem("kestrel.sidebar.collapsed", "0")
+            setCollapsed(false)
+          }}
+          className="fixed left-3 top-3 z-30 rounded-lg text-muted-foreground shadow"
+        >
+          <PanelLeft className="h-4 w-4" />
+        </Button>
+      )}
       <Sidebar
         collapsed={collapsed}
         onToggle={() => {
@@ -186,7 +279,7 @@ export default function App() {
         onNewChat={newChat}
         onOpenChat={openChat}
       />
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main id="kestrel-main" className="flex min-w-0 flex-1 flex-col">
         {view === "connectors" ? (
           <Connectors />
         ) : turns.length === 0 ? (
@@ -201,9 +294,9 @@ export default function App() {
                 brain={brain}
                 streaming={streaming}
                 hasInput={hasInput}
+                stage={stage}
                 onSend={handleSend}
                 onStop={handleStop}
-                onAttach={handleAttach}
               />
             </div>
             <div className="mt-6 flex max-w-[820px] flex-wrap justify-center gap-2.5">
@@ -233,7 +326,7 @@ export default function App() {
                   >
                     {t.role === "bot" ? (
                       <div className="prose-invert max-w-none [&_a]:text-primary [&_code]:rounded [&_code]:bg-panel-2 [&_code]:px-1 [&_h2]:mt-4 [&_h2]:text-[15px] [&_h2]:font-semibold [&_li]:marker:text-primary [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-border [&_pre]:bg-panel-2 [&_pre]:p-3 [&_pre]:text-[13px] [&_table]:w-full [&_table]:border-collapse [&_td]:border-b [&_td]:border-border [&_td]:px-2 [&_th]:border-b-2 [&_th]:border-border [&_th]:px-2 [&_th]:text-left [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{t.text}</ReactMarkdown>
+                        <Suspense fallback={<span className="whitespace-pre-wrap">{t.text}</span>}><Markdown>{t.text}</Markdown></Suspense>
                       </div>
                     ) : (
                       t.text
@@ -321,9 +414,9 @@ export default function App() {
               brain={brain}
               streaming={streaming}
               hasInput={hasInput}
+              stage={stage}
               onSend={handleSend}
               onStop={handleStop}
-              onAttach={handleAttach}
             />
           </div>
         )}

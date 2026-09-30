@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { Send, Square } from "lucide-react"
+import { FileText, Send, Square, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -8,13 +8,14 @@ type Props = {
   brain: string
   streaming: boolean
   hasInput: boolean
-  onSend: (q: string) => void
+  stage?: string | null
+  onSend: (q: string, files: File[]) => void
   onStop: () => void
-  onAttach: (files: FileList) => void
 }
 
-export function PromptBox({ brain, streaming, hasInput, onSend, onStop, onAttach }: Props) {
+export function PromptBox({ brain, streaming, hasInput, stage, onSend, onStop }: Props) {
   const [text, setText] = useState("")
+  const [files, setFiles] = useState<File[]>([])
   const ref = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
@@ -26,15 +27,21 @@ export function PromptBox({ brain, streaming, hasInput, onSend, onStop, onAttach
     el.style.height = Math.min(el.scrollHeight, 140) + "px"
   }, [text])
 
+  const addFiles = (list: FileList | null) => {
+    if (!list?.length) return
+    setFiles((cur) => [...cur, ...Array.from(list)].slice(0, 6))
+  }
+
   const submit = () => {
-    const q = text.trim()
-    if (!q) return
     if (streaming) {
       onStop()
       return
     }
-    onSend(q)
+    const q = text.trim()
+    if (!q && files.length === 0) return
+    onSend(q, files)
     setText("")
+    setFiles([])
   }
 
   return (
@@ -51,7 +58,7 @@ export function PromptBox({ brain, streaming, hasInput, onSend, onStop, onAttach
       onDrop={(e) => {
         e.preventDefault()
         setDragging(false)
-        if (e.dataTransfer.files?.length) onAttach(e.dataTransfer.files)
+        addFiles(e.dataTransfer.files)
       }}
     >
       <div className="flex items-center gap-2 px-4 pt-3">
@@ -65,6 +72,27 @@ export function PromptBox({ brain, streaming, hasInput, onSend, onStop, onAttach
         </button>
         <div className="ml-auto text-[11px] text-muted-foreground">{brain && `?brain=${brain}`}</div>
       </div>
+      {files.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5 px-4 pt-2" aria-label="Attached files">
+          {files.map((f, i) => (
+            <li
+              key={`${f.name}-${i}`}
+              className="flex items-center gap-1.5 rounded-full border border-border bg-wash-3 py-1 pl-2.5 pr-1 text-[11.5px] text-foreground/90"
+            >
+              <FileText className="h-3 w-3 text-primary" aria-hidden />
+              <span className="max-w-[180px] truncate">{f.name}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${f.name}`}
+                className="rounded-full p-0.5 text-muted-foreground hover:bg-wash hover:text-foreground"
+                onClick={() => setFiles((cur) => cur.filter((_, j) => j !== i))}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <textarea
         ref={ref}
         rows={1}
@@ -102,8 +130,16 @@ export function PromptBox({ brain, streaming, hasInput, onSend, onStop, onAttach
           type="file"
           multiple
           hidden
-          onChange={(e) => e.target.files && onAttach(e.target.files)}
+          onChange={(e) => {
+            addFiles(e.target.files)
+            e.target.value = ""
+          }}
         />
+        {stage && streaming && (
+          <span className="ml-2 truncate text-[11.5px] text-muted-foreground" role="status" aria-live="polite">
+            {stage}
+          </span>
+        )}
         <div className="ml-auto">
           <TooltipProvider delayDuration={200}>
             <Tooltip>
@@ -114,7 +150,7 @@ export function PromptBox({ brain, streaming, hasInput, onSend, onStop, onAttach
                   onClick={submit}
                   className={cn(
                     "h-9 w-9 rounded-full",
-                    streaming || hasInput || text.trim()
+                    streaming || hasInput || text.trim() || files.length
                       ? "bg-primary text-primary-foreground hover:bg-primary/90"
                       : "bg-panel-3 text-muted-foreground",
                   )}

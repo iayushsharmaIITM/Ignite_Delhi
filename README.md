@@ -283,6 +283,25 @@ the ones we did build would actually work.
 
 ---
 
+## React frontend (the new UI)
+
+`static/` remains the zero-build fallback UI. The upgraded interface lives in
+`frontend/` — Vite + React + Tailwind v4 + shadcn/ui, speaking the exact same
+API (no backend contract changed; only additive `tz`/`local_time` params on
+`/api/ask`). Design tokens, component inventory and the before/after table
+are documented in [DESIGN.md](DESIGN.md).
+
+```bash
+cd frontend
+npm install        # once
+npm run dev        # http://localhost:5173 — proxies /api + /health to :8000
+npm run build      # type-checks then emits dist/
+```
+
+Start the API server as usual first (`ops_stack_up.sh` or `python app.py`);
+the dev server proxies to it, so Clerk auth, streaming answers, connectors
+and the OCR path all work against the real backend.
+
 ## Repo layout
 
 ```
