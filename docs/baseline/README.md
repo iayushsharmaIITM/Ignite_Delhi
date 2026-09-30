@@ -24,5 +24,4 @@ _health verified, demo state checksum byte-identical before/after._
 5. Artifact provenance: container self-reports 1.6.1-local; digests pinned in runtime.md. 1.6.2 tag EXISTS in registry (amd64+arm64).
 6. Version drift: runtime fastapi 0.115.0 vs requirements.txt 0.141.1 (app runs system python3.13, no venv). Record-only.
 7. llm_calls metering by feature:
-
-## Phase A exit gate: GREEN — ready for PR-1 (backup/restore drill) on founder approval (D3).
+- ask = 197

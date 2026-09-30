@@ -48,6 +48,5 @@
 
 ## 1.6.2 target artifact check (A9)
 - tag cognee/cognee:1.6.2 EXISTS in registry
-- tag cognee/cognee:1.6.2 EXISTS in registry
 - descriptor digest: (single-manifest; see layers)
 - platforms: amd64/linux, arm64/linux, unknown/unknown
