@@ -1317,7 +1317,8 @@ async def create_brain_v2(request: Request, name: str = Form(...),
         raise HTTPException(status_code=400, detail="No files were uploaded.")
     import lifecycle
     try:
-        result = lifecycle.create_brain_v2(identity, safe, payload, idempotency_key)
+        result = lifecycle.create_brain_v2(identity or {"user_id": "local", "org_id": None},
+                                           safe, payload, idempotency_key)
     except lifecycle.SlugConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except lifecycle.IdempotencyConflict as exc:

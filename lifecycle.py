@@ -57,7 +57,8 @@ def _uuid() -> str:
 # create reservation (the 202 path)
 # ---------------------------------------------------------------------------
 
-def ensure_workspace(cur, identity: dict) -> str:
+def ensure_workspace(cur, identity: dict | None) -> str:
+    identity = identity or {"user_id": "local", "org_id": None}
     org = identity.get("org_id")
     user = identity.get("user_id")
     if org:
@@ -84,6 +85,7 @@ def create_brain_v2(identity: dict, slug: str, files: list[tuple[str, bytes]],
     Idempotency: same (workspace, idempotency_key) returns the existing job;
     the stored request_hash tells the caller whether the payload matched.
     """
+    identity = identity or {"user_id": "local", "org_id": None}
     if not files:
         raise LifecycleError("No files were uploaded.")
     request_hash = hashlib.sha256(
@@ -100,7 +102,7 @@ def create_brain_v2(identity: dict, slug: str, files: list[tuple[str, bytes]],
             (ws, idempotency_key)).fetchone()
         if prior:
             raise IdempotencyConflict(json.dumps({
-                "existing_job": prior["id"],
+                "existing_job": str(prior["id"]),
                 "same_payload": prior["request_hash"] == request_hash,
             }))
 
