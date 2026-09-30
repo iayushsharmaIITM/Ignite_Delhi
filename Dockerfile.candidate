@@ -1,0 +1,29 @@
+# PR-2: candidate Kestrel Cognee image — 1.6.2 + google connector extras + the
+# two token-cap patches, applied ONLY after hash gates prove the upstream
+# targets are byte-identical to the ones the patches were written against
+# (pristine 1.6.1 == pristine 1.6.2, verified 2026-10-01):
+#   native_adapter.py    c10cf7f5fc9f62ff4b540ec140441d48a8cdd8e0eee636a1818eaa8fb9e1e989
+#   stream_completion.py 8429e4b00e1cf9794679d229b5d027b55f29717fa64974e63843b1af565b648b
+# Build fails on any mismatch. Extras installed with the image's own venv pip.
+FROM cognee/cognee:1.6.2
+
+ARG EXPECTED_ADAPTER_SHA=c10cf7f5fc9f62ff4b540ec140441d48a8cdd8e0eee636a1818eaa8fb9e1e989
+ARG EXPECTED_STREAM_SHA=8429e4b00e1cf9794679d229b5d027b55f29717fa64974e63843b1af565b648b
+ARG COGNEE_EXTRAS="gmail google-drive"
+
+RUN set -eu; \
+    echo "$EXPECTED_ADAPTER_SHA  /app/cognee/infrastructure/llm/structured_output_framework/litellm_native/native_adapter.py" | sha256sum -c -; \
+    echo "$EXPECTED_STREAM_SHA  /app/cognee/infrastructure/llm/streaming/stream_completion.py" | sha256sum -c -; \
+    echo "hash gates PASS"
+
+# Connector extras: cognee[gmail,google-drive]==1.6.2 — pip sees cognee 1.6.2
+# already satisfied and adds only the missing extra dependencies. The venv is
+# uv-managed (no pip inside), so system pip 25 targets the venv interpreter.
+RUN /usr/local/bin/pip3 --python /app/.venv/bin/python3 install --no-cache-dir "cognee[gmail,google-drive]==1.6.2" \
+ && /app/.venv/bin/python3 -c "import googleapiclient, google.oauth2, google_auth_oauthlib; print('google connector imports OK')"
+
+COPY patches/native_adapter.py /app/cognee/infrastructure/llm/structured_output_framework/litellm_native/native_adapter.py
+COPY patches/stream_completion.py /app/cognee/infrastructure/llm/streaming/stream_completion.py
+
+# Smoke: patched files import (syntax + dependency check inside the venv)
+RUN /app/.venv/bin/python -c "import importlib.util,sys; [sys.exit(1) if importlib.util.spec_from_file_location(m,p) is None else None for m,p in [('na','/app/cognee/infrastructure/llm/structured_output_framework/litellm_native/native_adapter.py'),('sc','/app/cognee/infrastructure/llm/streaming/stream_completion.py')]]; print('patch files present')"

@@ -1,0 +1,44 @@
+# Isolated lab stack (project kestrel_lab) — restored COPIES only.
+# Ports: postgres 5434, cognee 8889. Volumes: kestrel_lab_*. The live stack
+# (compose.oss.yml / kestrel_brains volumes) is never touched by this file.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: kestrel-lab-db
+    restart: "no"
+    environment:
+      # Set by ops/restore_lab.sh from GRAPH_DATABASE_PASSWORD in .env.oss so
+      # the restored graph tables authenticate identically. Never committed.
+      POSTGRES_PASSWORD: ${LAB_PG_PASSWORD:?run via ops/restore_lab.sh}
+      POSTGRES_USER: kestrel
+      POSTGRES_DB: kestrel
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kestrel -d kestrel"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  cognee:
+    image: ${LAB_COGNEE_IMAGE:-cognee/cognee:1.6.1}
+    container_name: kestrel-lab-cognee
+    restart: "no"
+    ports:
+      - "8889:8000"
+    env_file:
+      - .env.oss
+    volumes:
+      - kestrel_lab_state:/app/.cognee
+      - kestrel_lab_data:/cognee-storage
+      - ./patches/native_adapter.py:/app/cognee/infrastructure/llm/structured_output_framework/litellm_native/native_adapter.py:ro
+      - ./patches/stream_completion.py:/app/cognee/infrastructure/llm/streaming/stream_completion.py:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  kestrel_lab_state:
+  kestrel_lab_data:
+  kestrel_lab_db:

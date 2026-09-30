@@ -489,20 +489,66 @@ def graph(name: Optional[str] = None, full: bool = True, limit: int = 500) -> di
 # data items — used to resolve citations back to real source documents
 # --------------------------------------------------------------------------
 
-def data_items(dataset_id: str) -> list:
+def data_items(dataset_id: str, page_size: int = 200) -> list:
     """List the stored data items of a dataset.
 
     Each item carries the id that appears in Cognee's evidence strings, which is
     what lets citations.py map a citation back to a source document.
+
+    N14: 1.6.1+ PAGINATES this route (default 100 items, newest first, offset
+    capped at 1,000,000). Reading a single page silently truncates any brain
+    over the page size, so older citations fail to resolve with no error.
+    Enumerate every page, dedupe by id, and cross-check the total against
+    /data/count — a mismatch raises instead of returning a truncated inventory.
+    NOTE: offset paging is not a snapshot under concurrent writes; callers that
+    need a stable inventory must pause writes to the dataset first.
     """
-    resp = requests.get(
-        f"{_base()}/api/v1/datasets/{dataset_id}/data",
-        headers=_headers(),
-        timeout=60,
-    )
-    _check(resp, "data_items")
-    payload = resp.json()
-    return payload if isinstance(payload, list) else []
+    out: list = []
+    seen: set = set()
+    offset = 0
+    total = None
+    try:
+        resp = requests.get(
+            f"{_base()}/api/v1/datasets/{dataset_id}/data/count",
+            headers=_headers(), timeout=60,
+        )
+        if resp.status_code < 400:
+            payload = resp.json()
+            total = payload.get("count") if isinstance(payload, dict) else payload
+    except Exception:  # noqa: BLE001 - count is a cross-check, not a requirement
+        total = None
+
+    while True:
+        resp = requests.get(
+            f"{_base()}/api/v1/datasets/{dataset_id}/data",
+            headers=_headers(),
+            params={"limit": page_size, "offset": offset},
+            timeout=timeout(),
+        )
+        _check(resp, "data_items")
+        payload = resp.json()
+        items = payload if isinstance(payload, list) \
+            else (payload.get("items") or payload.get("data") or [])
+        for it in items:
+            key = it.get("id") if isinstance(it, dict) else None
+            if key is None or key not in seen:
+                if key is not None:
+                    seen.add(key)
+                out.append(it)
+        if len(items) < page_size:
+            break
+        offset += page_size
+        if offset > 1_000_000:
+            raise CogneeCloudError(
+                f"data_items: offset ceiling hit with {len(out)} items — dataset "
+                "too large for the API's 1,000,000 offset cap (N14)"
+            )
+    if total is not None and len(out) != int(total):
+        raise CogneeCloudError(
+            f"data_items: enumerated {len(out)} items but /data/count reports "
+            f"{total} — refusing to return a truncated inventory (N14)"
+        )
+    return out
 
 
 def data_raw(dataset_id: str, data_id: str) -> str:

@@ -50,6 +50,7 @@ except ImportError:  # dotenv is optional; env vars still work
     pass
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.responses import FileResponse, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
@@ -1279,6 +1280,89 @@ def stats(request: Request, dataset: str | None = None):
 # --------------------------------------------------------------------------
 # write path — creating a brain from uploaded documents
 # --------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------
+# PR-7: durable lifecycle (flag-gated — the legacy route above stays default)
+# --------------------------------------------------------------------------
+
+def _jobs_v2_enabled() -> bool:
+    return os.getenv("KESTREL_JOBS_V2", "0") == "1"
+
+
+@app.post("/api/brains/v2")
+async def create_brain_v2(request: Request, name: str = Form(...),
+                          files: list[UploadFile] = File(...),
+                          idempotency_key: str = Form(...)):
+    """202 create through the durable job path (KESTREL_JOBS_V2=1 only).
+
+    Reservation + staging are atomic and tenant-free; ingestion happens in
+    the worker with per-file outcomes and publish fencing. 409 covers both
+    same-workspace slug conflicts and idempotency-key mismatches."""
+    if not _jobs_v2_enabled():
+        raise HTTPException(status_code=404, detail="Not found.")
+    if memory_layer.PROVIDER != "cloud":
+        raise HTTPException(status_code=400, detail="Uploads need the cloud provider.")
+    safe = normalize_brain_name(name)
+    if not safe:
+        raise HTTPException(status_code=400, detail="Brain name must be 3-40 characters.")
+    if safe in RESERVED_NAMES:
+        raise HTTPException(status_code=400, detail=f"'{safe}' is reserved.")
+    identity = require_tenant(request)
+    _check_rate(request, "upload")
+    if len(files) > documents.MAX_FILES:
+        raise HTTPException(status_code=413, detail=f"Too many files: {len(files)}.")
+    payload = [(f.filename or "untitled", await _read_capped(f, documents.MAX_FILE_BYTES))
+               for f in files]
+    if not any(b for _, b in payload):
+        raise HTTPException(status_code=400, detail="No files were uploaded.")
+    import lifecycle
+    try:
+        result = lifecycle.create_brain_v2(identity, safe, payload, idempotency_key)
+    except lifecycle.SlugConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except lifecycle.IdempotencyConflict as exc:
+        raise HTTPException(status_code=409, detail=f"Idempotency conflict: {exc}") from exc
+    observe.trace(feature="brain-create-v2",
+                  user=(identity or {}).get("user_id"))
+    return JSONResponse(result, status_code=202)
+
+
+@app.get("/api/jobs/{job_id}")
+def job_status_v2(request: Request, job_id: str):
+    if not _jobs_v2_enabled():
+        raise HTTPException(status_code=404, detail="Not found.")
+    identity = require_tenant(request)
+    import lifecycle
+    st = lifecycle.job_status(job_id)
+    if not st:
+        raise HTTPException(status_code=404, detail="No such job.")
+    if auth.active():
+        import lifecycle
+        with lifecycle._conn() as conn, conn.cursor() as cur:
+            row = cur.execute(
+                """select w.clerk_org_id from brain_jobs j
+                   join workspaces w on w.id = j.workspace_id where j.id = %s""",
+                (job_id,)).fetchone()
+        if not row or row["clerk_org_id"] != (identity or {}).get("org_id"):
+            raise HTTPException(status_code=403, detail="This job belongs to another workspace.")
+    return {"ok": True, **st}
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def job_cancel_v2(request: Request, job_id: str):
+    if not _jobs_v2_enabled():
+        raise HTTPException(status_code=404, detail="Not found.")
+    identity = require_tenant(request)
+    import lifecycle
+    return {"ok": lifecycle.request_cancel(job_id), "requested": True}
+
+
+@app.on_event("startup")
+def _start_lifecycle_worker() -> None:
+    if _jobs_v2_enabled():
+        import lifecycle
+        lifecycle.start_worker()
+
 
 @app.get("/api/brains")
 def list_brains(request: Request):
