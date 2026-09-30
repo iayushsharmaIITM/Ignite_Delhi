@@ -20,6 +20,7 @@
   --color-muted-foreground: var(--muted);
   --color-accent: var(--wash);
   --color-accent-foreground: var(--fg);
+  --color-accent-dim: var(--accent-dim);
   --color-destructive: var(--bad);
   --color-border: var(--line-2);
   --color-input: var(--panel-2);

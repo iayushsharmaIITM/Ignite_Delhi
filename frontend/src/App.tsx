@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { toast } from "sonner"
 import { Sidebar } from "@/components/Sidebar"
 import { PromptBox } from "@/components/PromptBox"
+import { Connectors } from "@/components/Connectors"
+import { Toaster } from "@/components/ui/sonner"
 import { DEFAULT_BRAIN, greeting } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
@@ -29,6 +32,29 @@ export default function App() {
   const [sourcesPanel, setSourcesPanel] = useState<{ title: string; excerpt?: string } | null>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const [greet, setGreet] = useState(greeting)
+  const [view, setView] = useState<"chat" | "connectors">(
+    new URLSearchParams(location.search).get("view") === "connectors" ? "connectors" : "chat",
+  )
+
+  // Landing pad for the OAuth round-trip: /?connected=slack or
+  // /?connect_error=<reason>. Toast, then clean the address bar.
+  useEffect(() => {
+    const u = new URLSearchParams(location.search)
+    const connected = u.get("connected")
+    const connectError = u.get("connect_error")
+    if (connected) {
+      setView("connectors")
+      toast.success(`${connected[0].toUpperCase() + connected.slice(1)} connected`)
+    } else if (connectError) {
+      setView("connectors")
+      toast.error(`Connection failed: ${decodeURIComponent(connectError)}`)
+    }
+    if (connected || connectError) {
+      u.delete("connected")
+      u.delete("connect_error")
+      history.replaceState(null, "", `?${u.toString()}`.replace(/\?$/, ""))
+    }
+  }, [])
 
   useEffect(() => {
     const t = setInterval(() => setGreet(greeting()), 60000)
@@ -107,12 +133,20 @@ export default function App() {
   const handleAttach = (files: FileList) => {
     // P6 connectors + extraction feed on the legacy path; the new UI wires
     // the same /api/extract route in the next step.
-    alert(`Attached ${files.length} file(s) — extraction wiring lands in step 6.`)
+    alert(`Attached ${files.length} file(s) — extraction wiring lands in step 7.`)
+  }
+  const openView = (v: "chat" | "connectors") => {
+    setView(v)
+    const u = new URL(location.href)
+    if (v === "chat") u.searchParams.delete("view")
+    else u.searchParams.set("view", "connectors")
+    history.pushState(null, "", u)
   }
   const handleBrainChange = (b: string) => {
     if (b === "__upload__") { location.href = "/upload"; return }
     if (b === "__brains__") { location.href = "/brains"; return }
     if (b === "__graph__") { location.href = "/graph"; return }
+    openView("chat")
     setBrain(b)
     const u = new URL(location.href)
     u.searchParams.set("brain", b)
@@ -146,12 +180,16 @@ export default function App() {
         }}
         currentBrain={brain}
         currentChat={null}
+        view={view}
+        onViewChange={openView}
         onBrainChange={handleBrainChange}
         onNewChat={newChat}
         onOpenChat={openChat}
       />
       <main className="flex min-w-0 flex-1 flex-col">
-        {turns.length === 0 ? (
+        {view === "connectors" ? (
+          <Connectors />
+        ) : turns.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 pb-10">
             <div
               aria-hidden
@@ -277,7 +315,7 @@ export default function App() {
             </pre>
           </div>
         )}
-        {turns.length > 0 && (
+        {turns.length > 0 && view === "chat" && (
           <div className="px-6 pb-6">
             <PromptBox
               brain={brain}
@@ -290,6 +328,7 @@ export default function App() {
           </div>
         )}
       </main>
+      <Toaster position="bottom-right" />
     </div>
   )
 }

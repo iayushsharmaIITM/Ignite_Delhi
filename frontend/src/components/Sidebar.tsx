@@ -5,6 +5,7 @@ import {
   MoreHorizontal,
   Pencil,
   Pin,
+  Plug,
   Plus,
   Search,
   Sparkles,
@@ -29,6 +30,8 @@ type Props = {
   onToggle: () => void
   currentBrain: string
   currentChat: string | null
+  view: "chat" | "connectors"
+  onViewChange: (v: "chat" | "connectors") => void
   onBrainChange: (brain: string) => void
   onNewChat: () => void
   onOpenChat: (chatId: string, brain: string) => void
@@ -41,6 +44,8 @@ export function Sidebar({
   onToggle,
   currentBrain,
   currentChat,
+  view,
+  onViewChange,
   onBrainChange,
   onNewChat,
   onOpenChat,
@@ -118,6 +123,19 @@ export function Sidebar({
         </Button>
         <Button variant="ghost" className="w-full justify-start gap-2.5 text-[13.5px] text-muted-foreground" onClick={() => onBrainChange("__graph__")}>
           <Waypoints className="h-4 w-4 opacity-75" /> Graph
+        </Button>
+        <Button
+          variant="ghost"
+          aria-pressed={view === "connectors"}
+          className={cn(
+            "w-full justify-start gap-2.5 text-[13.5px]",
+            view === "connectors"
+              ? "bg-sidebar-accent text-foreground"
+              : "text-muted-foreground",
+          )}
+          onClick={() => onViewChange("connectors")}
+        >
+          <Plug className="h-4 w-4 opacity-75" /> Connectors
         </Button>
       </nav>
 
