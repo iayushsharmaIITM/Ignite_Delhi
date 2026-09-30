@@ -65,7 +65,7 @@ export function PromptBox({ brain, streaming, hasInput, stage, onSend, onStop }:
         <button
           type="button"
           className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-foreground"
-          aria-label="Current brain"
+          aria-label={`Current brain: ${brain === "demo" ? "Demo brain" : brain}`}
         >
           <span className="grid h-3.5 w-3.5 place-items-center rounded-sm bg-primary text-[8px] text-primary-foreground">◆</span>
           {brain === "demo" ? "Demo brain" : brain}
