@@ -29,8 +29,8 @@ type Props = {
   onToggle: () => void
   currentBrain: string
   currentChat: string | null
-  view: "chat" | "connectors"
-  onViewChange: (v: "chat" | "connectors") => void
+  view: "chat" | "connectors" | "graph"
+  onViewChange: (v: "chat" | "connectors" | "graph") => void
   onBrainChange: (brain: string) => void
   onNewChat: () => void
   onOpenChat: (chatId: string, brain: string) => void
@@ -121,8 +121,16 @@ export function Sidebar({
         <Button variant="ghost" className="w-full justify-start gap-2.5 text-[13.5px] text-muted-foreground" onClick={() => onBrainChange("__upload__")}>
           <Upload className="h-4 w-4 opacity-75" /> New brain
         </Button>
-        <Button variant="ghost" className="w-full justify-start gap-2.5 text-[13.5px] text-muted-foreground" onClick={() => onBrainChange("__graph__")}>
-          <Waypoints className="h-4 w-4 opacity-75" /> Graph (legacy)
+        <Button
+          variant="ghost"
+          aria-pressed={view === "graph"}
+          className={cn(
+            "w-full justify-start gap-2.5 text-[13.5px]",
+            view === "graph" ? "bg-sidebar-accent text-foreground" : "text-muted-foreground",
+          )}
+          onClick={() => onBrainChange("__graph__")}
+        >
+          <Waypoints className="h-4 w-4 opacity-75" /> Graph
         </Button>
         <Button
           variant="ghost"

@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/Sidebar"
 import { PromptBox } from "@/components/PromptBox"
 import { Connectors } from "@/components/Connectors"
 import { CreateBrainDialog } from "@/components/CreateBrainDialog"
+import { GraphView } from "@/components/GraphView"
 import { Toaster } from "@/components/ui/sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -86,8 +87,9 @@ export default function App() {
   )
   useEffect(() => { chatIdRef.current = chatId }, [chatId])
   const [createOpen, setCreateOpen] = useState(false)
-  const [view, setView] = useState<"chat" | "connectors">(
-    new URLSearchParams(location.search).get("view") === "connectors" ? "connectors" : "chat",
+  const [view, setView] = useState<"chat" | "connectors" | "graph">(
+    new URLSearchParams(location.search).get("view") === "connectors" ? "connectors"
+    : new URLSearchParams(location.search).get("view") === "graph" ? "graph" : "chat",
   )
   const { chats, refreshChats } = useChats(view === "chat" ? brain : null)
 
@@ -213,7 +215,8 @@ export default function App() {
           } else if (ev.stage && ev.stage !== "done" && !ev.message) {
             setStage(
               ev.stage === "start" ? "Searching the brain…" :
-              ev.stage === "ready" ? "Composing the answer…" : ev.stage,
+              ev.stage === "ready" ? "Composing the answer…" :
+              ev.label || ev.stage,
             )
           }
         }
@@ -243,7 +246,7 @@ export default function App() {
   const handleStop = () => {
     ;(window as unknown as { CONTROLLER?: AbortController }).CONTROLLER?.abort()
   }
-  const openView = (v: "chat" | "connectors") => {
+  const openView = (v: "chat" | "connectors" | "graph") => {
     setView(v)
     const u = new URL(location.href)
     if (v === "chat") u.searchParams.delete("view")
@@ -339,6 +342,8 @@ export default function App() {
       <main id="kestrel-main" className="flex min-w-0 flex-1 flex-col">
         {view === "connectors" ? (
           <Connectors />
+        ) : view === "graph" ? (
+          <GraphView brain={brain} />
         ) : turns.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 pb-10">
             <div
