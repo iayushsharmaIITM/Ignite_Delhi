@@ -259,3 +259,23 @@ unchanged. Escalation: AWS Support ticket or Organizations SCP check
 (docs/nova-lite-provider.md has the full evidence chain and the console
 checklist). Consequence: Kestrel's generation is down on all routes until the
 Harbor free window resets 2026-10-06 07:29 UTC or AWS clears the Bedrock block.
+
+## Whole-build addendum 3 — frontend/ops completion (2026-10-01)
+
+- **React graph view shipped**: /api/graph rendered in-app (93 nodes / 161 edges
+  smoke-passed on the lab stack); >120 nodes truncated with an honest label;
+  legacy graph page linked for full interactivity. The "Graph" sidebar item no
+  longer redirects to legacy — **no silent legacy hand-offs remain**.
+- **Stage labels fixed**: the working log now shows the orchestrator's human
+  label instead of the raw "step" kind.
+- **ops/job_health.py**: stuck-job / RECONCILIATION_REQUIRED visibility with
+  nonzero exit for automation (PASS on both DBs — no stale jobs).
+- **Startup provider log**: app logs the active LLM route/base/model/nova
+  status at boot (Phase 11 startup checks).
+- **Mobile**: sidebar auto-collapses on resize below 768px; 390px smoke PASS.
+
+Frontend status: every normal flow (create, ingest-progress, chat, citations,
+source-open, history, graph, connectors) now works from React against the lab
+stack. The only unfinished frontend proof remains the **in-browser ask→answer
+round-trip**, blocked on the exhausted generation routes (Harbor until Oct 6,
+Bedrock account-level block) — the API-level equivalents are all proven.

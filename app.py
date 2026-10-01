@@ -1373,6 +1373,17 @@ def _start_lifecycle_worker() -> None:
         lifecycle.start_worker()
 
 
+@app.on_event("startup")
+def _log_provider_state() -> None:
+    # Phase 11: startup checks — the active LLM route is visible in logs,
+    # not just /health (no secrets: base host + model id only).
+    import llm as _llm
+    base = (_llm.base_url() or "no-provider")
+    print(f"[startup] llm route={os.getenv('KESTREL_LLM_ROUTE', 'auto')} "
+          f"base={base} model={_llm.default_model()} "
+          f"nova_status={_llm.nova_probe_status()}")
+
+
 @app.get("/api/brains")
 def list_brains(request: Request):
     """Every brain on the tenant. Sizes are fetched per row by the dashboard."""

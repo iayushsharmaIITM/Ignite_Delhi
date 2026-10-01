@@ -86,6 +86,13 @@ export default function App() {
     new URLSearchParams(location.search).get("chat"),
   )
   useEffect(() => { chatIdRef.current = chatId }, [chatId])
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth < 768) setCollapsed(true)
+    }
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [])
   const [createOpen, setCreateOpen] = useState(false)
   const [view, setView] = useState<"chat" | "connectors" | "graph">(
     new URLSearchParams(location.search).get("view") === "connectors" ? "connectors"
