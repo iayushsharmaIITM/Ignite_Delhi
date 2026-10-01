@@ -25,8 +25,20 @@ state file. `/health.llm` shows what is REALLY active.
 
 ## Current probe result — diagnosis (2026-10-01, full ladder)
 
-Classification: **api_key_scope_or_policy_denied** (the Bedrock API key's
-underlying IAM principal is not authorized for `bedrock:InvokeModel`).
+Classification: **api_key_scope_or_policy_denied** — UPGRADED 2026-10-01 (final):
+**unknown_bedrock_access_failure**. The denial survives every eliminable layer:
+- Bearer auth (Bedrock API keys for TWO users, both with InvokeModel allows)
+- SigV4 auth (real AKIA IAM key) on BOTH the OpenAI-compat route and native
+  InvokeModel
+- 4 regions × base id + regional profiles; minimal and full bodies
+- IAM: AmazonBedrockLimitedAccess (InvokeModel on *) + kestrel-nova-invoke —
+  two Allows, zero Denys in identity policies; no permission boundary
+- Account: model access enabled-by-default, billing active, $111 credits
+Remaining suspects (AWS-side only): an Organizations SCP denying
+bedrock:InvokeModel (check console → AWS Organizations → Policies → SCPs), or
+a Bedrock service-level block on the account (→ AWS Support ticket). The
+console PLAYGROUND test decides which: playground fails the same way = service
+block → Support; playground works = something between console and API keys.
 
 Evidence:
 - Auth PASS: invalid model ids return "The provided model identifier is
