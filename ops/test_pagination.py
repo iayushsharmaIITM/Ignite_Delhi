@@ -17,6 +17,7 @@ import time
 import asyncio
 
 NUM = int(sys.argv[1]) if len(sys.argv) > 1 else 120
+BATCH = int(os.environ.get("PAGINATION_BATCH", "20"))
 DATASET = f"pagination_test_{os.getpid()}"
 
 import cognee_cloud
@@ -26,7 +27,7 @@ async def main():
     ok = cognee_cloud.configured() or cognee_cloud.service_url().startswith(("http://localhost", "http://127.0.0.1"))
     assert ok, "COGNEE_SERVICE_URL must point at the lab/candidate stack"
 
-    print(f"[1/3] ingesting {NUM} tiny docs into '{DATASET}' (background, parallel)…")
+    print(f"[1/3] ingesting {NUM} tiny docs into '{DATASET}' (batched x{BATCH})…")
     async def one(i: int):
         text = (f"Pagination probe document {i:03d}. Clause {i}: the renewal "
                 f"window runs {i} days and the credit schedule references "
@@ -38,9 +39,14 @@ async def main():
         except Exception as exc:  # noqa: BLE001
             print(f"  doc {i} failed: {str(exc)[:120]}")
             return False
-    results = await asyncio.gather(*(one(i) for i in range(NUM)))
-    fed = sum(results)
-    print(f"      submitted {fed}/{NUM}")
+    fed = 0
+    for start in range(0, NUM, BATCH):
+        batch = range(start, min(start + BATCH, NUM))
+        results = await asyncio.gather(*(one(i) for i in batch))
+        fed += sum(results)
+        print(f"      batch {start//BATCH + 1}: submitted {sum(results)}/{len(batch)} "
+              f"(total {fed}/{NUM})")
+        await asyncio.sleep(8)  # let the free-tier route drain between batches
     if fed == 0:
         sys.exit("all submissions failed")
 

@@ -264,6 +264,26 @@ def _is_smalltalk(query: str) -> bool:
             and all(t in _CORE or t in _FILLER for t in tokens))
 
 
+def _backend_dataset_name(slug: str | None) -> str | None:
+    """The active generation's backend dataset name for a v2-created brain
+    (slug stays the user-facing handle). Returns None for legacy brains —
+    their tenant dataset IS the slug."""
+    if not slug:
+        return None
+    try:
+        from storage import DATABASE_URL
+        import psycopg
+        with psycopg.connect(DATABASE_URL, row_factory=psycopg.rows.dict_row) as conn, \
+                conn.cursor() as cur:
+            row = cur.execute(
+                """select g.backend_dataset_name from brains b
+                   join brain_generations g on g.id = b.active_generation_id
+                   where b.slug = %s and b.deleted_at is null""", (slug,)).fetchone()
+            return row["backend_dataset_name"] if row else None
+    except Exception:  # noqa: BLE001 - resolution failure falls back to the slug
+        return None
+
+
 async def _cloud(query: str, dataset: str | None = None,
                  smalltalk: bool | None = None):
     """Real path, delegated to the orchestrator (head agent).
@@ -274,6 +294,11 @@ async def _cloud(query: str, dataset: str | None = None,
     here (it decides references-off before anything is delegated).
     """
     import orchestrator
+
+    # Phase 8 (PR-7 read path): a v2-created brain's tenant dataset is named
+    # backend-side (slug_<brainid>), not by slug. Resolve once here so the
+    # orchestrator, racers and citation enrichment all target the real dataset.
+    dataset = _backend_dataset_name(dataset) or dataset
 
     # app.py passes the RAW-question flag down: the wrapped query carries
     # context preamble that defeats the greeting regex in ongoing chats

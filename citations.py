@@ -322,6 +322,57 @@ def data_id_from(reference) -> str | None:
     return match.group(1) if match else None
 
 
+def _durable_reference(dataset: str, did: str):
+    """Phase 8: exact provenance from the app's own tables (v2-created brains).
+
+    Returns {source, excerpt} or None. Only rows the v2 verification actually
+    wrote are consulted — nothing is inferred from names or fingerprints."""
+    try:
+        from storage import DATABASE_URL
+        import psycopg
+        with psycopg.connect(DATABASE_URL, row_factory=psycopg.rows.dict_row) as conn, \
+                conn.cursor() as cur:
+            row = cur.execute(
+                """select doc.filename, dv.exact_extracted_text
+                   from generation_documents gd
+                   join brain_generations g on g.id = gd.generation_id
+                   join brains b on b.id = g.brain_id
+                   join document_versions dv on dv.id = gd.document_version_id
+                   join documents doc on doc.id = dv.document_id
+                   where (b.slug = %s or g.backend_dataset_name = %s)
+                     and gd.backend_data_id = %s
+                   limit 1""", (dataset, dataset, did)).fetchone()
+        if row:
+            text = row["exact_extracted_text"] or ""
+            return {"source": row["filename"],
+                    "excerpt": re.sub(r"\s+", " ", text).strip()[:220]}
+    except Exception:  # noqa: BLE001 - durable lookup is best-effort like the rest
+        return None
+    return None
+
+
+def durable_source(dataset: str, filename: str):
+    """Reverse lookup for /api/source: the durable text behind an uploaded
+    document of a v2-created brain. Returns the exact extracted text or None."""
+    try:
+        from storage import DATABASE_URL
+        import psycopg
+        with psycopg.connect(DATABASE_URL, row_factory=psycopg.rows.dict_row) as conn, \
+                conn.cursor() as cur:
+            row = cur.execute(
+                """select dv.exact_extracted_text
+                   from documents doc
+                   join brains b on b.id = doc.brain_id
+                   join document_versions dv on dv.document_id = doc.id
+                   where b.slug = %s and doc.filename = %s
+                   order by dv.created_at desc limit 1""", (dataset, filename)).fetchone()
+        if row and row["exact_extracted_text"]:
+            return row["exact_extracted_text"]
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 def enrich(references: list, dataset: str) -> list:
     """Attach source + excerpt to each evidence string.
 
@@ -372,6 +423,10 @@ def enrich(references: list, dataset: str) -> list:
             corpus.update(_upload_fingerprints(dataset))
 
             def fetch(did):
+                durable = _durable_reference(dataset, did)
+                if durable and durable.get("source"):
+                    store[did] = durable
+                    return
                 try:
                     raw = cognee_cloud.data_raw(dataset_id, did)
                 except Exception:  # noqa: BLE001 - a missing raw must not break the answer
@@ -391,6 +446,13 @@ def enrich(references: list, dataset: str) -> list:
     for ref in references:
         did = data_id_from(ref)
         info = store.get(did) if did else None
+        if (not info or not info.get("source")) and did:
+            # Phase 8: cached entries from the prewarm carry only the item
+            # name (often text_<hash>) — durable provenance outranks them.
+            durable = _durable_reference(dataset, did)
+            if durable and durable.get("source"):
+                store[did] = durable
+                info = durable
         if info and info.get("source"):
             out.append(
                 {

@@ -1762,8 +1762,14 @@ def source(request: Request, name: str, dataset: str | None = None):
     if target == DEMO_DATASET:
         raise HTTPException(status_code=404, detail=f"No source document called '{name}'.")
 
+    # Phase 8: durable provenance first — a v2-created brain resolves from the
+    # app's own tables, not from the uploads manifest.
+    import citations
+    durable_text = citations.durable_source(target, name)
+    if durable_text:
+        return {"ok": True, "name": name, "source": "durable", "text": durable_text}
+
     try:
-        import citations
         import cognee_cloud
 
         data_id = citations.data_id_for(target, name)

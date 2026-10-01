@@ -307,7 +307,33 @@ def process_job(job: dict) -> None:
             "select backend_dataset_id from brain_generations where id=%s",
             (generation_id,)).fetchone()
     ds_id = gen_row["backend_dataset_id"] or cc.resolve_id(backend_dataset)
-    by_name = {i.get("name"): i.get("id") for i in cc.data_items(ds_id) if isinstance(i, dict)}
+    items = cc.data_items(ds_id)
+    by_name = {i.get("name"): i.get("id") for i in items if isinstance(i, dict)}
+    # N1/citations rule: tenant item names are unreliable (the documented
+    # filename trap — items come back as text_<hash>). Match by CONTENT
+    # fingerprint against the stored extracted text; unmatched items stay
+    # unmapped rather than guessed.
+    import citations as citations_mod
+    with _conn() as conn, conn.cursor() as cur:
+        doc_text = {r["client_file_id"]: r["exact_extracted_text"] for r in cur.execute(
+            """select f.client_file_id, v.exact_extracted_text
+               from brain_job_files f join document_versions v on v.id=f.document_version_id
+               where f.job_id=%s""", (job_id,)).fetchall()}
+    by_content = {}
+    for it in items:
+        if not isinstance(it, dict) or not it.get("id"):
+            continue
+        try:
+            raw = cc.data_raw(ds_id, it["id"])
+        except Exception:  # noqa: BLE001
+            continue
+        fp = citations_mod._fingerprint(raw)
+        for cfid, text in doc_text.items():
+            if cfid in by_content:
+                continue
+            if fp and fp == citations_mod._fingerprint(text):
+                by_content[cfid] = it["id"]
+                break
     verified = 0
     with _conn() as conn, conn.cursor() as cur:
         for row in cur.execute(
@@ -316,7 +342,7 @@ def process_job(job: dict) -> None:
                    join brain_job_staging st on st.job_id=f.job_id and st.client_file_id=f.client_file_id
                    where f.job_id=%s and f.document_version_id is not null""",
                 (job_id,)).fetchall():
-            data_id = by_name.get(row["filename"])
+            data_id = by_name.get(row["filename"]) or by_content.get(row["client_file_id"])
             if data_id:
                 cur.execute(
                     """insert into generation_documents
@@ -332,7 +358,7 @@ def process_job(job: dict) -> None:
                 verified += 1
         conn.commit()
 
-    # PUBLISH — fenced
+    # PUBLISH — fenced, and gated on verified provenance
     with _conn() as conn, conn.cursor() as cur:
         brain = cur.execute(
             "select state, mutation_generation from brains where id=%s", (brain_id,)).fetchone()
@@ -351,6 +377,13 @@ def process_job(job: dict) -> None:
             _job_event(cur, job_id, {"event": "publish_fenced"})
             conn.commit()
             return
+    verified = _verify_provenance(job_id, brain_id, generation_id, ds_id)
+    if verified == 0:
+        with _conn() as conn, conn.cursor() as cur:
+            _fail(cur, job_id, brain_id, "PROVENANCE_UNVERIFIED")
+            conn.commit()
+        return
+    with _conn() as conn, conn.cursor() as cur:
         cur.execute(
             """update brain_generations set state='ACTIVE', backend_dataset_id=%s,
                    inventory_verified_at=now() where id=%s""", (ds_id, generation_id))
@@ -361,6 +394,72 @@ def process_job(job: dict) -> None:
         _job_event(cur, job_id, {"event": "published", "verified": verified})
         cur.execute("delete from brain_job_staging where job_id=%s", (job_id,))
         conn.commit()
+
+
+def _verify_provenance(job_id: str, brain_id: str, generation_id: str, ds_id: str) -> int:
+    """Map ingested tenant items to this job's document versions and persist
+    the provenance rows. Names are unreliable (the documented filename trap —
+    items come back as text_<hash>), so match by CONTENT fingerprint; an
+    unmatched item stays unmapped rather than guessed. Returns the verified
+    count (0 means the caller must refuse to publish)."""
+    import cognee_cloud as cc
+    import citations as citations_mod
+    with _conn() as conn, conn.cursor() as cur:
+        gen = cur.execute(
+            "select backend_dataset_id from brain_generations where id=%s",
+            (generation_id,)).fetchone()
+        rows = cur.execute(
+            """select f.client_file_id, f.document_version_id, st.filename,
+                      v.exact_extracted_text
+               from brain_job_files f
+               join document_versions v on v.id = f.document_version_id
+               join brain_job_staging st on st.job_id = f.job_id
+                                        and st.client_file_id = f.client_file_id
+               where f.job_id=%s""", (job_id,)).fetchall()
+    ds_id = gen["backend_dataset_id"] or ds_id
+    items = cc.data_items(ds_id)
+    by_name = {i.get("name"): i.get("id") for i in items if isinstance(i, dict)}
+    by_content: dict = {}
+    for it in items:
+        if not isinstance(it, dict) or not it.get("id") or it.get("id") in by_content.values():
+            continue
+        try:
+            raw = cc.data_raw(ds_id, it["id"])
+        except Exception:  # noqa: BLE001
+            continue
+        fp = citations_mod._fingerprint(raw)
+        if not fp:
+            continue
+        for r in rows:
+            if r["client_file_id"] not in by_content and \
+                    fp == citations_mod._fingerprint(r["exact_extracted_text"]):
+                by_content[r["client_file_id"]] = it["id"]
+                break
+    verified = 0
+    with _conn() as conn, conn.cursor() as cur:
+        for r in rows:
+            data_id = by_name.get(r["filename"]) or by_content.get(r["client_file_id"])
+            if not data_id:
+                continue
+            cur.execute(
+                """insert into generation_documents
+                   (generation_id, document_version_id, brain_id, workspace_id,
+                    backend_data_id, verified_at)
+                   values (%s,%s,%s,(select workspace_id from brains where id=%s),%s,now())
+                   on conflict (generation_id, document_version_id) do update
+                     set backend_data_id=excluded.backend_data_id, verified_at=now()""",
+                (generation_id, r["document_version_id"], brain_id, brain_id, data_id))
+            cur.execute(
+                """update brain_job_files set stage='PROVENANCE_VERIFIED'
+                   where job_id=%s and client_file_id=%s""", (job_id, r["client_file_id"]))
+            verified += 1
+        conn.commit()
+    return verified
+
+
+def _resolve_dataset(name: str) -> str:
+    import cognee_cloud as cc
+    return cc.resolve_id(name)
 
 
 def reclaim_expired_leases() -> int:
@@ -426,23 +525,15 @@ def recover_reconciliation(max_attempts: int = 3) -> int:
                 continue
             if kind == "success":
                 ds_id = gen["backend_dataset_id"] or _resolve_dataset(name)
-                items = cc.data_items(ds_id)
-                by_name = {i.get("name"): i.get("id") for i in items if isinstance(i, dict)}
-                rows = cur.execute(
-                    """select f.client_file_id, st.filename from brain_job_files f
-                       join brain_job_staging st on st.job_id=f.job_id
-                                            and st.client_file_id=f.client_file_id
-                       where f.job_id=%s and f.document_version_id is not null""",
-                    (job_id,)).fetchall()
-                unverified = [r["filename"] for r in rows if by_name.get(r["filename"]) is None]
+                verified = _verify_provenance(job_id, brain_id, generation_id, ds_id)
                 brain = cur.execute(
                     "select state, mutation_generation from brains where id=%s", (brain_id,)).fetchone()
-                if unverified or brain["state"] != "CREATING":
+                if verified == 0 or brain["state"] != "CREATING":
                     cur.execute(
                         """update brain_jobs set error_code='RECOVERY:INVENTORY_INCOMPLETE',
                                attempt=attempt+1, updated_at=now() where id=%s""", (job_id,))
                     _job_event(cur, job_id, {"event": "recovery_incomplete",
-                                             "unverified": unverified})
+                                             "verified": verified})
                     if job["attempt"] + 1 >= max_attempts:
                         _fail(cur, job_id, brain_id, "RECOVERY:UNRESOLVED")
                     conn.commit()
@@ -457,7 +548,7 @@ def recover_reconciliation(max_attempts: int = 3) -> int:
                 cur.execute(
                     """update brain_jobs set state='SUCCEEDED', error_code=null,
                            updated_at=now() where id=%s""", (job_id,))
-                _job_event(cur, job_id, {"event": "recovered_published", "verified": len(rows)})
+                _job_event(cur, job_id, {"event": "recovered_published", "verified": verified})
                 cur.execute("delete from brain_job_staging where job_id=%s", (job_id,))
                 conn.commit()
                 handled += 1
@@ -488,6 +579,10 @@ def start_worker() -> None:
 
 
 def job_status(job_id: str) -> dict | None:
+    try:
+        uuid.UUID(job_id)
+    except (ValueError, AttributeError):
+        return None  # malformed ids are "not found", never a 500
     with _conn() as conn, conn.cursor() as cur:
         job = cur.execute("select * from brain_jobs where id=%s", (job_id,)).fetchone()
         if not job:
