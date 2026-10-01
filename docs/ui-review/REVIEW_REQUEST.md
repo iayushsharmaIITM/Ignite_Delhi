@@ -28,13 +28,37 @@ Dark charcoal surfaces, ONE warm orange accent, ivory text:
 Rules: one accent only; dark-first; honest empty/disabled states with reasons;
 AA contrast; reduced-motion; no decorative gradients over copy; no new frameworks.
 
-## Screenshot inventory (PDF pages 4–35)
+## Screenshot inventory (44-page PDF)
 - **App core (01–05)** — Slack "Configure access" dialog states, Connectors
   cards, chat home with attachment chips.
 - **Marketing (06–19, 23–26)** — hero evolution, product demo, how-it-works,
   capabilities grid, tablet/mobile, menu, FAQ, OG card.
+- **Legacy HTML shell (29–33) — the KEEP vs SWAP surface**: the full-featured
+  HTML app served on :8000 (chat home with brain-grouped chats, Brains page,
+  Upload page, Graph page) plus the LIVE :8000 Clerk auth gate.
 - **Appendix (20–22)** — debug captures, context only.
 - **App graph view (27–28)** — the NEW React graph (mobile + desktop), 93 nodes.
+
+## THE CORE QUESTION — keep vs swap vs deprecate
+
+Kestrel has TWO frontends. The legacy HTML shell is full-featured; the React
+app is the design-forward primary but not yet at full parity. For **every
+legacy surface and pattern**, classify:
+
+- **KEEP** — genuinely better in the legacy shell; must be ported to React
+  (name the pattern and where it goes in React).
+- **SWAP** — React already does it better; the legacy shell should adopt
+  React's design.
+- **DEPRECATE** — should die entirely when parity lands.
+
+Deliver: (a) the classification table per surface, (b) a ported-to-React
+backlog ranked by impact-per-effort, (c) a "legacy retirement checklist" — the
+exact parity conditions before the legacy shell is removed.
+
+Surfaces to classify (at minimum): chat shell layout, brain-grouped chat
+grouping, the composer (brain selector + attachments + suggestions), the work
+log, brains management page, upload page, graph page, auth gate, empty states,
+error rendering, keyboard behaviors.
 
 ## What to return (be blunt and specific)
 1. **Per-screen verdicts** — hierarchy, composition, spacing, what's off.
