@@ -198,3 +198,51 @@ See `CONNECTOR_STATES.md`: Slack = stub-tested (90/90, not live); Gmail/Drive
   captured.
 - "Connectors work" — none is live; all honestly labeled.
 - "CI is green" — the workflow exists; no GitHub run has been observed.
+
+---
+
+# Whole-Build Readiness (final pass, 2026-10-01)
+
+Baseline artifact: `var/evidence/whole-build/baseline-20261001T061046Z.md`
+(commit `b181188`, tree clean, live image `sha256:9afe3416…` = 1.6.2 candidate,
+alembic head `0003_job_staging`, flags OFF-by-default, counts brains=2/gens=2/
+jobs=0/docs=0/chats=5/brain_access=2/graph_node=93).
+
+## Readiness matrix (25 areas)
+
+| # | Area | Status | Evidence | Lab | Live | Enabled | Next action |
+|---|---|---|---|---|---|---|---|
+| 1 | Cognee/graph runtime | done | post-cutover: image digest + health (§3) | yes | yes | yes | — |
+| 2 | Postgres/migrations | done | head `0003_job_staging` applied live, counts reconciled | yes | yes | yes | — |
+| 3 | FastAPI app | done | battery green post-everything | yes | yes | yes | — |
+| 4 | Brain identity/generations | done | backfill live (2 brains/2 gens); schema live | yes | yes | yes | — |
+| 5 | Durable jobs/worker | done (lab) | phase1/phase2 evidence; flag OFF in prod | yes | flag-off | **flag-off** | founder enables KESTREL_JOBS_V2 |
+| 6 | Brain creation/ingestion | done (lab) | v2 SUCCEEDED incl. recovery+publish gate | yes | flag-off | flag-off | same as #5 |
+| 7 | Backfill/reconciliation | done | rehearsal ×2 + live run | yes | yes | yes | — |
+| 8 | Pagination/inventory | done | 120 items, 5-page drain, stable (N14 closed) | yes | yes | yes | — |
+| 9 | Citations + /api/source | done (doc-level) | durable refs + source-open w/o manifest; per-chunk offsets deferred | yes | yes | yes | offsets later |
+| 10 | Auth/workspace isolation | done | tests/test_v2_authz.py + tests/test_route_authz.py (allow/deny/traversal) | yes | Clerk live | yes | — |
+| 11 | LLM routing/token policy | done | APP_ENV gate tested; container route documented | yes | yes | yes | founder funds route |
+| 12 | React frontend | partial | history round-trip PASS; create UI (API-proven); browser ask blocked on provider latency | yes | partial | yes (partial) | capture full flow post-provider |
+| 13 | Legacy fallback | done | still functional; Graph hand-off labeled | yes | yes | yes | retire after parity |
+| 14 | Chat history | done | server-backed save/list/load round-trip PASS | yes | yes | yes | — |
+| 15 | Graph experience | partial | React graph not built; labeled legacy hand-off | — | — | legacy | F6 decision |
+| 16 | Slack connector | stub-tested | 90/90 stub suite | yes | no | no | Slack app + live test |
+| 17 | Gmail connector | implemented-not-configured | extras import in candidate | no | no | no | Google OAuth client + test account |
+| 18 | Drive connector | implemented-not-configured | same | no | no | no | same |
+| 19 | Backup/restore | done | 2 validated backups + restore drill | yes | yes | yes | — |
+| 20 | Cutover/rollback | partial | cutover executed + counts; rollback drill state-level PASS, ask gate blocked | yes | partial | yes | ask gate post-provider |
+| 21 | CI | partial | workflow + local lane proof (battery/builds green); no GitHub run observed | local | — | yes | push + first run |
+| 22 | Deployment target | deferred | none declared (local/private-beta tooling) | — | — | — | founder decision |
+| 23 | Observability/alerting | partial | Langfuse local + job states; no alerting | yes | yes | partial | defer |
+| 24 | Security/secrets | done (scope: this work) | fail-closed auth, vault, no secrets in repo; scanning not added | yes | yes | yes | secret-scan job later |
+| 25 | Performance/limits | partial | caps (40 files/5 MB, rate buckets, quotas in schema); no load tests | — | — | — | defer |
+
+## New evidence this pass
+
+- Post-cutover backup `20261001T061101Z` (checksums PASS).
+- Rollback drill (live candidate state → 1.6.1 + old state): db/graph/brain
+  gates PASS; ask gate blocked on provider — `var/evidence/whole-build/rollback-drill.md`.
+- Route authz: source/chats allow+deny+traversal — `tests/test_route_authz.py`.
+- CI-lane local proof: `var/evidence/whole-build/ci-lane-local.log`.
+- Live migration head raised to `0003_job_staging` (counts unchanged).
