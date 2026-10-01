@@ -17,6 +17,40 @@ HARBOR_MODEL = "deepseek-v4.1-flash:free"
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL = "deepseek/deepseek-v4.1-flash"
 
+# Amazon Nova Lite on AWS Bedrock's OpenAI-compatible endpoint. ACTIVATION IS
+# GUARDED: the route is used only when ops/probe_provider.py has written
+# nova_lite_probe_passed into var/provider_state.json. No probe pass -> the
+# previous default stays active and the status says so (fail closed).
+NOVA_BASE_FMT = "https://bedrock-runtime.{region}.amazonaws.com/openai/v1"
+
+
+def _nova_pair() -> tuple[str, str, str] | None:
+    key = os.getenv("BEDROCK_API_KEY", "").strip()
+    region = os.getenv("BEDROCK_REGION", "us-east-1").strip()
+    model = os.getenv("NOVA_LITE_MODEL", "us.amazon.nova-lite-v1:0").strip()
+    if not key:
+        return None
+    return (NOVA_BASE_FMT.format(region=region), key, model)
+
+
+def _probe_state() -> dict:
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "var", "provider_state.json")
+    try:
+        import json
+        return json.load(open(path))
+    except Exception:  # noqa: BLE001 - no probe file yet: never verified
+        return {}
+
+
+def nova_probe_status() -> str:
+    """Inspectable provider-probe status (exact wording per the switch plan):
+    nova_lite_configured_not_verified | nova_lite_probe_passed |
+    nova_lite_probe_failed_using_previous_default"""
+    if not os.getenv("BEDROCK_API_KEY", "").strip():
+        return "nova_lite_configured_not_verified"
+    return _probe_state().get("nova_lite", "nova_lite_configured_not_verified")
+
 
 def _pair() -> tuple[str | None, str, str]:
     """Route policy (Phase 4, decision D5/F5): the free Token Harbor
@@ -27,6 +61,13 @@ def _pair() -> tuple[str | None, str, str]:
     env = os.getenv("APP_ENV", "local").strip().lower()
     th = os.getenv("TOKENHARBOR_API_KEY", "").strip()
     o = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if os.getenv("KESTREL_LLM_ROUTE", "").strip().lower() == "nova":
+        # guarded: only with a PASSED probe; otherwise fail closed to the
+        # previous default and record why (nova_lite_probe_failed_using_previous_default)
+        nova = _nova_pair()
+        if nova and _probe_state().get("nova_lite") == "nova_lite_probe_passed":
+            return nova
+        log_reason = "nova_lite_probe_failed_using_previous_default"
     if env in ("beta", "prod", "production"):
         if o:
             return (OPENROUTER_BASE, o, OPENROUTER_MODEL)

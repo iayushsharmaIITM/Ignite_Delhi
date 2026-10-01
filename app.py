@@ -459,10 +459,18 @@ def _offline_brains() -> list:
 @app.get("/health")
 def health():
     """Always have this. A health endpoint means the demo never looks dead."""
+    import llm as _llm
     payload = {
         "ok": True,
         "provider": memory_layer.PROVIDER,
         "dataset": DEMO_DATASET,
+        # Phase: guarded provider switch — inspectable route/probe state
+        "llm": {
+            "route": os.getenv("KESTREL_LLM_ROUTE", "auto"),
+            "active_base": (_llm.base_url() or "").split("//")[-1].split(".")[0],
+            "active_model": _llm.default_model(),
+            "nova_status": _llm.nova_probe_status(),
+        },
         # LOW-5: /health is unauthenticated — it reports status booleans, not
         # infrastructure coordinates (no service URL, no DB host).
         "storage": {"storage": storage.status().get("storage")},
