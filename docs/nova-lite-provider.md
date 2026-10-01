@@ -23,12 +23,34 @@ wrong model) = fail.
 `llm._pair()` — reads `KESTREL_LLM_ROUTE`; `nova` requires the probe-passed
 state file. `/health.llm` shows what is REALLY active.
 
-## Current probe result
-`Operation not allowed` for every Nova model (micro/lite/pro) in every region
-where the model exists; invalid ids give a different error — so auth and
-routing work and the **account denies Bedrock model invocation**. Fix on the
-AWS side: Bedrock console → Model access → enable Amazon Nova Lite (and the
-region), or grant the key's policy `bedrock:InvokeModel*`.
+## Current probe result — diagnosis (2026-10-01, full ladder)
+
+Classification: **api_key_scope_or_policy_denied** (the Bedrock API key's
+underlying IAM principal is not authorized for `bedrock:InvokeModel`).
+
+Evidence:
+- Auth PASS: invalid model ids return "The provided model identifier is
+  invalid" (a different, model-aware error class) while valid ids return
+  "Operation not allowed" — the request reaches model evaluation.
+- Model id VALID: us-east-1 metadata lists `amazon.nova-lite-v1:0` as ACTIVE
+  with ON_DEMAND + INFERENCE_PROFILE support; the same is listed in
+  ap-southeast-1.
+- Model access NOT the cause: the account reports
+  `enableAccessToAllModelsByDefault: true`.
+- Region NOT the cause: identical denial in us-east-1, us-west-2, eu-west-1
+  (eu profile), ap-southeast-1 (apac profile + base id).
+- Request body NOT the cause: minimal body, max_tokens/max_completion_tokens
+  and temperature variants all denied identically.
+- Operation-level split observed: control-plane `bedrock:ListFoundationModels`
+  SUCCEEDS with the same key; runtime `bedrock:InvokeModel` (the OpenAI-compat
+  chat route) is denied → the key's IAM principal allows listing but not
+  invocation.
+
+Fix (AWS console/CLI, founder action): attach to the API key's IAM principal:
+`bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` on
+`arn:aws:bedrock:*::foundation-model/amazon.nova-lite-*` (or `*`). Then rerun
+`PYTHONPATH=. python3 ops/probe_provider.py` — on PASS, set
+`KESTREL_LLM_ROUTE=nova` and restart the app.
 
 ## Fallback behavior
 Failed/unverified probe → previous default stays active
