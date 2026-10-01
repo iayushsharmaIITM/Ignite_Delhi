@@ -246,3 +246,16 @@ jobs=0/docs=0/chats=5/brain_access=2/graph_node=93).
 - Route authz: source/chats allow+deny+traversal — `tests/test_route_authz.py`.
 - CI-lane local proof: `var/evidence/whole-build/ci-lane-local.log`.
 - Live migration head raised to `0003_job_staging` (counts unchanged).
+
+## Whole-build addendum 2 — Nova Lite provider attempt (2026-10-01)
+
+Amazon Nova Lite was probed as a potential generation route and **failed at
+the AWS account level**: "Operation not allowed" via the console playground,
+the OpenAI-compat endpoint (bearer + SigV4), and native InvokeModel — across
+4 regions, all valid model ids, with IAM fully allowing, model access
+enabled-by-default, and billing active. Kestrel's fail-closed guard held:
+`nova_lite_probe_failed_using_previous_default` in /health, previous default
+unchanged. Escalation: AWS Support ticket or Organizations SCP check
+(docs/nova-lite-provider.md has the full evidence chain and the console
+checklist). Consequence: Kestrel's generation is down on all routes until the
+Harbor free window resets 2026-10-06 07:29 UTC or AWS clears the Bedrock block.
