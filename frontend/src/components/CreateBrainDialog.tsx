@@ -65,16 +65,27 @@ export function CreateBrainDialog({ open, onClose }: Props) {
             status and verified sources.
           </DialogDescription>
         </DialogHeader>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="brain-name (letters, numbers, underscores)"
-          aria-label="Brain name"
-          className="bg-panel-2"
-        />
-        <Button variant="secondary" className="w-full justify-start" onClick={() => fileRef.current?.click()}>
-          {files.length ? `${files.length} file(s) attached` : "Attach documents…"}
-        </Button>
+        <div>
+          <label htmlFor="brain-name" className="mb-1.5 block text-[10.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Name
+          </label>
+          <Input
+            id="brain-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="brain-name (letters, numbers, underscores)"
+            aria-label="Brain name"
+            className="bg-panel-2"
+          />
+        </div>
+        <div>
+          <div className="mb-1.5 block text-[10.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Documents
+          </div>
+          <Button variant="secondary" className="w-full justify-start" onClick={() => fileRef.current?.click()}>
+            {files.length ? `${files.length} file(s) attached` : "Attach documents…"}
+          </Button>
+        </div>
         <input ref={fileRef} type="file" multiple hidden
                onChange={(e) => { setFiles(Array.from(e.target.files || [])); e.target.value = "" }} />
         {files.length > 0 && (

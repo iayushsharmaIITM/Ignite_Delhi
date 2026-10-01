@@ -8,6 +8,7 @@ import { CreateBrainDialog } from "@/components/CreateBrainDialog"
 import { GraphView } from "@/components/GraphView"
 import { Toaster } from "@/components/ui/sonner"
 import { Button } from "@/components/ui/button"
+import { Copy, RotateCcw } from "lucide-react"
 import {
   DEFAULT_BRAIN,
   greeting,
@@ -383,22 +384,25 @@ export default function App() {
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto" aria-live="polite">
-            <div ref={threadRef} className="mx-auto max-w-[820px] px-6 py-8">
+            <div ref={threadRef} className="mx-auto max-w-[780px] px-6 py-10">
               {turns.map((t, i) => (
-                <div key={i} className={cn("mb-6", t.role === "user" && "flex justify-end")}>
+                <div key={i} className={cn("group/turn mb-7", t.role === "user" && "flex justify-end")}>
                   <div
                     className={cn(
                       t.role === "user"
-                        ? "max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md border border-border bg-secondary px-4 py-3 text-foreground"
+                        ? "max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-wash-2 px-4 py-2.5 text-[14px] leading-relaxed text-ink-2"
                         : "text-foreground/90",
                     )}
                   >
                     {t.role === "bot" ? (
-                      <div className="prose-invert max-w-none [&_a]:text-primary [&_code]:rounded [&_code]:bg-panel-2 [&_code]:px-1 [&_h2]:mt-4 [&_h2]:text-[15px] [&_h2]:font-semibold [&_li]:marker:text-primary [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-border [&_pre]:bg-panel-2 [&_pre]:p-3 [&_pre]:text-[13px] [&_table]:w-full [&_table]:border-collapse [&_td]:border-b [&_td]:border-border [&_td]:px-2 [&_th]:border-b-2 [&_th]:border-border [&_th]:px-2 [&_th]:text-left [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground">
+                      <div className="max-w-none [&_a]:text-accent [&_a]:underline-offset-2 hover:[&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-accent/40 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-panel-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12.5px] [&_h2]:mb-2 [&_h2]:mt-5 [&_h2]:text-[15px] [&_h2]:font-semibold [&_h3]:mt-4 [&_h3]:text-[14px] [&_h3]:font-semibold [&_hr]:border-line [&_li]:my-1 [&_li]:marker:text-accent/70 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-3 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-line [&_pre]:bg-panel-2 [&_pre]:p-3.5 [&_pre]:text-[12.5px] [&_pre]:leading-relaxed [&_strong]:text-ink [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border-b [&_td]:border-line [&_td]:px-2 [&_td]:py-1.5 [&_td]:text-[13px] [&_th]:border-b-2 [&_th]:border-line-2 [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:text-[10.5px] [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground">
                         <Suspense fallback={<span className="whitespace-pre-wrap">{t.text}</span>}><Markdown>{t.text}</Markdown></Suspense>
                       </div>
                     ) : (
                       t.text
+                    )}
+                    {streaming && i === turns.length - 1 && t.role === "bot" && (
+                      <span className="ml-0.5 inline-block h-3.5 w-[7px] translate-y-0.5 animate-pulse rounded-[2px] bg-accent/80" aria-hidden />
                     )}
                   </div>
                   {t.role === "bot" && t.sources && t.sources.length > 0 && (
@@ -421,19 +425,21 @@ export default function App() {
                     </div>
                   )}
                   {t.role === "bot" && (
-                    <div className="mt-1.5 flex gap-1">
+                    <div className="mt-2 flex items-center gap-1 opacity-0 transition-opacity duration-200 ease-out group-hover/turn:opacity-100">
                       <button
                         type="button"
                         aria-label="Copy answer"
-                        className="rounded p-1 text-muted-foreground hover:bg-wash hover:text-foreground"
+                        title="Copy answer"
+                        className="rounded-md p-1.5 text-muted-foreground transition-colors duration-150 ease-out hover:bg-wash hover:text-foreground"
                         onClick={() => navigator.clipboard.writeText(t.text)}
                       >
-                        ⧉
+                        <Copy className="h-3.5 w-3.5" />
                       </button>
                       <button
                         type="button"
-                        aria-label="Regenerate"
-                        className="rounded p-1 text-muted-foreground hover:bg-wash hover:text-foreground"
+                        aria-label="Regenerate answer"
+                        title="Regenerate"
+                        className="rounded-md p-1.5 text-muted-foreground transition-colors duration-150 ease-out hover:bg-wash hover:text-foreground"
                         onClick={() => {
                           const prev = turns[i - 1]
                           if (prev && prev.role === "user") {
@@ -442,11 +448,12 @@ export default function App() {
                           }
                         }}
                       >
-                        ↻
+                        <RotateCcw className="h-3.5 w-3.5" />
                       </button>
-                      <span className="px-1 text-[11px] text-muted-foreground">
+                      <span className="px-1.5 text-[11px] text-muted-foreground/70">
                         {new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                       </span>
+                      <span className="ml-1 h-px flex-1 bg-line/60" aria-hidden />
                     </div>
                   )}
                 </div>
