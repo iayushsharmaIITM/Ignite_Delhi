@@ -22,6 +22,10 @@
   --color-accent-foreground: var(--fg);
   --color-accent-dim: var(--accent-dim);
   --color-destructive: var(--bad);
+  --color-ok: var(--ok);
+  --color-ok-dim: var(--ok-dim);
+  --color-warn: var(--warn);
+  --color-warn-dim: var(--warn-dim);
   --color-border: var(--line-2);
   --color-input: var(--panel-2);
   --color-ring: var(--accent);
@@ -55,6 +59,10 @@
   --accent-soft: rgba(232, 134, 59, 0.45);
   --accent-dim: rgba(232, 134, 59, 0.12);
   --accent-glow: rgba(232, 134, 59, 0.1);
+  --ok: #34d399;
+  --ok-dim: rgba(52, 211, 153, 0.12);
+  --warn: #fbbf24;
+  --warn-dim: rgba(251, 191, 36, 0.12);
   --wash: rgba(255, 255, 255, 0.05);
   --wash-2: rgba(255, 255, 255, 0.07);
   --wash-3: rgba(255, 255, 255, 0.04);
@@ -120,3 +128,7 @@ body {
   background: var(--line-2); border-radius: 999px;
   border: 3px solid transparent; background-clip: content-box;
 }
+
+/* Graph affordances — SVG geometry (r) transitions on hover */
+svg .node-dot { transition: r 150ms ease-out, fill 150ms ease-out, stroke-width 150ms ease-out; }
+svg .node-dot:hover { r: 9; stroke-width: 2.5; }

@@ -88,10 +88,21 @@ export function CreateBrainDialog({ open, onClose }: Props) {
         )}
         {jobId && job && (
           <div className="rounded-lg border border-border bg-panel-2 p-3 text-xs" role="status" aria-live="polite">
-            <div className="font-semibold text-foreground">Job {jobId.slice(0, 8)} — {job.state}</div>
+            <div className="font-semibold text-foreground">
+              Job {jobId.slice(0, 8)} —{" "}
+              <span className={
+                job.state === "SUCCEEDED" ? "text-ok" :
+                job.state === "FAILED" ? "text-destructive" :
+                job.state === "RECONCILIATION_REQUIRED" ? "text-warn" : "text-foreground"
+              }>{job.state}</span>
+            </div>
             {job.files?.map((f) => (
               <div key={f.client_file_id} className="mt-1 text-muted-foreground">
-                {f.client_file_id.split(":").pop()}: {f.stage}
+                {f.client_file_id.split(":").pop()}:{" "}
+                <span className={
+                  f.stage === "PROVENANCE_VERIFIED" ? "text-ok" :
+                  f.stage === "FAILED" ? "text-destructive" : ""
+                }>{f.stage}</span>
                 {f.outcome ? ` — ${f.outcome}` : ""}
               </div>
             ))}

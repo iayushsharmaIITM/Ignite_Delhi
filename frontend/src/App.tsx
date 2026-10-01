@@ -353,10 +353,10 @@ export default function App() {
           <GraphView brain={brain} />
         ) : turns.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 pb-10">
-            <div
-              aria-hidden
-              className="mb-8 h-28 w-28 rotate-45 rounded-2xl bg-wash-2"
-            />
+            <div className="relative mb-8" aria-hidden>
+              <div className="absolute inset-0 -m-6 rounded-full bg-accent-glow blur-2xl" />
+              <div className="relative h-28 w-28 rotate-45 rounded-2xl border border-accent/30 bg-wash-2 shadow-[0_0_40px_rgba(232,134,59,0.12)]" />
+            </div>
             <h1 className="text-[30px] font-semibold tracking-tight text-foreground">{greet}</h1>
             <div className="mt-10 w-full max-w-[820px]">
               <PromptBox
@@ -402,17 +402,22 @@ export default function App() {
                     )}
                   </div>
                   {t.role === "bot" && t.sources && t.sources.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Cited sources">
-                      {t.sources.map((s, si) => (
-                        <button
-                          key={si}
-                          type="button"
-                          onClick={() => setSourcesPanel({ title: s.source, excerpt: s.excerpt })}
-                          className="rounded-full border border-border px-2.5 py-0.5 font-mono text-[11px] text-muted-foreground hover:border-primary hover:text-primary"
-                        >
-                          {si + 1}. {s.source}
-                        </button>
-                      ))}
+                    <div className="mt-3">
+                      <div className="mb-1.5 text-[10.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                        Grounded in {t.sources.length} source{t.sources.length > 1 ? "s" : ""}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5" aria-label="Cited sources">
+                        {t.sources.map((s, si) => (
+                          <button
+                            key={si}
+                            type="button"
+                            onClick={() => setSourcesPanel({ title: s.source, excerpt: s.excerpt })}
+                            className="rounded-full border border-border bg-panel px-2.5 py-1 font-mono text-[11px] text-muted-foreground transition-colors duration-150 ease-out hover:border-accent/60 hover:bg-accent-dim hover:text-accent"
+                          >
+                            {si + 1}. {s.source}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {t.role === "bot" && (
@@ -478,7 +483,8 @@ export default function App() {
           </div>
         )}
         {turns.length > 0 && view === "chat" && (
-          <div className="px-6 pb-6">
+          <div className="sticky bottom-0 z-10 bg-gradient-to-t from-bg via-bg/95 to-transparent px-6 pb-4 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]" style={{ backgroundColor: "transparent" }}>
+            <div className="pointer-events-none absolute inset-x-0 -top-8 h-8 bg-gradient-to-t from-bg to-transparent" aria-hidden />
             <PromptBox
               brain={brain}
               streaming={streaming}

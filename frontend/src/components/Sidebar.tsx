@@ -171,8 +171,8 @@ export function Sidebar({
 
       <div className="flex-1 overflow-y-auto px-3 pb-4">
         {groups.length === 0 && (
-          <div className="px-2 py-2 text-xs italic text-muted-foreground">
-            {search ? "No chats match." : "No saved chats yet."}
+          <div className="rounded-lg border border-line px-3 py-2.5 text-xs text-muted-foreground">
+            {search ? "No chats match your search." : "No saved chats yet — start one and it's saved here, per brain."}
           </div>
         )}
         <div role="list">
@@ -207,9 +207,15 @@ export function Sidebar({
                         <button
                           type="button"
                           onClick={() => onOpenChat(c.id, brain)}
-                          className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left text-[13px] text-muted-foreground hover:text-foreground"
+                          className={cn(
+                            "group/item flex min-w-0 flex-1 items-center gap-2 py-2 text-left text-[13px] transition-colors duration-150 ease-out",
+                            active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                          )}
                         >
-                          <span className={cn("h-1 w-1 flex-none rounded-full", active ? "bg-primary" : "bg-muted-foreground/50")} />
+                          <span className={cn(
+                            "h-1 w-1 flex-none rounded-full transition-colors duration-150 ease-out",
+                            active ? "bg-accent" : "bg-muted-foreground/50 group-hover/item:bg-accent/60",
+                          )} />
                           <span className="truncate">{c.title}</span>
                         </button>
                         <DropdownMenu>

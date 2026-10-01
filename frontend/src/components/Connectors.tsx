@@ -23,10 +23,18 @@ type Workspace = {
 
 function StatusChip({ ok, label }: { ok: boolean | null; label: string }) {
   if (ok === null) return null
+  if (ok)
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-ok/40 bg-ok-dim px-2 py-0.5 text-[11px] text-ok">
+        <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-hidden />
+        {label}
+      </span>
+    )
   return (
-    <Badge variant={ok ? "default" : "outline"} className="text-[11px]">
+    <span className="inline-flex items-center gap-1 rounded-full border border-line-2 bg-panel-2 px-2 py-0.5 text-[11px] text-muted-foreground">
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" aria-hidden />
       {label}
-    </Badge>
+    </span>
   )
 }
 
@@ -81,7 +89,7 @@ export function Connectors() {
         </p>
 
         {/* Slack ------------------------------------------------------------ */}
-        <section className="mt-8 rounded-xl border border-border bg-card p-5">
+        <section className="mt-8 rounded-xl border border-border bg-card p-5 transition-colors duration-150 ease-out hover:border-accent/40">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="grid h-10 w-10 place-items-center rounded-lg bg-primary/15 text-lg">
@@ -152,7 +160,7 @@ export function Connectors() {
         </section>
 
         {/* Google ----------------------------------------------------------- */}
-        <section className="mt-4 rounded-xl border border-border bg-card p-5">
+        <section className="mt-4 rounded-xl border border-border bg-card p-5 transition-colors duration-150 ease-out hover:border-accent/40">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="grid h-10 w-10 place-items-center rounded-lg bg-wash-2 text-lg">

@@ -47,7 +47,8 @@ export function PromptBox({ brain, streaming, hasInput, stage, onSend, onStop }:
   return (
     <div
       className={cn(
-        "mx-auto w-full max-w-[820px] rounded-2xl border border-border bg-card shadow-lg transition-colors",
+        "mx-auto w-full max-w-[820px] rounded-2xl border border-border bg-card shadow-lg transition-all duration-200 ease-out",
+        "focus-within:border-accent/60 focus-within:shadow-[0_0_0_1px_rgba(232,134,59,0.25),var(--shadow-composer)]",
         dragging && "border-primary ring-2 ring-ring",
       )}
       onDragOver={(e) => {
@@ -140,7 +141,11 @@ export function PromptBox({ brain, streaming, hasInput, stage, onSend, onStop }:
             {stage}
           </span>
         )}
-        <div className="ml-auto">
+        <span className="ml-auto hidden items-center gap-1 pr-2 text-[10.5px] text-muted-foreground sm:flex">
+          <kbd className="rounded border border-line-2 px-1 font-sans">↵</kbd> send
+          <kbd className="ml-1 rounded border border-line-2 px-1 font-sans">⇧↵</kbd> new line
+        </span>
+        <div className="ml-auto flex items-center gap-2">
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>

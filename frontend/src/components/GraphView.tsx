@@ -81,6 +81,20 @@ export function GraphView({ brain }: Props) {
         )}
 
         {nodes.length > 0 && (
+          <div className="mt-6 flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full border border-accent bg-accent-dim" aria-hidden /> entity
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-px w-5 bg-accent/40" aria-hidden /> relation
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full border border-accent bg-accent" aria-hidden /> selected
+            </span>
+            <span aria-hidden>· click a node to inspect</span>
+          </div>
+        )}
+        {nodes.length > 0 && (
           <div className="mt-6 overflow-hidden rounded-[14px] border border-border bg-card">
             <svg viewBox="0 0 840 600" className="h-auto w-full" role="img"
                  aria-label={`Knowledge graph of ${brain}: ${nodes.length} nodes, ${edges.length} edges`}>
@@ -100,7 +114,8 @@ export function GraphView({ brain }: Props) {
                      aria-label={labelOf(n)}>
                     <circle cx={p.x} cy={p.y} r={isSel ? 10 : 6}
                             fill={isSel ? "var(--accent)" : "var(--accent-dim)"}
-                            stroke="var(--accent)" strokeWidth="1.5" />
+                            stroke="var(--accent)" strokeWidth="1.5"
+                            className="node-dot cursor-pointer transition-all duration-150 ease-out" />
                     <text x={p.x + 10} y={p.y + 4} fontSize="11"
                           fill={isSel ? "var(--ink)" : "var(--muted)"}>
                       {labelOf(n)}
