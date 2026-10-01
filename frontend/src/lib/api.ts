@@ -33,38 +33,85 @@ export function useAuthHeaders() {
 
 export function useBrains() {
   const [brains, setBrains] = useState<Brain[]>([])
-  useEffect(() => {
+  const refresh = () => {
     fetch("/api/brains")
       .then((r) => r.json())
       .then((d) => setBrains((d.brains || []).map((b: { name: string }) => ({ name: b.name }))))
       .catch(() => {})
-  }, [])
-  return brains
+  }
+  useEffect(refresh, [])
+  return { brains, refreshBrains: refresh }
 }
 
-export function useChats() {
+/* Phase 9: server-backed chat history (the single source of truth). */
+export function useChats(brain: string | null) {
   const [chats, setChats] = useState<ChatSummary[]>([])
-  useEffect(() => {
-    try {
-      const out: ChatSummary[] = []
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (!key || !key.startsWith("kestrel.chats.")) continue
-        const brain = key.slice("kestrel.chats.".length)
-        const all = JSON.parse(localStorage.getItem(key) || "[]") as {
-          id: string
-          title?: string
-          at?: number
-        }[]
-        all.forEach((c) => out.push({ id: c.id, title: c.title || "Untitled", brain, at: c.at || 0 }))
-      }
-      out.sort((a, b) => b.at - a.at)
-      setChats(out)
-    } catch {
-      /* storage unavailable */
-    }
-  }, [])
-  return chats
+  const refresh = () => {
+    if (!brain) return setChats([])
+    fetch(`/api/chats?brain=${encodeURIComponent(brain)}`)
+      .then((r) => r.json())
+      .then((d) =>
+        setChats(
+          (d.chats || []).map((c: { id: string; title: string; brain: string; updated: string }) => ({
+            id: c.id,
+            title: c.title || "Untitled",
+            brain: c.brain || brain,
+            at: c.updated ? new Date(c.updated).getTime() : 0,
+          })),
+        ),
+      )
+      .catch(() => setChats([]))
+  }
+  useEffect(refresh, [brain])
+  return { chats, refreshChats: refresh }
+}
+
+export async function fetchChat(id: string): Promise<Turn[]> {
+  const r = await fetch(`/api/chats/${encodeURIComponent(id)}`)
+  if (!r.ok) return []
+  const d = await r.json()
+  return (d.chat?.turns || []).map((t: { role: string; text: string; sources?: Turn["sources"] }) => ({
+    role: t.role === "user" ? "user" : "bot",
+    text: t.text || "",
+    sources: t.sources || undefined,
+  }))
+}
+
+export async function saveChat(id: string, title: string, brain: string, turns: Turn[]) {
+  const r = await fetch(`/api/chats?brain=${encodeURIComponent(brain)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, title: title.slice(0, 120), turns }),
+  })
+  return r.ok
+}
+
+/* Phase 9: durable brain creation (v2 job path). */
+export async function createBrainV2(
+  name: string,
+  files: File[],
+  idempotencyKey: string,
+): Promise<{ ok: boolean; job_id?: string; brain_id?: string; detail?: string; status?: number }> {
+  const fd = new FormData()
+  fd.append("name", name)
+  fd.append("idempotency_key", idempotencyKey)
+  files.forEach((f) => fd.append("files", f))
+  const r = await fetch("/api/brains/v2", { method: "POST", body: fd })
+  const d = await r.json().catch(() => ({}))
+  return { ok: r.status === 202, job_id: d.job_id, brain_id: d.brain_id, detail: d.detail, status: r.status }
+}
+
+export type JobStatus = {
+  state: string
+  error_code?: string | null
+  files?: { client_file_id: string; stage: string; outcome?: string | null }[]
+}
+
+export async function getJob(jobId: string): Promise<JobStatus | null> {
+  const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`)
+  if (!r.ok) return null
+  const d = await r.json()
+  return { state: d.job.state, error_code: d.job.error_code, files: d.files }
 }
 
 export function greeting(): string {

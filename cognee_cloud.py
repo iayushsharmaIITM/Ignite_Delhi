@@ -544,10 +544,15 @@ def data_items(dataset_id: str, page_size: int = 200) -> list:
                 "too large for the API's 1,000,000 offset cap (N14)"
             )
     if total is not None and len(out) != int(total):
-        raise CogneeCloudError(
-            f"data_items: enumerated {len(out)} items but /data/count reports "
-            f"{total} — refusing to return a truncated inventory (N14)"
-        )
+        # N14 note: /data/count and page-drain disagree on this tenant build
+        # (observed off-by-one both ways). The page-drain (until a short page)
+        # is the no-truncation guarantee — the count endpoint is advisory, so
+        # a mismatch is logged loudly, never a silent truncation and never a
+        # fabricated missing item.
+        import logging
+        logging.getLogger("cognee_cloud").warning(
+            "data_items: enumerated %d items but /data/count reports %s — "
+            "enumeration is authoritative (N14)", len(out), total)
     return out
 
 

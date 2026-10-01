@@ -8,13 +8,11 @@ import {
   Plug,
   Plus,
   Search,
-  Sparkles,
   Trash2,
   Upload,
   Waypoints,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useChats } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -25,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
+type ChatSummary = { id: string; title: string; brain: string; at: number }
 type Props = {
   collapsed: boolean
   onToggle: () => void
@@ -35,6 +34,8 @@ type Props = {
   onBrainChange: (brain: string) => void
   onNewChat: () => void
   onOpenChat: (chatId: string, brain: string) => void
+  chats: ChatSummary[]
+  onRefreshChats?: () => void
 }
 
 const CHAT_CAP = 16
@@ -49,8 +50,8 @@ export function Sidebar({
   onBrainChange,
   onNewChat,
   onOpenChat,
+  chats,
 }: Props) {
-  const chats = useChats()
   const [search, setSearch] = useState("")
   const [foldersOpen] = useState<Record<string, boolean>>({})
   const armedRef = useRef<string | null>(null)
@@ -58,17 +59,18 @@ export function Sidebar({
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return chats.filter((c) => !q || c.title.toLowerCase().includes(q) || c.brain.toLowerCase().includes(q))
+    return chats.filter((c) => !q || c.title.toLowerCase().includes(q) || (c.brain || "").toLowerCase().includes(q))
   }, [chats, search])
 
   const groups = useMemo(() => {
     const m = new Map<string, typeof filtered>()
     filtered.forEach((c) => {
-      if (!m.has(c.brain)) m.set(c.brain, [])
-      m.get(c.brain)!.push(c)
+      const k = c.brain || currentBrain
+      if (!m.has(k)) m.set(k, [])
+      m.get(k)!.push(c)
     })
     return [...m.entries()]
-  }, [filtered])
+  }, [filtered, currentBrain])
 
   const qs = (brain: string) => (brain && brain !== "demo" ? `?brain=${encodeURIComponent(brain)}` : "")
 
@@ -119,11 +121,8 @@ export function Sidebar({
         <Button variant="ghost" className="w-full justify-start gap-2.5 text-[13.5px] text-muted-foreground" onClick={() => onBrainChange("__upload__")}>
           <Upload className="h-4 w-4 opacity-75" /> New brain
         </Button>
-        <Button variant="ghost" className="w-full justify-start gap-2.5 text-[13.5px] text-muted-foreground" onClick={() => onBrainChange("__brains__")}>
-          <Sparkles className="h-4 w-4 opacity-75" /> Brains
-        </Button>
         <Button variant="ghost" className="w-full justify-start gap-2.5 text-[13.5px] text-muted-foreground" onClick={() => onBrainChange("__graph__")}>
-          <Waypoints className="h-4 w-4 opacity-75" /> Graph
+          <Waypoints className="h-4 w-4 opacity-75" /> Graph (legacy)
         </Button>
         <Button
           variant="ghost"

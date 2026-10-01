@@ -16,13 +16,13 @@ ck "founder unlock sentinel exists" test -f ops/.cutover_unlocked
 ck "backup newer than 2h" bash -c '[ -n "$(ls -t var/backups/*/db.sql 2>/dev/null | head -1)" ] && [ $(( $(date +%s) - $(stat -f %m "$(ls -t var/backups/*/db.sql | head -1)") )) -lt 7200 ]'
 ck "backup checksums present" bash -c 'B=$(ls -td var/backups/*/ | head -1); test -f "$B/SHA256SUMS"'
 ck "candidate image present" docker image inspect kestrel-cognee:1.6.2-candidate >/dev/null
-ck "candidate digest recorded" grep -q "9afe3416a2df" docs/baseline/runtime.md docs/*.md var/evidence/* 2>/dev/null
+ck "candidate digest recorded" bash -c "grep -rq 9afe3416a2df docs/ var/evidence/ var/candidate-digest.txt 2>/dev/null"
 ck "ENABLE_BACKEND_ACCESS_CONTROL pinned in .env.oss" grep -q "^ENABLE_BACKEND_ACCESS_CONTROL=false" .env.oss
 ck "live app healthy" curl -sf --max-time 5 http://127.0.0.1:8000/health >/dev/null
 ck "live tenant has company_brain" bash -c 'curl -sL --max-time 10 http://localhost:8888/api/v1/datasets/ | grep -q company_brain'
 ck "pagination contract marker" bash -c 'grep -rq "PAGINATION CONTRACT .* PASS" var/ docs/ 2>/dev/null'
 ck "v2 happy path SUCCEEDED marker" bash -c 'grep -rq "V2 HAPPY PATH .* PASS" var/evidence/ docs/ 2>/dev/null'
-ck "lease-recovery tests pass marker" bash -c 'grep -rq "PHASE 1 LEASE RECOVERY: PASS" var/ docs/ 2>/dev/null'
+ck "lease-recovery tests pass marker" bash -c 'grep -rq "PHASE 1 LEASE RECOVERY: PASS" var/evidence/ var/*.log docs/ 2>/dev/null'
 [ "$FAIL" -eq 0 ] || { echo "PRECONDITIONS FAILED — cutover refused"; exit 1; }
 
 echo "== executing switch =="

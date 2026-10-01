@@ -131,9 +131,14 @@ def main() -> None:
         note(f"after: {after}")
         assert after["brain_access"] == before["brain_access"], "brain_access changed!"
         assert after["chats"] == before["chats"], "chat count changed!"
-        assert after["brains"] - before["brains"] == len(
-            q(cur, "select 1 from brain_access")), "brains rows != brain_access rows"
-        assert after["brain_generations"] - before["brain_generations"] == created_brains
+        if after["brains"] > before["brains"]:
+            # first-run invariant: one brains row per brain_access entry
+            assert after["brains"] - before["brains"] == len(
+                q(cur, "select 1 from brain_access")), "brains rows != brain_access rows"
+            assert after["brain_generations"] - before["brain_generations"] == created_brains
+        else:
+            # repeat run: fully idempotent — nothing new, nothing skipped-silent
+            assert created_brains == 0, "no new brains but created_brains>0"
         linked = q(cur, "select count(*) from chats where brain_id is not null")[0][0]
         note(f"chats with brain_id set: {linked}")
         conn.commit()

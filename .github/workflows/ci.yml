@@ -1,0 +1,24 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  fast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Fast verification battery (mock, no browser)
+        run: ./verify.sh --quick
+      - name: Frontend build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Marketing build
+        working-directory: marketing
+        run: |
+          npm ci
+          npm run build

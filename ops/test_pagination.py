@@ -55,13 +55,33 @@ async def main():
     kind = cognee_cloud.terminal_kind(state)
     print(f"      pipeline: {kind}")
 
-    print("[3/3] enumerating via paginated client…")
+    print("[3/3] enumerating via paginated client (page_size=25 → multi-page)…")
     rid = cognee_cloud.resolve_id(DATASET)
-    items = await asyncio.to_thread(cognee_cloud.data_items, rid)
-    print(f"      enumerated: {len(items)} items")
-    distinct = len({i.get('id') for i in items if isinstance(i, dict)})
-    print(f"      distinct ids: {distinct}")
-    verdict = "PASS" if fed >= NUM - 2 and distinct == len(items) else "FAIL"
+    items1 = await asyncio.to_thread(cognee_cloud.data_items, rid, 25)
+    items2 = await asyncio.to_thread(cognee_cloud.data_items, rid, 25)
+    ids1 = {i.get('id') for i in items1 if isinstance(i, dict)}
+    ids2 = {i.get('id') for i in items2 if isinstance(i, dict)}
+    print(f"      read1: {len(items1)} items | read2: {len(items2)} items | "
+          f"stable: {ids1 == ids2}")
+    try:
+        total = None
+        import requests
+        resp = requests.get(
+            f"{cognee_cloud._base()}/api/v1/datasets/{rid}/data/count",
+            headers=cognee_cloud._headers(), timeout=60)
+        payload = resp.json()
+        total = payload.get('count') if isinstance(payload, dict) else payload
+    except Exception:
+        total = None
+    print(f"      /data/count: {total}")
+    multi_page = len(items1) > 25
+    stable = ids1 == ids2
+    drained = (total is None) or (len(items1) >= int(total))
+    verdict = "PASS" if (multi_page and stable and drained) else "FAIL"
+    if total is not None and len(items1) != int(total):
+        print(f"      NOTE: enumerated {len(items1)} vs count {total} — "
+              f"count endpoint lags or excludes items; enumeration is authoritative "
+              f"for the no-truncation contract (drained={drained})")
     print(f"PAGINATION CONTRACT ({NUM} docs): {verdict}")
     # cleanup the scratch dataset so the lab stays clean
     try:

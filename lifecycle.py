@@ -78,6 +78,62 @@ def ensure_workspace(cur, identity: dict | None) -> str:
     return ws
 
 
+def rebuild_brain(slug: str, files: list[tuple[str, bytes]],
+                  idempotency_key: str) -> dict:
+    """Phase 7: stage a REBUILD job — a NEW generation for an existing brain.
+
+    The old generation stays ACTIVE (and its dataset untouched) until the new
+    one verifies and publishes. On failure the brain simply keeps its old
+    generation (spec: update failure leaves the previous generation intact).
+    """
+    identity = {"user_id": None, "org_id": None}
+    request_hash = hashlib.sha256(
+        b"".join(sorted(n.encode() + b"\0" + b for n, b in files))).hexdigest()
+    job_id, generation_id = _uuid(), _uuid()
+    with _conn() as conn, conn.cursor() as cur:
+        row = cur.execute(
+            """select b.id, b.workspace_id, b.slug, b.mutation_generation,
+                      coalesce(max(g.generation_number), 0) as max_gen
+               from brains b left join brain_generations g on g.brain_id = b.id
+               where b.slug = %s and b.deleted_at is null
+               group by b.id, b.workspace_id, b.slug, b.mutation_generation""",
+            (slug,)).fetchone()
+        if not row:
+            raise LifecycleError(f"No brain called '{slug}'.")
+        brain_id, ws, mutation, max_gen = (row["id"], row["workspace_id"],
+                                           row["mutation_generation"], row["max_gen"])
+        prior = cur.execute(
+            """select id from brain_jobs where workspace_id=%s and idempotency_key=%s""",
+            (ws, idempotency_key)).fetchone()
+        if prior:
+            raise IdempotencyConflict(json.dumps({"existing_job": str(prior["id"])}))
+        generation_id = _uuid()
+        cur.execute(
+            """insert into brain_generations (id, brain_id, workspace_id, generation_number,
+                                backend_dataset_name, state, publication_mode)
+               values (%s,%s,%s,%s,%s,'BUILDING','VERSIONED')""",
+            (generation_id, brain_id, ws, max_gen + 1,
+             f"{slug}_rebuild_{generation_id[:8]}"))
+        cur.execute(
+            """insert into brain_jobs (id, workspace_id, brain_id, generation_id, kind, state,
+                          idempotency_key, request_hash, expected_mutation_generation)
+               values (%s,%s,%s,%s,'REBUILD','QUEUED',%s,%s,%s)""",
+            (job_id, ws, brain_id, generation_id, idempotency_key, request_hash, mutation))
+        for i, (filename, content) in enumerate(files):
+            client_file_id = f"{i}:{filename}"
+            cur.execute(
+                """insert into brain_job_files (id, job_id, brain_id, client_file_id, stage)
+                   values (%s,%s,%s,%s,'QUEUED')""", (_uuid(), job_id, brain_id, client_file_id))
+            cur.execute(
+                """insert into brain_job_staging (id, job_id, client_file_id, filename,
+                                content_bytes, sha256, size_bytes)
+                   values (%s,%s,%s,%s,%s,%s,%s)""",
+                (_uuid(), job_id, client_file_id, filename, content,
+                 hashlib.sha256(content).hexdigest(), len(content)))
+    return {"job_id": job_id, "brain_id": brain_id, "generation": max_gen + 1,
+            "state": "QUEUED", "status_url": f"/api/jobs/{job_id}"}
+
+
 def create_brain_v2(identity: dict, slug: str, files: list[tuple[str, bytes]],
                     idempotency_key: str) -> dict:
     """Reserve brain + job + staging in ONE transaction; returns 202 payload.
@@ -204,16 +260,19 @@ def process_job(job: dict) -> None:
             (generation_id,)).fetchone()
         mutation = cur.execute(
             "select mutation_generation from brains where id=%s", (brain_id,)).fetchone()["mutation_generation"]
+    is_rebuild = job["kind"] == "REBUILD"
     backend_dataset = gen["backend_dataset_name"]
 
     # EXTRACTING
+    is_rebuild = job["kind"] == "REBUILD"
     docs, failures = asyncio.run(asyncio.to_thread(
         documents_mod.extract_many,
         [(s["filename"], bytes(s["content_bytes"])) for s in staged]))
     with _conn() as conn, conn.cursor() as cur:
         if _cancel_requested(cur, job_id):
             cur.execute("update brain_jobs set state='CANCELLED', updated_at=now() where id=%s", (job_id,))
-            cur.execute("update brains set state='FAILED', mutation_generation=mutation_generation+1 where id=%s", (brain_id,))
+            if not is_rebuild:
+                cur.execute("update brains set state='FAILED', mutation_generation=mutation_generation+1 where id=%s", (brain_id,))
             conn.commit()
             return
         for s in staged:
@@ -245,7 +304,13 @@ def process_job(job: dict) -> None:
                     (str(err)[:200], job_id, s["client_file_id"]))
         _job_event(cur, job_id, {"event": "extracted", "docs": len(docs), "failures": len(failures)})
         if not docs:
-            _fail(cur, job_id, brain_id, "NO_EXTRACTABLE_DOCUMENTS")
+            if is_rebuild:
+                # rebuild failure leaves the old generation ACTIVE (spec)
+                cur.execute("update brain_jobs set state='FAILED', error_code='NO_EXTRACTABLE_DOCUMENTS', updated_at=now() where id=%s", (job_id,))
+                _job_event(cur, job_id, {"event": "failed", "code": "NO_EXTRACTABLE_DOCUMENTS",
+                                         "note": "old generation retained"})
+            else:
+                _fail(cur, job_id, brain_id, "NO_EXTRACTABLE_DOCUMENTS")
             conn.commit()
             return
         cur.execute("update brain_jobs set state='INGESTING', updated_at=now() where id=%s", (job_id,))
@@ -298,7 +363,12 @@ def process_job(job: dict) -> None:
         cc.wait_ready(backend_dataset, READY_TIMEOUT_S, 10)
     except Exception as exc:  # noqa: BLE001
         with _conn() as conn, conn.cursor() as cur:
-            _fail(cur, job_id, brain_id, f"PIPELINE:{str(exc)[:140]}")
+            if is_rebuild:
+                cur.execute("update brain_jobs set state='FAILED', error_code=%s, updated_at=now() where id=%s",
+                            (f"PIPELINE:{str(exc)[:140]}", job_id))
+                _job_event(cur, job_id, {"event": "failed", "note": "old generation retained"})
+            else:
+                _fail(cur, job_id, brain_id, f"PIPELINE:{str(exc)[:140]}")
             conn.commit()
         return
     gen_row = None

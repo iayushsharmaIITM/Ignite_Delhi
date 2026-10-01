@@ -4,9 +4,16 @@ import { PanelLeft } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import { PromptBox } from "@/components/PromptBox"
 import { Connectors } from "@/components/Connectors"
+import { CreateBrainDialog } from "@/components/CreateBrainDialog"
 import { Toaster } from "@/components/ui/sonner"
 import { Button } from "@/components/ui/button"
-import { DEFAULT_BRAIN, greeting } from "@/lib/api"
+import {
+  DEFAULT_BRAIN,
+  greeting,
+  useChats,
+  fetchChat,
+  saveChat,
+} from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const Markdown = lazy(() => import("@/components/Markdown"))
@@ -69,11 +76,20 @@ export default function App() {
   const [input, setInput] = useState("")
   const [sourcesPanel, setSourcesPanel] = useState<{ title: string; excerpt?: string } | null>(null)
   const [stage, setStage] = useState<string | null>(null)
+  const chatIdRef = useRef<string | null>(null)
+  const turnsRef = useRef<Turn[]>([])
+  useEffect(() => { turnsRef.current = turns }, [turns])
   const threadRef = useRef<HTMLDivElement>(null)
   const [greet, setGreet] = useState(greeting)
+  const [chatId, setChatId] = useState<string | null>(
+    new URLSearchParams(location.search).get("chat"),
+  )
+  useEffect(() => { chatIdRef.current = chatId }, [chatId])
+  const [createOpen, setCreateOpen] = useState(false)
   const [view, setView] = useState<"chat" | "connectors">(
     new URLSearchParams(location.search).get("view") === "connectors" ? "connectors" : "chat",
   )
+  const { chats, refreshChats } = useChats(view === "chat" ? brain : null)
 
   // Landing pad for the OAuth round-trip: /?connected=slack or
   // /?connect_error=<reason>. Toast, then clean the address bar.
@@ -179,6 +195,21 @@ export default function App() {
               if (copy[idx]?.role === "bot") copy[idx] = { ...copy[idx], sources: items }
               return copy
             })
+          } else if (ev.stage === "error") {
+            // honest failure: surface the server's error as a bot turn
+            text += (text ? "\n\n" : "") + "⚠️ " + (ev.message || "The request failed.")
+            if (botIdx < 0) {
+              setTurns((t) => {
+                botIdx = t.length
+                return [...t, { role: "bot", text }]
+              })
+            } else {
+              setTurns((t) => {
+                const copy = [...t]
+                if (copy[botIdx]) copy[botIdx] = { role: "bot", text }
+                return copy
+              })
+            }
           } else if (ev.stage && ev.stage !== "done" && !ev.message) {
             setStage(
               ev.stage === "start" ? "Searching the brain…" :
@@ -192,6 +223,11 @@ export default function App() {
       if (err.name !== "AbortError") {
         setTurns((t) => [...t, { role: "bot", text: "Could not reach the server: " + err.message }])
       }
+      // Phase 9: persist the conversation server-side (single source of truth)
+      const id = chatIdRef.current || (chatIdRef.current = crypto.randomUUID())
+      const firstUser = turnsRef.current.find((t) => t.role === "user")
+      void saveChat(id, firstUser ? firstUser.text : "Untitled", brain, turnsRef.current)
+        .then((ok) => ok && refreshChats())
     } finally {
       setStreaming(false)
       setStage(null)
@@ -215,20 +251,31 @@ export default function App() {
     history.pushState(null, "", u)
   }
   const handleBrainChange = (b: string) => {
-    if (b === "__upload__") { location.href = "/upload"; return }
-    if (b === "__brains__") { location.href = "/brains"; return }
-    if (b === "__graph__") { location.href = "/graph"; return }
+    if (b === "__upload__") { setCreateOpen(true); return }
+    if (b === "__graph__") {
+      // Labeled legacy hand-off (no React graph yet) — documented in
+      // UPGRADE_COMPLETION_REPORT; not a silent redirect.
+      if (confirm("The knowledge-graph view still lives in the legacy shell. Open it?")) {
+        location.href = `/graph${brain ? `?brain=${encodeURIComponent(brain)}` : ""}`
+      }
+      return
+    }
+    setChatId(null)
     openView("chat")
     setBrain(b)
     const u = new URL(location.href)
     u.searchParams.set("brain", b)
     history.pushState(null, "", u)
   }
-  const openChat = (chatId: string, chatBrain: string) => {
+  const openChat = async (id: string, chatBrain: string) => {
     handleBrainChange(chatBrain)
     const u = new URL(location.href)
-    u.searchParams.set("chat", chatId)
+    u.searchParams.set("chat", id)
     history.pushState(null, "", u)
+    setChatId(id)
+    const serverTurns = await fetchChat(id)
+    if (serverTurns.length) setTurns(serverTurns)
+    else setTurns([])
     if (window.innerWidth < 768) setCollapsed(true)
   }
   const newChat = () => {
@@ -236,6 +283,7 @@ export default function App() {
     u.searchParams.delete("chat")
     u.searchParams.set("new", "1")
     history.pushState(null, "", u)
+    setChatId(null)
     setTurns([])
   }
 
@@ -272,12 +320,21 @@ export default function App() {
           })
         }}
         currentBrain={brain}
-        currentChat={null}
+        currentChat={chatId}
         view={view}
         onViewChange={openView}
         onBrainChange={handleBrainChange}
         onNewChat={newChat}
-        onOpenChat={openChat}
+        onOpenChat={(id, b) => void openChat(id, b)}
+        chats={chats}
+        onRefreshChats={refreshChats}
+      />
+      <CreateBrainDialog
+        open={createOpen}
+        onClose={(created) => {
+          setCreateOpen(false)
+          if (created) handleBrainChange(created)
+        }}
       />
       <main id="kestrel-main" className="flex min-w-0 flex-1 flex-col">
         {view === "connectors" ? (
