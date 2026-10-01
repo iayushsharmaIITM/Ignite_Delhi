@@ -34,11 +34,17 @@ Classification: **api_key_scope_or_policy_denied** — UPGRADED 2026-10-01 (fina
 - IAM: AmazonBedrockLimitedAccess (InvokeModel on *) + kestrel-nova-invoke —
   two Allows, zero Denys in identity policies; no permission boundary
 - Account: model access enabled-by-default, billing active, $111 credits
-Remaining suspects (AWS-side only): an Organizations SCP denying
-bedrock:InvokeModel (check console → AWS Organizations → Policies → SCPs), or
-a Bedrock service-level block on the account (→ AWS Support ticket). The
-console PLAYGROUND test decides which: playground fails the same way = service
-block → Support; playground works = something between console and API keys.
+DECISIVE (2026-10-01): the **AWS console playground itself fails with
+"Operation not allowed"** for Nova Lite — identical to the API result. The
+block is account/service-level at AWS, above all credentials and policies.
+Founder checks: (1) AWS Organizations → is 799823514509 in an org → SCPs /
+AI-service opt-out policies attached? (2) AWS Support ticket (paid plan) with
+the reproduction: Nova Lite denied via console playground, OpenAI-compat
+endpoint (bearer + SigV4), and native InvokeModel, across 4 regions, with
+InvokeModel allowed by two IAM policies and credits/billing active.
+Until AWS clears it: Nova Lite stays nova_lite_probe_failed_using_previous_default;
+Kestrel generation is down on all routes (Harbor free window resets
+2026-10-06 07:29 UTC).
 
 Evidence:
 - Auth PASS: invalid model ids return "The provided model identifier is
