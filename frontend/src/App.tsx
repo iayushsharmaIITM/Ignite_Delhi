@@ -89,6 +89,15 @@ export default function App() {
     new URLSearchParams(location.search).get("chat"),
   )
   useEffect(() => { chatIdRef.current = chatId }, [chatId])
+  // deep-link restore: ?chat=<id> loads the server-backed thread on mount
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get("chat")
+    if (!id) return
+    fetchChat(id).then((serverTurns) => {
+      if (serverTurns.length) setTurns(serverTurns)
+    }).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   useEffect(() => {
     const onResize = () => {
       if (window.innerWidth < 768) setCollapsed(true)
