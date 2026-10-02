@@ -17,6 +17,12 @@ export default defineConfig({
     proxy: {
       "/api": API,
       "/health": API,
+      // legacy HTML shell pages mounted inside the React app (same-origin via
+      // the proxy in dev; same-origin natively in production)
+      "/brains": API,
+      "/upload": API,
+      "/graph": API,
+      "/static": API,
     },
   },
   build: {
