@@ -1,5 +1,11 @@
 // Clerk loader — loads the Clerk JS bundle from CDN and boots it.
 // Port of the legacy auth.js init() for the React app.
+// Mirrors the exact boot sequence from static/auth.js:
+//   1. Load the clerk.browser.js script with data-clerk-publishable-key
+//   2. Wait for window.Clerk to appear
+//   3. Call Clerk.load({ publishableKey }) — this fetches the environment,
+//      runs the dev-browser handshake and wires the UI renderer
+//   4. After load() resolves, openSignIn/mountSignIn are ready to use
 
 const CLERK_CDN = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js'
 
@@ -16,7 +22,7 @@ export function loadClerk(publishableKey: string): Promise<void> {
       }
     }
 
-    // Already loaded?
+    // Already fully loaded?
     if (w.Clerk?.loaded) {
       resolve()
       return
@@ -24,8 +30,31 @@ export function loadClerk(publishableKey: string): Promise<void> {
 
     // Script tag already in DOM?
     const existing = document.querySelector<HTMLScriptElement>('script[data-clerk-publishable-key]')
-    if (existing && w.Clerk) {
-      w.Clerk.load?.({ publishableKey }).then(resolve).catch(resolve)
+    if (existing) {
+      if (w.Clerk) {
+        // Script loaded — need to call load() which may already be in progress
+        if (!w.Clerk.loaded) {
+          w.Clerk.load?.({ publishableKey }).then(resolve).catch(resolve)
+        } else {
+          resolve()
+        }
+      } else {
+        // Script still loading — wait for Clerk global to appear, then load()
+        const interval = setInterval(() => {
+          if (w.Clerk) {
+            clearInterval(interval)
+            if (w.Clerk.loaded) {
+              resolve()
+            } else {
+              w.Clerk.load?.({ publishableKey }).then(resolve).catch(resolve)
+            }
+          }
+        }, 100)
+        setTimeout(() => {
+          clearInterval(interval)
+          resolve()
+        }, 10000)
+      }
       return
     }
 
@@ -35,7 +64,21 @@ export function loadClerk(publishableKey: string): Promise<void> {
     script.setAttribute('data-clerk-publishable-key', publishableKey)
     script.async = true
     script.onload = () => {
-      w.Clerk?.load?.({ publishableKey }).then(resolve).catch(resolve)
+      // Clerk global appears async after script load
+      const interval = setInterval(() => {
+        if (w.Clerk) {
+          clearInterval(interval)
+          if (w.Clerk.loaded) {
+            resolve()
+          } else {
+            w.Clerk.load?.({ publishableKey }).then(resolve).catch(resolve)
+          }
+        }
+      }, 100)
+      setTimeout(() => {
+        clearInterval(interval)
+        resolve()
+      }, 10000)
     }
     script.onerror = () => resolve()
     document.head.appendChild(script)
@@ -56,7 +99,6 @@ export async function getClerkSession(): Promise<unknown | null> {
     }
   }
   if (!w.Clerk) return null
-  // A client holding sessions IS signed in (same logic as legacy auth.js)
   const sessions = w.Clerk.client?.sessions || []
   return w.Clerk.session ?? (sessions.length > 0 ? sessions[0] : null)
 }

@@ -123,6 +123,47 @@ body {
 
 ::selection { background: rgba(232, 134, 59, 0.3); }
 
+/* Auth gate — matches legacy #auth-gate + .auth-card styling */
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+.auth-card {
+  width: min(460px, 94vw);
+  padding: 34px 30px;
+  border-radius: 16px;
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 24px 72px rgba(0,0,0,.5);
+  text-align: center;
+  overflow: visible;
+}
+.auth-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.auth-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 22px;
+}
+body.locked .app-main, body.locked form#f {
+  filter: blur(6px) saturate(.6);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Clerk modal overlay — needs z-index above the gate */
+.cl-overlay {
+  z-index: 200 !important;
+}
+
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb {
   background: var(--line-2); border-radius: 999px;

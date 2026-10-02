@@ -291,10 +291,45 @@ export function AuthGate({
   visible: boolean
   children?: ReactNode
 }) {
-  const mountRef = useRef<HTMLDivElement>(null)
-
   useEffect(() => {
     if (!visible) return
+    const w = window as unknown as {
+      Clerk?: {
+        openSignIn?: (props?: Record<string, unknown>) => void
+        closeSignIn?: () => void
+        loaded?: boolean
+      }
+    }
+
+    // If Clerk is already loaded (load() has resolved), open immediately
+    if (w.Clerk?.loaded) {
+      openSignIn()
+      return
+    }
+
+    // Otherwise poll for Clerk to appear and become loaded
+    // (the App's auth effect calls loadClerk which awaits Clerk.load())
+    const interval = setInterval(() => {
+      if (w.Clerk?.loaded) {
+        clearInterval(interval)
+        openSignIn()
+        return
+      }
+    }, 100)
+
+    // Timeout after 10s to avoid hanging forever
+    const timeout = setTimeout(() => {
+      clearInterval(interval)
+      openSignIn()
+    }, 10000)
+
+    return () => {
+      clearInterval(interval)
+      clearTimeout(timeout)
+    }
+  }, [visible])
+
+  function openSignIn() {
     const w = window as unknown as {
       Clerk?: {
         openSignIn?: (props?: Record<string, unknown>) => void
@@ -344,10 +379,8 @@ export function AuthGate({
       routing: "hash",
     } as Record<string, unknown>
 
-    // Use openSignIn (modal) — this is the same method the legacy app uses for the
-    // account modal and avoids React-managed-dom conflicts with mountSignIn
     w.Clerk.openSignIn?.(props)
-  }, [visible])
+  }
 
   // Close Clerk modal when the gate hides
   useEffect(() => {
@@ -378,7 +411,6 @@ export function AuthGate({
         </div>
         <div className="auth-title">Sign in to Kestrel</div>
         <div className="auth-sub">Your company's answers, grounded in your documents.</div>
-        <div ref={mountRef} className="min-h-[300px]" />
         {children}
       </div>
     </div>

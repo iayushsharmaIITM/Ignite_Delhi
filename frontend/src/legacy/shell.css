@@ -1,0 +1,453 @@
+/* ============================================================
+ * LEGACY SHELL CSS — ported verbatim from static/index.html <style>.
+ * This is the polish. React components re-render the same DOM/classes;
+ * do not trim selectors until the React composition is pixel-verified
+ * against :8000. (Whole-build Path 1 — see docs/REACT_VS_LEGACY_GAP.md)
+ * ============================================================ */
+
+* { box-sizing:border-box; }
+  main { max-width:800px; margin:0 auto; padding:40px 24px 64px; }
+
+  /* ==== TWO MODES ==========================================================
+     home:    centered watermark + greeting + composer + suggestion chips
+     chatting: transcript + the composer docked bottom, slim and quiet       */
+
+  .app-main { padding-bottom:0; }
+  /* Home is a centered stack (greeting + composer + chips, like the reference
+     anatomy). #f and #chips live at body level (not inside .app-main), so the
+     BODY is the centering flex container here and .app-main dissolves into it
+     — the order:1/2/3 rules below then lay the three out as one group. */
+  /* Home stack: anchored upper-middle per owner eye (reference anatomy
+     sits above geometric center). flex-start + viewport-relative top
+     padding keeps it deterministic at any viewport height. */
+  body:not(.chatting) { display:flex; flex-direction:column; align-items:center;
+    justify-content:flex-start; min-height:100vh; padding:10vh 24px 60px; }
+  /* Center in the PLAYGROUND, not the viewport: with the menu bar expanded
+     the content column starts after it, so the same sidebar width pads the
+     left. Collapsed (or narrow screens) need no offset. */
+  body:not(.chatting):not(.sb-collapsed) { padding-left:calc(24px + var(--sb-w)); }
+  body:not(.chatting) .app-main { display:contents; }
+  body:not(.chatting) #home { display:flex; flex-direction:column; align-items:center;
+    width:100%; max-width:680px; order:1; }
+  body:not(.chatting) #thread-wrap, body:not(.chatting) #draft { display:none; }
+  body:not(.chatting) #f { position:static; order:2; width:100%; max-width:680px;
+    margin:0 auto; padding:26px 0 0; background:none; backdrop-filter:none; }
+  body:not(.chatting) #chips { display:flex; order:3; width:100%; max-width:680px;
+    margin:16px auto 0; }
+  body.chatting #home { display:none; }
+  body.chatting #chips { display:none; }
+  body.chatting #thread-wrap { display:block; }
+
+  /* ==== home ================================================================ */
+  .watermark { font-size:150px; line-height:1; color:var(--watermark);
+    user-select:none; margin-bottom:6px; }
+  .greeting { font-size:30px; font-weight:550; letter-spacing:-.02em;
+    color:var(--fg); text-align:center; margin-bottom:26px; }
+
+  /* ==== the composer card ====================================================
+     top row: [brain] ..... [⋯]   ·   input   ·   bottom row: [+ …] [send]    */
+  #f { position:fixed; left:var(--sb-w); right:0; bottom:0; z-index:35;
+       margin:0; padding:22px 44px 18px;
+       background:linear-gradient(180deg, rgba(22,22,22,0), var(--bg) 40%);
+       backdrop-filter:blur(10px); }
+  /* Retracted sidebar: the composer and rail reclaim the freed column.
+     (Explicit offsets — never by zeroing --sb-w, which collapses .shell's
+     own width and turns translateX(-100%) into a no-op spill.) */
+  body.sb-collapsed #f { left:0; }
+  body.sb-collapsed #rail { left:8px; }
+  #f .field { flex:1; max-width:780px; margin:0 auto; }
+  body { padding-bottom:120px; }
+  body:not(.chatting) { padding-bottom:0; }
+
+  .bar-card { position:relative; display:flex; flex-direction:column;
+              border-radius:16px; border:1px solid var(--line-2);
+              background:var(--panel);
+              box-shadow:0 1px 2px rgba(0,0,0,.3), 0 12px 36px rgba(0,0,0,.25);
+              transition:border-color .18s ease; }
+  .bar-card:focus-within { border-color:var(--line-3); }
+  .bar-top { display:flex; align-items:center; gap:4px; padding:8px 10px 0; }
+  .bar-top .spacer { flex:1; }
+  .bar-row { display:flex; align-items:center; gap:8px; padding:2px 10px 10px; }
+  .bar-row .spacer { flex:1; }
+  textarea#q { width:100%; padding:12px 14px; border:0; background:transparent;
+          color:var(--fg); font-size:15px; line-height:1.55; outline:none;
+          min-width:0; resize:none; max-height:140px; font-family:var(--sans); }
+  textarea#q:focus { border:0; box-shadow:none; }
+  textarea#q::placeholder { color:var(--muted-2); }
+
+  .bar-btn { display:inline-flex; align-items:center; gap:6px; flex:none;
+             padding:7px 10px; border-radius:8px; border:0; background:transparent;
+             color:var(--muted); cursor:pointer; font-size:12.5px; font-weight:590;
+             transition:background .15s ease, color .15s ease; }
+  .bar-btn:hover { background:var(--panel-2); color:var(--fg); }
+  .bar-btn svg { width:15px; height:15px; }
+  .bar-btn .bname { color:var(--fg-2); font-family:var(--sans); font-size:12.5px;
+                    max-width:150px; overflow:hidden; text-overflow:ellipsis;
+                    white-space:nowrap; }
+  .bar-btn svg.chev { width:11px; height:11px; }
+
+  #go { display:inline-flex; align-items:center; justify-content:center; flex:none;
+        width:34px; height:34px; padding:0; border-radius:50%; border:0;
+        background:var(--btn-ink); color:var(--go-ink, #161616); cursor:pointer;
+        transition:transform .12s ease, opacity .15s ease, background .18s ease; }
+  #go svg { width:16px; height:16px; }
+  #go:hover:not(:disabled) { opacity:.88; }
+  #go:active:not(:disabled) { transform:scale(.96); }
+  #go:disabled { opacity:.3; cursor:default; background:var(--panel-3); color:var(--muted); }
+  #go.stop { background:var(--bad); color:#161616; }
+
+  /* pop-up menus open UP from the bar */
+  .pop { position:absolute; bottom:calc(100% + 8px); right:10px; z-index:50;
+         min-width:230px; padding:6px; border-radius:12px;
+         background:var(--panel-2); border:1px solid var(--line-2);
+         box-shadow:var(--shadow-lg);
+         transform-origin:bottom right;
+         animation:pop .16s ease; }
+  .pop[hidden] { display:none; }
+  @keyframes pop { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  .pop button { display:flex; align-items:center; gap:9px; width:100%; text-align:left;
+                padding:8px 10px; border-radius:8px; border:0; background:transparent;
+                color:var(--fg-2); font-size:13px; cursor:pointer; white-space:nowrap;
+                box-shadow:none; }
+  .pop button:hover { background:var(--panel-3); color:var(--fg); }
+  .pop button .tick { margin-left:auto; color:var(--accent); font-weight:700; }
+  .pop button.armed { color:var(--bad); background:rgba(240,112,112,.08); font-weight:600; }
+  .pop .pop-sep { height:1px; background:var(--line); margin:6px 4px; }
+  .pop .pop-note { padding:7px 10px 4px; font-size:10px; letter-spacing:.12em;
+                   text-transform:uppercase; color:var(--muted-2); font-weight:700; }
+  .pop a.pop-item { display:flex; align-items:center; gap:9px; width:100%; text-align:left;
+                padding:8px 10px; border-radius:8px; border:0;
+                color:var(--fg-2); font-size:13px; text-decoration:none; }
+  .pop a.pop-item:hover { background:var(--panel-3); color:var(--fg); }
+  .pop .count { padding:2px 10px 6px; font-size:10.5px; color:var(--muted-2);
+                font-family:var(--mono); }
+  /* each menu anchors above the control that opens it */
+  #brainmenu { left:10px; right:auto; }
+  #menu2 { right:10px; left:auto; }
+
+  /* ---------- attachments (chat-scoped files) --------------------------------
+     Files attached with + ride the MESSAGE: thumbnails in the composer, then
+     on the sent turn, persisted with the chat. Knowledge-adding to the brain
+     stays a separate, explicit action in the ⋯ menu. */
+  .atts { display:flex; flex-wrap:wrap; gap:8px; padding:2px 10px 8px; }
+  .atts[hidden] { display:none; }
+  .att { position:relative; width:64px; height:64px; border-radius:10px;
+         overflow:hidden; border:1px solid var(--line-2); background:var(--panel-2);
+         cursor:pointer; }
+  .att img { width:100%; height:100%; object-fit:cover; display:block; }
+  .att .att-file { width:100%; height:100%; display:flex; flex-direction:column;
+         align-items:center; justify-content:center; gap:3px; padding:4px; }
+  .att .att-file svg { width:16px; height:16px; color:var(--muted); }
+  .att .att-file span { font-size:8.5px; color:var(--muted); max-width:100%;
+         overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .att .x { position:absolute; top:2px; right:2px; width:16px; height:16px;
+         border-radius:5px; border:0; background:rgba(0,0,0,.6); color:#ddd;
+         font-size:10px; line-height:1; cursor:pointer; display:grid; place-items:center; }
+  .att .x:hover { background:rgba(0,0,0,.85); color:#fff; }
+  .turn.user .bubble .atts { margin:0 0 10px; }
+  .turn .att { cursor:zoom-in; }
+
+  /* ---------- left rail: jump to user message (ZCode scrubber) --------------- */
+  #rail { position:fixed; left:calc(var(--sb-w) + 8px); top:50%;
+          transform:translateY(-50%); z-index:30;
+          display:none; flex-direction:column; gap:10px; }
+  body.chatting #rail { display:flex; }
+  #rail .tick { width:16px; height:2.5px; border-radius:2px; border:0;
+          background:var(--line-3); cursor:pointer; padding:0;
+          transition:background .25s ease, width .25s ease, transform .25s ease,
+                     box-shadow .25s ease; }
+  #rail .tick:hover { background:var(--fg); width:22px; }
+  #rail .tick.here { background:var(--accent); width:26px;
+          box-shadow:0 0 8px rgba(226,164,74,.35); transform:translateX(2px); }
+  @keyframes railIn { from { opacity:0; transform:translateX(-6px); }
+          to { opacity:1; transform:none; } }
+
+  #rail-tip { position:fixed; z-index:60; max-width:300px; padding:10px 13px;
+          border-radius:10px; background:var(--panel-2); border:1px solid var(--line-2);
+          box-shadow:var(--shadow); font-size:12.5px; color:var(--fg-2);
+          display:none; }
+  #rail-tip b { display:block; color:var(--fg); font-weight:600; margin-bottom:2px; }
+
+  /* ---------- working log: real engine steps with measured durations ----------- */
+  .working { margin:2px 0 12px; font-size:12px; color:var(--muted); }
+  .working-head { display:flex; align-items:center; gap:9px; margin-bottom:4px; }
+  .working-head .w-elapsed { color:var(--fg-2); font-weight:590; }
+  /* once the answer lands the log collapses into its header; the chevron
+     marks it expandable (rotates open when expanded) */
+  .working.collapsed .w-step { display:none; }
+  .working-head.toggle { cursor:pointer; user-select:none; width:fit-content; }
+  .working-head.toggle::after { content:"▸"; margin-left:auto; color:var(--muted-2);
+    font-size:10px; transition:transform .18s ease; }
+  .working:not(.collapsed) .working-head.toggle::after { transform:rotate(90deg); }
+  .working-head.toggle:hover .w-elapsed { color:var(--fg); }
+  .w-stopped { color:var(--warn); font-style:italic; }
+  .working .spin { width:11px; height:11px; border-radius:50%; flex:none;
+          border:2px solid var(--line-3); border-top-color:var(--accent);
+          animation:spin .8s linear infinite; display:inline-block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .w-step { padding:2px 0; }
+  .w-step.done { color:var(--muted-2); }
+  .w-step.live { color:var(--fg-2); }
+  /* the rotation is ONLY for the spinner dot, never for text */
+  .w-step.live::before { content:"◌"; display:inline-block; margin-right:7px;
+    color:var(--accent); animation:spin .8s linear infinite; }
+
+  /* P5-era UX: while a ?chat= restore is in flight (Clerk boot + server
+     fetch), cover the page — the empty home state must never flash first */
+  #restore { position:fixed; inset:0; z-index:80; display:flex;
+    align-items:center; justify-content:center; background:var(--bg); }
+  #restore[hidden] { display:none; }
+  /* in-place chat switch: a reload animation replaces the old-chat ghost —
+     the thread dims and a centered spinner covers the swap window */
+  #switch-fx { position:fixed; inset:0; z-index:75; display:none;
+    align-items:center; justify-content:center; pointer-events:none; }
+  body.switching #switch-fx { display:flex; }
+  #switch-fx .big { width:26px; height:26px; border:2.5px solid var(--line-3);
+    border-top-color:var(--accent); border-radius:50%; }
+  body.switching .app-main { opacity:.3; transition:opacity .15s ease;
+    pointer-events:none; }
+  .restore-card { display:inline-flex; align-items:center; gap:9px;
+    padding:12px 20px; border-radius:12px; border:1px solid var(--line-2);
+    background:var(--panel); color:var(--muted); font-size:13.5px;
+    box-shadow:var(--shadow); }
+
+  /* auth gate (P3): covers the app until the Clerk session exists */
+  #auth-gate { position:fixed; inset:0; z-index:100; display:flex;
+    align-items:center; justify-content:center;
+    background:var(--bg); }
+  #auth-gate[hidden] { display:none; }
+  .auth-card { width:min(460px, 94vw); padding:34px 30px; border-radius:16px;
+    border:1px solid var(--line-2); background:var(--panel);
+    box-shadow:var(--shadow-lg); text-align:center; overflow:visible; }
+  .auth-title { font-size:20px; font-weight:600; margin-bottom:6px; }
+  .auth-sub { font-size:13px; color:var(--muted); margin-bottom:22px; }
+  /* Clerk renders its own card inside our mount — center it as a block and
+     keep it inside our card. Without this the component overflows to one
+     side and the gate reads as two misaligned stacked cards. */
+  #clerk-mount { display:flex; justify-content:center; }
+  #clerk-mount > div { max-width:100%; }
+  #clerk-mount .cl-card, #clerk-mount .cl-cardBox { max-width:100%; margin:0 auto; }
+  body.locked .app-main, body.locked form#f { filter:blur(6px) saturate(.6);
+    pointer-events:none; user-select:none; }
+  /* display:contents gives .app-main no box in home mode, so the lock blur
+     would not render there — apply it to the content nodes directly. */
+  body.locked #home, body.locked #chips { filter:blur(6px) saturate(.6);
+    pointer-events:none; user-select:none; }
+  /* Clerk's component sheet is CORS-dark to our JS; its social button ships
+     black text at 62% alpha, unreadable on the dark card. Our own variables
+     keep it readable in both themes. */
+  #clerk-mount .cl-socialButtonsBlockButton {
+    color: var(--fg-2) !important; background: var(--panel-2) !important;
+    border: 1px solid var(--line-2) !important; }
+  #clerk-mount .cl-socialButtonsBlockButton:hover { background: var(--panel-3) !important; }
+
+  .bar-anchor { position:relative; }
+
+  /* ==== suggestion chips (home only) ========================================= */
+  #chips { flex-wrap:wrap; gap:9px; justify-content:center; }
+  .chip { display:inline-flex; align-items:center; gap:8px;
+          padding:9px 16px; border-radius:999px; border:1px solid var(--line-2);
+          background:transparent; color:var(--fg-2); font-size:13px; cursor:pointer;
+          transition:all .16s ease; }
+  .chip svg { width:14px; height:14px; color:var(--muted); transition:color .16s ease; }
+  .chip:hover { border-color:var(--line-3); background:var(--panel); color:var(--fg); }
+  .chip:hover svg { color:var(--accent); }
+
+  section { margin-top:0; }
+  .placeholder { color:var(--muted-2); font-size:14px; }
+  .err { color:var(--bad); }
+
+  /* ==== thread ================================================================
+     user turns are cards; assistant turns are plain text with hover controls */
+  #thread-wrap { width:100%; max-width:820px; margin:0 auto;
+    padding:36px 24px 210px; }   /* ends well above the docked composer */
+  #thread { display:flex; flex-direction:column; }
+  .turn { display:flex; flex-direction:column; gap:9px;
+          animation:rise .18s ease; }
+  .turn + .turn { margin-top:12px; }
+  @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+
+  .turn.user .bubble {
+    align-self:flex-end; max-width:85%;
+    padding:13px 18px; border-radius:16px 16px 6px 16px;
+    background:var(--panel-2); border:1px solid var(--line);
+    font-size:14.5px; line-height:1.6; color:var(--fg); white-space:pre-wrap; }
+  .turn.bot .bubble { font-size:15.5px; line-height:1.8; color:var(--fg-2);
+                      white-space:pre-wrap; }
+  .turn.bot .bubble.rendered { white-space:normal; }
+  .bubble.streaming::after { content:"▍"; color:var(--accent);
+                             animation:blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  .turn.bot .bubble h3, .turn.bot .bubble h4, .turn.bot .bubble h5 {
+               margin:24px 0 8px; font-size:14.5px; font-weight:650; color:var(--fg);
+               letter-spacing:.005em; }
+  .turn.bot .bubble > *:first-child { margin-top:0; }
+  .turn.bot .bubble p { margin:0 0 12px; }
+  .turn.bot .bubble p:last-child { margin-bottom:0; }
+  .turn.bot .bubble ul, .turn.bot .bubble ol { margin:0 0 12px; padding-left:20px; }
+  .turn.bot .bubble li { margin:5px 0; }
+  .turn.bot .bubble li::marker { color:var(--accent); }
+  .turn.bot .bubble strong { color:var(--fg); font-weight:640; }
+  .turn.bot .bubble code { background:var(--panel-2); padding:1px 5px; border-radius:4px;
+               font-size:13px; font-family:var(--mono); border:1px solid var(--line); }
+  .turn.bot .bubble table { width:100%; border-collapse:collapse; margin:12px 0 16px;
+               font-size:13px; }
+  .turn.bot .bubble th, .turn.bot .bubble td { border-bottom:1px solid var(--line-2);
+               padding:9px 12px; text-align:left; vertical-align:top; }
+  .turn.bot .bubble th { font-weight:650; color:var(--muted);
+               font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; }
+  .turn.bot .bubble td { color:var(--fg-2); }
+  .turn.bot .bubble tr:last-child td { border-bottom:0; }
+
+  /* ---- sources ---------------------------------------------------------------- */
+  .turn .srcs { display:flex; flex-wrap:wrap; gap:7px; }
+  .turn .srcs span, .turn .srcs button {
+    font-size:11px; color:var(--fg-2); background:var(--panel);
+    border:1px solid var(--line-2); padding:4px 10px; border-radius:7px;
+    cursor:pointer; transition:all .15s ease;
+    font-family:var(--mono); }
+  .turn .srcs button:hover { color:var(--accent-2); border-color:var(--accent-soft); }
+
+  /* ---- hover-only message controls (ZCode anatomy) -----------------------------
+     copy · email · steps · chat · thumbs up/down · time — invisible until the
+     message is approached; always visible for keyboard focus. */
+  .msg-acts { display:flex; align-items:center; gap:2px; margin-top:6px; height:26px;
+              opacity:0; transition:opacity .16s ease; }
+  .turn:hover .msg-acts, .msg-acts:focus-within { opacity:1; }
+  .msg-acts button {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:28px; height:28px; padding:0; border-radius:7px;
+    border:0; background:transparent; color:var(--muted-2);
+    cursor:pointer; transition:all .15s ease; box-shadow:none;
+  }
+  .msg-acts button svg { width:14.5px; height:14.5px; }
+  .msg-acts button:hover { color:var(--fg); background:var(--panel-2); }
+  .msg-acts button.copied { color:var(--good); }
+  .msg-acts button.fb-on { color:var(--accent); }
+  .msg-acts .time { font-size:11px; color:var(--muted-2);
+                    font-family:var(--mono); padding:0 6px 0 6px; }
+
+  /* ---- source modal ---------------------------------------------------------------- */
+  #source-modal {
+    position:fixed; inset:0; z-index:80; display:flex;
+    align-items:center; justify-content:center; padding:40px 24px;
+    background:rgba(0,0,0,.55); backdrop-filter:blur(6px);
+  }
+  #source-modal[hidden] { display:none; }
+  #source-modal .sheet {
+    width:min(860px, 100%); max-height:100%; display:flex; flex-direction:column;
+    background:var(--panel); border:1px solid var(--line-2);
+    border-radius:var(--radius); box-shadow:var(--shadow-lg); overflow:hidden;
+    animation:sheet .16s ease;
+  }
+  @keyframes sheet { from { opacity:0; transform:scale(.98); } to { opacity:1; transform:none; } }
+  #source-modal .head {
+    display:flex; align-items:center; gap:12px; padding:13px 18px;
+    border-bottom:1px solid var(--line); background:var(--panel-2);
+  }
+  #source-modal .head .nm {
+    font-family:var(--mono); font-size:12.5px; color:var(--fg); font-weight:600;
+  }
+  #source-modal .head .where { font-size:11px; color:var(--muted); }
+  #source-modal .head .sp { margin-left:auto; display:flex; gap:8px; }
+  #source-modal .head button {
+    padding:6px 13px; border-radius:var(--radius-xs); border:1px solid var(--line-2);
+    background:var(--panel); color:var(--fg-2); font-size:12px; cursor:pointer;
+    box-shadow:none;
+  }
+  #source-modal .head button:hover { border-color:var(--line-3); color:var(--fg); }
+  #source-modal pre {
+    margin:0; padding:20px 22px; overflow:auto;
+    font:12.5px/1.75 var(--mono);
+    color:var(--fg-2); white-space:pre-wrap; word-break:break-word;
+  }
+  #source-modal mark {
+    background:rgba(226,164,74,.25); color:var(--accent-2);
+    border-radius:3px; padding:1px 2px;
+  }
+  #source-modal .state { padding:22px; color:var(--muted); font-size:13.5px; }
+
+  /* ---- add-files sheet ----------------------------------------------------------- */
+  #files-sheet {
+    position:fixed; inset:0; z-index:80; display:flex;
+    align-items:center; justify-content:center; padding:40px 24px;
+    background:rgba(0,0,0,.55); backdrop-filter:blur(6px);
+  }
+  #files-sheet[hidden] { display:none; }
+  #files-sheet .sheet {
+    width:min(620px, 100%); max-height:100%; display:flex; flex-direction:column;
+    background:var(--panel); border:1px solid var(--line-2);
+    border-radius:var(--radius); box-shadow:var(--shadow-lg); overflow:hidden;
+    animation:sheet .16s ease;
+  }
+  #files-sheet .head { display:flex; align-items:center; gap:10px; padding:14px 18px;
+    border-bottom:1px solid var(--line); background:var(--panel-2); }
+  #files-sheet .head strong { font-size:13px; font-weight:650; }
+  #files-sheet .head .where { font-size:11px; color:var(--muted);
+    font-family:var(--mono); }
+  #files-sheet .head .sp { margin-left:auto; }
+  #files-sheet .head button { padding:6px 13px; border-radius:var(--radius-xs);
+    border:1px solid var(--line-2); background:var(--panel); color:var(--fg-2);
+    font-size:12px; cursor:pointer; box-shadow:none; }
+  #files-sheet .body { padding:18px; overflow:auto; }
+  #files-sheet .drop { border:1.5px dashed var(--line-2); border-radius:var(--radius-sm);
+    padding:26px 18px; text-align:center; color:var(--muted); cursor:pointer;
+    transition:border-color .15s ease, background .15s ease; font-size:13.5px; }
+  #files-sheet .drop:hover, #files-sheet .drop.over { border-color:var(--accent-soft);
+    background:var(--accent-dim); color:var(--fg-2); }
+  #files-sheet .hint { margin-top:10px; font-size:11.5px; color:var(--muted-2); }
+  #files-sheet ul.files { list-style:none; margin:14px 0 0; padding:0; display:flex;
+    flex-direction:column; gap:6px; }
+  #files-sheet ul.files li { display:flex; align-items:center; gap:9px; padding:8px 12px;
+    border-radius:8px; background:var(--panel-2); border:1px solid var(--line);
+    font-size:12.5px; }
+  #files-sheet ul.files li .st { margin-left:auto; font-size:11px; color:var(--muted-2);
+    font-family:var(--mono); }
+  #files-sheet ul.files li.ok { border-color:rgba(74,222,128,.35); }
+  #files-sheet ul.files li.ok .st { color:var(--good); }
+  #files-sheet ul.files li.bad { border-color:rgba(240,112,112,.3); }
+  #files-sheet ul.files li.bad .st { color:var(--bad); }
+  #files-sheet .pipeline { margin-top:14px; font:11.5px/1.7 var(--mono);
+    color:var(--muted); min-height:18px; white-space:pre-wrap; }
+  #files-sheet .done { margin-top:12px; padding:10px 13px; border-radius:9px;
+    font-size:13px; background:var(--accent-dim); color:var(--fg-2); }
+  #files-sheet .done:empty { display:none; }
+  #files-sheet .notice { margin:0 0 12px; padding:10px 13px; border-radius:9px;
+    font-size:12.5px; background:var(--panel-2); color:var(--muted);
+    border:1px solid var(--line); }
+  #files-sheet .cta { margin-top:16px; display:flex; justify-content:flex-end; }
+  #files-sheet .cta button { padding:9px 20px; border-radius:9px; border:0;
+    background:var(--btn-ink); color:var(--go-ink, #161616); font-weight:650; font-size:13px;
+    cursor:pointer; box-shadow:none; }
+  #files-sheet .cta button:disabled { opacity:.4; cursor:default; }
+
+  /* ---- draft box ----------------------------------------------------------------- */
+  #draft { display:none; margin-top:34px; }
+  #draft .box { border:1px solid var(--line-2); border-radius:var(--radius);
+                background:var(--panel); overflow:hidden; box-shadow:var(--shadow); }
+  #draft .head { display:flex; align-items:center; gap:9px; padding:11px 14px;
+                 border-bottom:1px solid var(--line); background:var(--panel-2); }
+  #draft .head strong { font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+                        color:var(--muted); font-weight:700; }
+  #draft .head .sp { margin-left:auto; display:flex; gap:7px; }
+  #draft button.mini { padding:6px 12px; border-radius:var(--radius-xs);
+                       border:1px solid var(--line-2);
+                       background:var(--panel); color:var(--fg-2); font-size:12px;
+                       cursor:pointer; transition:all .15s ease; box-shadow:none; }
+  #draft button.mini:hover { border-color:var(--line-3); color:var(--fg); }
+  #draft textarea { width:100%; min-height:260px; border:0; outline:none; resize:vertical;
+                    background:var(--panel); color:var(--fg-2); padding:16px;
+                    font:12.5px/1.7 var(--mono); }
+  .copied { color:var(--good) !important; border-color:var(--good) !important; }
+
+  code { background:var(--panel-2); padding:2px 6px; border-radius:5px;
+         font-size:12px; font-family:var(--mono); }
+  a { color:var(--fg); text-decoration:none; }
+  a:hover { color:var(--accent); }
+
+  @media (max-width: 820px) {
+    #f { left:0; padding:12px 12px 12px; }
+    body:not(.chatting):not(.sb-collapsed) { padding-left:24px; }
+    .bar-btn .bname { max-width:90px; }
+    .turn.user .bubble { max-width:100%; }
+  }
