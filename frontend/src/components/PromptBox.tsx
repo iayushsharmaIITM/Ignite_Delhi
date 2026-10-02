@@ -2,10 +2,15 @@ import { useEffect, useRef, useState } from "react"
 import { FileText, Send, Square, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 type Props = {
   brain: string
+  brains?: string[]
+  onBrainChange?: (b: string) => void
   streaming: boolean
   hasInput: boolean
   stage?: string | null
@@ -13,7 +18,7 @@ type Props = {
   onStop: () => void
 }
 
-export function PromptBox({ brain, streaming, hasInput, stage, onSend, onStop }: Props) {
+export function PromptBox({ brain, brains, onBrainChange, streaming, hasInput, stage, onSend, onStop }: Props) {
   const [text, setText] = useState("")
   const [files, setFiles] = useState<File[]>([])
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -63,14 +68,40 @@ export function PromptBox({ brain, streaming, hasInput, stage, onSend, onStop }:
       }}
     >
       <div className="flex items-center gap-2 px-4 pt-3">
-        <button
-          type="button"
-          className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-foreground"
-          aria-label={`Current brain: ${brain === "demo" ? "Demo brain" : brain}`}
-        >
-          <span className="grid h-3.5 w-3.5 place-items-center rounded-sm bg-primary text-[8px] text-primary-foreground">◆</span>
-          {brain === "demo" ? "Demo brain" : brain}
-        </button>
+        {onBrainChange && brains && brains.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-foreground transition-colors duration-150 ease-out hover:border-accent/60"
+                aria-label={`Current brain: ${brain}. Switch brain`}
+              >
+                <span className="grid h-3.5 w-3.5 place-items-center rounded-sm bg-primary text-[8px] text-primary-foreground">◆</span>
+                {brain}
+                <span aria-hidden className="text-[9px] text-muted-foreground">▾</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+              {brains.map((b) => (
+                <DropdownMenuItem
+                  key={b}
+                  className={b === brain ? "bg-accent-dim text-accent" : ""}
+                  onClick={() => onBrainChange(b)}
+                >
+                  {b}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <span
+            className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-foreground"
+            aria-label={`Current brain: ${brain}`}
+          >
+            <span className="grid h-3.5 w-3.5 place-items-center rounded-sm bg-primary text-[8px] text-primary-foreground">◆</span>
+            {brain}
+          </span>
+        )}
         <div className="ml-auto text-[11px] text-muted-foreground">{brain && `?brain=${brain}`}</div>
       </div>
       {files.length > 0 && (

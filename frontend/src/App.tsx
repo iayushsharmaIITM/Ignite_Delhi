@@ -4,6 +4,7 @@ import { PanelLeft } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import { PromptBox } from "@/components/PromptBox"
 import { Connectors } from "@/components/Connectors"
+import { SourceDrawer } from "@/components/SourceDrawer"
 import { CreateBrainDialog } from "@/components/CreateBrainDialog"
 import { GraphView } from "@/components/GraphView"
 import { Toaster } from "@/components/ui/sonner"
@@ -12,6 +13,7 @@ import { Copy, RotateCcw } from "lucide-react"
 import {
   DEFAULT_BRAIN,
   greeting,
+  useBrains,
   useChats,
   fetchChat,
   saveChat,
@@ -100,6 +102,7 @@ export default function App() {
     : new URLSearchParams(location.search).get("view") === "graph" ? "graph" : "chat",
   )
   const { chats, refreshChats } = useChats(view === "chat" ? brain : null)
+  const { brains, refreshBrains } = useBrains()
 
   // Landing pad for the OAuth round-trip: /?connected=slack or
   // /?connect_error=<reason>. Toast, then clean the address bar.
@@ -344,6 +347,7 @@ export default function App() {
         open={createOpen}
         onClose={(created) => {
           setCreateOpen(false)
+          refreshBrains()
           if (created) handleBrainChange(created)
         }}
       />
@@ -362,6 +366,8 @@ export default function App() {
             <div className="mt-10 w-full max-w-[820px]">
               <PromptBox
                 brain={brain}
+                brains={brains.map((b) => b.name)}
+                onBrainChange={handleBrainChange}
                 streaming={streaming}
                 hasInput={hasInput}
                 stage={stage}
@@ -467,33 +473,20 @@ export default function App() {
           </div>
         )}
         {sourcesPanel && (
-          <div
-            className="fixed inset-y-0 right-0 z-40 w-[420px] max-w-full overflow-y-auto border-l
-                        border-border bg-card p-6 shadow-2xl"
-            role="dialog"
-            aria-label="Cited source"
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-foreground">{sourcesPanel.title}</h2>
-              <button
-                type="button"
-                aria-label="Close source panel"
-                className="rounded p-1 text-muted-foreground hover:text-foreground"
-                onClick={() => setSourcesPanel(null)}
-              >
-                ✕
-              </button>
-            </div>
-            <pre className="whitespace-pre-wrap rounded-lg border border-border bg-panel-2 p-4 text-[13px] text-foreground/90">
-              {sourcesPanel.excerpt || "The cited passage is not available for this reference."}
-            </pre>
-          </div>
+          <SourceDrawer
+            title={sourcesPanel.title}
+            excerpt={sourcesPanel.excerpt}
+            brain={brain}
+            onClose={() => setSourcesPanel(null)}
+          />
         )}
         {turns.length > 0 && view === "chat" && (
           <div className="sticky bottom-0 z-10 bg-gradient-to-t from-bg via-bg/95 to-transparent px-6 pb-4 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]" style={{ backgroundColor: "transparent" }}>
             <div className="pointer-events-none absolute inset-x-0 -top-8 h-8 bg-gradient-to-t from-bg to-transparent" aria-hidden />
             <PromptBox
               brain={brain}
+              brains={brains.map((b) => b.name)}
+              onBrainChange={handleBrainChange}
               streaming={streaming}
               hasInput={hasInput}
               stage={stage}
