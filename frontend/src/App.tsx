@@ -7,6 +7,7 @@ import { Connectors } from "@/components/Connectors"
 import { SourceDrawer } from "@/components/SourceDrawer"
 import { CreateBrainDialog } from "@/components/CreateBrainDialog"
 import { GraphView } from "@/components/GraphView"
+import { LegacyMount } from "@/components/LegacyMount"
 import { Toaster } from "@/components/ui/sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -249,9 +250,11 @@ export default function App() {
     return () => window.removeEventListener("resize", onResize)
   }, [])
   const [createOpen, setCreateOpen] = useState(false)
-  const [view, setView] = useState<"chat" | "connectors" | "graph">(
-    new URLSearchParams(location.search).get("view") === "connectors" ? "connectors"
-    : new URLSearchParams(location.search).get("view") === "graph" ? "graph" : "chat",
+  const [view, setView] = useState<"chat" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph">(
+    (() => {
+      const v = new URLSearchParams(location.search).get("view")
+      return v === "connectors" || v === "graph" || v === "legacy-brains" || v === "legacy-upload" ? v : "chat"
+    })(),
   )
   const { chats, refreshChats } = useChats(view === "chat" ? brain : null)
   const { brains, refreshBrains } = useBrains()
@@ -438,7 +441,7 @@ export default function App() {
     ;(window as unknown as { CONTROLLER?: AbortController }).CONTROLLER?.abort()
     stopWork(true)
   }
-  const openView = (v: "chat" | "connectors" | "graph") => {
+  const openView = (v: "chat" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph") => {
     setView(v)
     const u = new URL(location.href)
     if (v === "chat") u.searchParams.delete("view")
@@ -460,9 +463,10 @@ export default function App() {
     u.searchParams.set("brain", b)
     history.pushState(null, "", u)
   }
-  const openChat = async (id: string, chatBrain: string) => {
+  const openChat = async (id: string, chatBrain?: string) => {
+    const target = chatBrain ?? brain
     setSwitching(true)
-    handleBrainChange(chatBrain)
+    handleBrainChange(target)
     const u = new URL(location.href)
     u.searchParams.set("chat", id)
     history.pushState(null, "", u)
@@ -566,7 +570,7 @@ export default function App() {
   }
 
   // Delete handlers
-  const handleDeleteChat = async (chatId: string, _chatBrain: string) => {
+  const handleDeleteChat = async (chatId: string, _brain?: string) => {
     try {
       await fetch(`/api/chats/${encodeURIComponent(chatId)}`, { method: "DELETE" })
     } catch {}
@@ -593,7 +597,7 @@ export default function App() {
       >
         Skip to chat
       </a>
-      {collapsed && (
+      {collapsed && !view.startsWith("legacy") && (
         <Button
           variant="secondary"
           size="icon"
@@ -608,7 +612,7 @@ export default function App() {
         </Button>
       )}
       <Sidebar
-        collapsed={collapsed}
+        collapsed={collapsed || view.startsWith("legacy")}
         onToggle={() => {
           setCollapsed((c) => {
             localStorage.setItem("kestrel.sidebar.collapsed", c ? "0" : "1")
@@ -621,10 +625,10 @@ export default function App() {
         onViewChange={openView}
         onBrainChange={handleBrainChange}
         onNewChat={newChat}
-        onOpenChat={(id, b) => void openChat(id, b)}
+        onOpenChat={(id, b) => void openChat(id, b ?? brain)}
         chats={chats}
         onRefreshChats={refreshChats}
-        onDeleteChat={handleDeleteChat}
+        onDeleteChat={(id) => void handleDeleteChat(id)}
         onDeleteBrainChats={handleDeleteBrainChats}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenAccount={clerkOpenProfile}
@@ -644,6 +648,12 @@ export default function App() {
           <Connectors />
         ) : view === "graph" ? (
           <GraphView brain={brain} />
+        ) : view === "legacy-brains" ? (
+          <LegacyMount path="/brains" label="Brains" />
+        ) : view === "legacy-upload" ? (
+          <LegacyMount path="/upload" label="Add documents" />
+        ) : view === "legacy-graph" ? (
+          <LegacyMount path="/graph" label="Graph (full)" />
         ) : turns.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 pb-10">
             <Watermark />

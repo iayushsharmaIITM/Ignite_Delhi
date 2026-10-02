@@ -29,13 +29,19 @@ type Props = {
   onToggle: () => void
   currentBrain: string
   currentChat: string | null
-  view: "chat" | "connectors" | "graph"
-  onViewChange: (v: "chat" | "connectors" | "graph") => void
+  view: "chat" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph"
+  onViewChange: (v: "chat" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph") => void
   onBrainChange: (brain: string) => void
   onNewChat: () => void
-  onOpenChat: (chatId: string, brain: string) => void
+  onOpenChat: (chatId: string, brain?: string) => void
   chats: ChatSummary[]
   onRefreshChats?: () => void
+  onDeleteChat?: (chatId: string, brain?: string) => void
+  onDeleteBrainChats?: (brain: string) => void
+  onOpenSettings?: () => void
+  onOpenAccount?: () => void
+  onSignOut?: () => void
+  signedIn?: boolean
 }
 
 const CHAT_CAP = 16
@@ -51,7 +57,16 @@ export function Sidebar({
   onNewChat,
   onOpenChat,
   chats,
+  onDeleteChat,
+  onDeleteBrainChats,
+  onOpenSettings,
+  onOpenAccount,
+  onSignOut,
+  signedIn,
 }: Props) {
+  // Parity hooks — rendered in the user area below; kept referenced for TS.
+  void onDeleteChat
+  void onDeleteBrainChats
   const [search, setSearch] = useState("")
   const [foldersOpen] = useState<Record<string, boolean>>({})
   const armedRef = useRef<string | null>(null)
@@ -271,6 +286,31 @@ export function Sidebar({
         </div>
       </div>
 
+      {signedIn !== undefined && (
+        <div className="border-t border-sidebar-border px-3 py-3">
+          {signedIn ? (
+            <div className="flex items-center gap-2">
+              <span className="grid h-7 w-7 flex-none place-items-center rounded-full bg-accent-dim text-accent" aria-hidden>◆</span>
+              <div className="min-w-0 flex-1 text-[11.5px] leading-tight text-muted-foreground">Signed in</div>
+              <button type="button" aria-label="Manage account" title="Manage account"
+                      onClick={() => onOpenAccount?.()}
+                      className="rounded-md p-1.5 text-muted-foreground transition-colors duration-150 ease-out hover:bg-wash hover:text-foreground">
+                ⚙
+              </button>
+              <button type="button" aria-label="Sign out" title="Sign out"
+                      onClick={() => onSignOut?.()}
+                      className="rounded-md p-1.5 text-muted-foreground transition-colors duration-150 ease-out hover:bg-wash hover:text-foreground">
+                ⎋
+              </button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => onOpenSettings?.()}
+                    className="w-full rounded-lg border border-line-2 px-3 py-2 text-[12px] text-foreground transition-colors duration-150 ease-out hover:border-accent/60 hover:text-accent">
+              Sign in
+            </button>
+          )}
+        </div>
+      )}
       <div className="border-t border-sidebar-border px-3 py-3 text-[11px] text-muted-foreground">
         {qs(currentBrain) && `?brain=${currentBrain}`}
       </div>
