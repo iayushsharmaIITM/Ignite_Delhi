@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/Sidebar"
 import { PromptBox } from "@/components/PromptBox"
 import { Connectors } from "@/components/Connectors"
 import { SourceDrawer } from "@/components/SourceDrawer"
+import { SuggestionChips } from "@/components/SuggestionChips"
 import { CreateBrainDialog } from "@/components/CreateBrainDialog"
 import { GraphView } from "@/components/GraphView"
 import { LegacyMount } from "@/components/LegacyMount"
@@ -17,7 +18,6 @@ import {
   LeftRail,
   RestoreOverlay,
   SwitchFx,
-  SuggestionChips,
   Watermark,
   AuthGate,
   SettingsMenu,
@@ -676,7 +676,7 @@ export default function App() {
             </div>
             <div className="mt-6 w-full max-w-[820px]">
               <SuggestionChips
-                chips={chips.map((c) => ({ label: c.label, query: c.query }))}
+                suggestions={chips.map((c) => c.label)}
                 onSelect={(q) => handleSend(q)}
               />
             </div>
