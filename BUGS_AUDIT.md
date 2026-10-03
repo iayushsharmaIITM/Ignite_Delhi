@@ -17,6 +17,45 @@ test · **L** = needs a design decision or touches many call sites.
 
 ---
 
+## STATUS — Round 1 CLOSED (2026-10-04)
+
+**All 45 items above are fixed in the current tree.** The queue was worked
+systematically by ID: each fix carries an in-code comment naming its audit ID
+(`SEC-1/2/4/5/6/8/9/10`, `COR-1…11`, `LOW-1…9`), and every Tier-2/Tier-3 site
+was re-verified against the React port rather than the legacy file it was
+written against. No legacy defect was reimplemented in React — the port routes
+every call through `apiFetch` (`frontend/src/lib/api.ts`), which is exactly the
+"one helper" fix this file's Systemic Patterns §2 asked for.
+
+Corroborated live (not just by reading): `GET /api/brains` and
+`GET /api/brains/{name}/events` now return **401** unauthenticated (SEC-3,
+LOW-10 — both were 200), and the frontend transport gate passes
+(`python3 tests/test_frontend_api_transport.py` → "every /api call goes
+through apiFetch, and the served bundle is complete").
+
+**Caveat:** this closure is code-audit + the two measurements above. It has
+**not** been re-run through `./verify.sh` — the stack was down when this status
+was written (colima stopped, 00:32). Re-run the battery before repeating the
+word "fixed" to anyone.
+
+Three residuals, all deliberate or missing-test, not regressions:
+
+- **SEC-5 backfill.** `storage.py` `_owner_clause` still hands
+  `(org_id IS NULL AND created_by IS NULL)` rows to *every* authenticated
+  user, by design, "until the item-1 backfill". Pre-P3 chats remain
+  cross-tenant visible until the creator backfill runs. **Owner decision.**
+- **SEC-2 nuance.** A Postgres outage now fails closed as **403** rather than
+  the 503 this file suggested; documented as an explicit choice in the
+  `brain_allowed` docstring.
+- **Missing regression test.** `tests/test_route_authz.py` has route-level
+  authz coverage but no case-variant delete (`DELETE /api/brains/ACME_ISOLATED`)
+  — the exact SEC-1 exploit. Add it even though the code is fixed.
+
+**Round 2 (the chat subsystem + React shell) is the live queue — see the bottom
+of this file.**
+
+---
+
 ## Summary
 
 ### Tier 1 — security & data destruction
@@ -1017,3 +1056,70 @@ After every fix: `./verify.sh` must stay green (battery runs with
 `AUTH_MODE=off`), **and** re-run the live Clerk-mode checks added for SEC-1,
 SEC-3, FE-1, FE-7 — the battery does not exercise Clerk mode, which is how
 Tier 2 shipped.
+
+---
+
+# ROUND 2 — the live queue (opened 2026-10-04)
+
+Chat subsystem + React shell. Provenance: the previous session was cut off at
+00:18 IST by a provider quota error while fixing exactly this area. It left two
+audits behind — a server-side chat/storage audit (15 findings, delivered but
+never triaged) and a **client-side audit that died mid-run** (it had already
+reproduced a dead click-zone before it stopped). Both were re-verified against
+the current tree (uncommitted work included) at 00:30, because the workspace was
+being edited *during* those audits, so their line numbers were stale.
+
+Verification levels below: **[R]** re-read in the current tree by me ·
+**[P]** reproduced by that session against the lab DB (`:5434`) or its
+TestClient on `:8020` · **[B]** reproduced in a real browser on `:8020`.
+
+| ID | Sev | Bug | Where | Proof |
+|---|---|---|---|---|
+| CH-1 | CRITICAL | 60-turn save window + wholesale turn replace = silent, permanent history loss | `App.tsx:694` + `storage.py:244` | [R][P] |
+| CH-2 | HIGH | A deleted chat resurrects — no tombstone, and POST with a previously-deleted id recreates the row | `storage.py:226-233` | [P] |
+| CH-3 | HIGH | `DELETE` answers 200 `{"ok": false}` for a no-op delete while its own comment claims 404 | `app.py` `chats_delete` | [R] |
+| CH-4 | HIGH | Sidebar chat rows have a dead click-zone; the invisible delete button is hit-testable | `legacy/deck.css:242-251`, `Sidebar.tsx:198-210` | [B] |
+| CH-5 | MEDIUM | `at` round-trip corruption — re-saving a restored chat restamps **every** old turn with `now()` | `storage.py:431-439`, `:250`, `lib/api.ts:191` | [P] |
+| CH-6 | MEDIUM | `POST /api/chats` never calls `require_dataset_access` — a chat can be filed under any brain | `app.py:618-646` | [R] |
+| CH-7 | MEDIUM | `total` promised but absent, no `OFFSET`, no `updated` tiebreaker; the client asks for 500 and ignores both fields | `app.py:660-663`, `storage.py:287`, `lib/api.ts:148` | [R] |
+| CH-8 | MEDIUM | Mid-life storage outage is undetected (`available()` sticky-true); raw psycopg errors escape as 500 where routes promise 503; `get_chat` reads chat + turns as two autocommit statements (torn read) | `storage.py:53-68`, `:309-322` | [P] |
+| CH-9 | LOW | Only `text` is size-capped — `steps`/`sources`/`attachments` unbounded; `int(t["workedMs"])` on `"abc"` → 500 | `app.py:640`, `storage.py:261` | [P] |
+| CH-10 | LOW | Schema authority split: `init()` DDL duplicates 0004 verbatim, `0001_baseline` is a no-op, live DB still at `0003`; `chats.brain_id` is never created by `init()` so `ops/backfill.py` breaks on a bootstrap DB | `storage.py:80-116`, `0004:28-31`, `0002:308-311` | [R] |
+| CH-11 | OPEN TASK | The client-side bug hunt was never finished — its audit agent died mid-run. The React shell has had no complete defect pass. | — | — |
+
+## The owner's two reported symptoms, mapped
+
+1. *"When I am not in the new chat section … I can't click and directly jump to
+   the chat history."* → **CH-4** (browser-reproduced: the row's left 34 px is
+   `div.nav-item`, not the anchor, so clicking there does nothing while the row
+   still shows `cursor:pointer`; at the right edge the `opacity:0` delete button
+   is hit-testable, so a mobile tap **arms delete** instead of opening). The
+   stale-`?view=` half of it looks addressed in the in-flight work
+   (`App.tsx:901` deletes `view` on the chat route) — **must be re-tested in the
+   browser, not assumed**.
+2. *"Even after I delete the chat history, there is still somehow it always
+   stays."* → **CH-3 + CH-2** together: a delete that matched no row still
+   toasts success (HTTP 200), and any later save of that still-open conversation
+   re-inserts the chat with its turn window — so the chat returns.
+
+## Fix order (Round 2)
+
+0. **Commit the in-flight work first** — 11 files of turn-7 fixes are uncommitted
+   and fragile; the turn-detail columns (`steps`/`worked_ms`/`stopped`/`error`)
+   and the `chats_get` 404 contract belong to CH-5's neighborhood. Triage the one
+   open acceptance FAIL (`check_ui_react.py:447` "sheet targets the row's brain")
+   and get `./verify.sh` green before layering more change on top.
+1. **CH-1 + CH-2 + CH-3** as one change — the silent-loss + lie pair. Reject a
+   save whose turn count is lower than what is stored unless the client declares
+   a trim; tombstone deleted ids (or have `delete_chat` stamp a marker
+   `upsert_chat` refuses to overwrite); make `DELETE` 404 on zero rows and read
+   `d.ok` at all three client call sites.
+2. **CH-4** — row-level click handler or padding on `.chat-link`, plus keeping
+   the un-armed `.row-del` out of the hit test. Verify in a browser at 390 px.
+3. **CH-6** — one missing line, and it is the only write route that skips the
+   authorization every other write route has.
+4. **CH-5** — teach `_ts` ISO strings (`datetime.fromisoformat`) so restored
+   turns keep their real times.
+5. **CH-7 → CH-10** as a batch; **CH-11** (finish the client audit) before any
+   further UI work is called done.
+

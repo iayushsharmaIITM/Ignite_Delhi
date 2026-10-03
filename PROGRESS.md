@@ -1,3 +1,63 @@
+## Session handover — React port landed, cutover unfinished 2026-10-04
+
+State at 00:32 IST. The previous working session was cut off at 00:18 by a
+provider quota error (`402 ACCOUNT_QUOTA`) **mid-step**, not at a boundary: its
+last message was "While the audits run, let me do the migration", and the
+cutover it intended never happened. Its todo list had all 15 Phase C–E items
+complete; the bug hunt, the 0004 migration and the legacy-page retirement were
+never added to it, so there was no checklist for what remained.
+
+**Verified current state (measured, not narrated):**
+
+- `main` @ `60f87a1`. React port Phases A–E are committed: the backend serves
+  `frontend/dist` behind `KESTREL_UI` (default `react`), `frontend/dist` ships
+  with a CI staleness gate, `verify.sh` now runs `check_ui_react.py` in place of
+  the retired `check_ui.py`.
+- **11 files of uncommitted turn-7 work**: turn-detail persistence
+  (`turns.steps/worked_ms/stopped/error`) in `storage.py` +
+  `migrations/versions/0004_turn_detail.py`, the `chats_get` 404 contract, a
+  bounded `list_chats`, org-scoped `delete_chat`, retirement of
+  `static/brains.html` + `static/upload.html` behind 307 redirects, and the
+  matching `App.tsx` / `Sidebar.tsx` / `lib/api.ts` / `index.css` changes.
+- The static gates pass on the dirty tree: `tests/test_frontend_api_transport.py`
+  → "every /api call goes through apiFetch, and the served bundle is complete";
+  `tests/test_frontend_css_utilities.py` → PASS. The bundle is fresh (built
+  00:14, after the last src edit at 00:13).
+- `SEC-3` / `LOW-10` from `BUGS_AUDIT.md` confirmed fixed live: `/api/brains` and
+  `/api/brains/{name}/events` now 401 unauthenticated (were 200).
+- **The stack was DOWN when this was written** — colima stopped (its fourth such
+  incident), taking Postgres, Cognee and Langfuse with it. `/tmp/kestrel_app.log`
+  ends with the old `:8000` process throwing
+  `RuntimeError: File at path …/static/upload.html does not exist` and then
+  shutting down. That is the half-cutover showing up as a user-visible 500 on
+  `/brains` and `/upload`: the process was still pre-cutover code while the
+  files were already deleted.
+- Schema drift: the **live** DB (`:5433`) is at alembic `0003_job_staging` and its
+  `turns` table has none of the four new columns; only the **lab** (`:5434`) got
+  `alembic upgrade head`. Booting the current code self-heals the columns via
+  `storage.init()`'s `ALTER … IF NOT EXISTS` but leaves `alembic_version` at 0003.
+
+**Round 1 is closed, Round 2 is open.** All 45 items of `BUGS_AUDIT.md` were
+worked by ID and are fixed in the tree (each fix carries an in-code comment
+naming its audit ID); the closure is code-audit plus the two live measurements
+above, and still needs one `./verify.sh` run to be worth repeating. `BUGS_AUDIT.md`
+now opens **Round 2** — the chat subsystem (CH-1…CH-11), whose headline is silent
+permanent history loss (`App.tsx:694` saves only the last 60 turns over a
+wholesale replace) plus the delete-that-reports-success-and-resurrects pair, which
+is the owner's own reported symptom.
+
+**Next, in order:** bring the stack up (`./ops_stack_up.sh`, idempotent) and
+choose deliberately between `alembic upgrade head` on live vs letting `init()`
+self-heal → triage `check_ui_react.py:447` ("sheet targets the row's brain") →
+`./verify.sh` green → commit the turn-7 work → CH-1/2/3 as one change → CH-4 in a
+browser → CH-6 → the rest, then finish the client-side audit that never completed.
+
+**Still parked for the owner:** the NULL-org legacy chat backfill (the last
+standing cross-tenant visibility hole, `storage.py` `_owner_clause`), `D-2`
+graph surface for beta (`/graph` is now the only non-React route), `D-3`/`D-4`
+connectors and v2-jobs scope, and whether to archive the stale untracked
+`ZCODE_HANDOFF.md` (28 Sept, Langfuse/OCR era) so the doc set stays trustworthy.
+
 ## P6 connectors UX pass — the shelf stopped lying 2026-09-29
 
 Built the OAuth+vault layer, then drove the shelf in a real browser as the
