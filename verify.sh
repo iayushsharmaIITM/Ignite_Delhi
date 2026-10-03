@@ -5,6 +5,10 @@
 #   ./verify.sh --quick   skip the browser suites (no browser / CI fast lane)
 #   KESTREL_CLERK_GATE=1 DATABASE_URL=<lab 5434> ./verify.sh   + clerk-mode gate
 #
+# With no DATABASE_URL the battery picks the LAB database if it is reachable and
+# refuses to write into the live one unless KESTREL_ALLOW_LIVE_DB=1 — see the
+# "which database may this battery write to?" block below.
+#
 # Exit 0 = every suite green. The app tier is started here with PROVIDER=mock
 # forced, so the battery never depends on the Cognee tenant being up. An env
 # var beats .env (load_dotenv does not override), so the tenant config in
@@ -47,6 +51,30 @@ if lsof -nP -iTCP:8000 -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 
 echo "== Kestrel verification battery (PROVIDER=mock) =="
+
+# --- which database may this battery write to? -------------------------------
+# The battery WRITES: the UI suite saves chats, and chat-integrity / brain-claim
+# insert rows. With no DATABASE_URL the app falls through to .env — the LIVE demo
+# database — so every routine `./verify.sh` left test chats inside the demo brain,
+# stamped as nobody's (it runs AUTH_MODE=off), which is exactly the population the
+# SEC-5 grandfathering rule hands to every tenant. Prefer the lab, refuse to write
+# to live unless told, and stay silent when there is no database at all (CI).
+if [[ -z "${DATABASE_URL:-}" ]]; then
+  LAB_PW=$(grep -m1 '^GRAPH_DATABASE_PASSWORD=' .env.oss 2>/dev/null | cut -d= -f2-)
+  if [[ -n "$LAB_PW" ]] && (exec 3<>"/dev/tcp/127.0.0.1/5434") 2>/dev/null; then
+    export DATABASE_URL="postgresql://kestrel:${LAB_PW}@localhost:5434/kestrel"
+    echo "db: LAB (5434) - the battery writes rows. Set DATABASE_URL to override."
+  elif (exec 3<>"/dev/tcp/127.0.0.1/5433") 2>/dev/null \
+       && [[ "${KESTREL_ALLOW_LIVE_DB:-0}" != "1" ]]; then
+    echo "ABORT: the only reachable database is the LIVE one (5433), and this"
+    echo "       battery writes test rows into it."
+    echo "       bring up the lab (ops/restore_lab.sh), or insist with"
+    echo "       KESTREL_ALLOW_LIVE_DB=1 ./verify.sh"
+    exit 2
+  else
+    echo "db: none reachable - storage-backed suites degrade, which is what CI expects"
+  fi
+fi
 
 # --- 1. document extraction (no server needed) ------------------------------
 if python3 test_documents.py > /tmp/kestrel_verify_docs.log 2>&1; then

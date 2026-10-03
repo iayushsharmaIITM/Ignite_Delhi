@@ -31,6 +31,23 @@ Battery green, twelve suites: documents 25/25, pipe-states 13/13, connectors
 90/90, tenants 10/10, smoke 4/4, frontend-transport, frontend-css,
 chat-integrity, brain-claim, ui-react, clerk-gate.
 
+**Verification no longer writes into the demo database.** `./verify.sh` used to
+fall through to `.env` — the live database — so every routine battery left test
+chats inside the demo brain, stamped as nobody's because the battery runs
+`AUTH_MODE=off`, which is precisely the population the SEC-5 grandfathering rule
+shows to every tenant. It now picks the lab when reachable, refuses the live
+database unless `KESTREL_ALLOW_LIVE_DB=1`, and stays quiet when there is no
+database at all (CI). A side effect of choosing the lab: `chat-integrity` and
+`brain-claim` now run on a plain `./verify.sh` instead of being skipped.
+
+`ops/backfill_chat_owner.py` makes the remaining SEC-5 decision executable rather
+than rhetorical: dry run by default, one transaction, reversible through the JSON
+it writes, and it refuses to invent an owner — a chat whose brain carries no
+ownership record, or is still a `'creating'` claim, is reported and left NULL.
+Measured on live: 2 chats / 8 turns, both resolvable to `company_brain`'s recorded
+owner. **Not applied**: stamping who owns legacy history is the owner's call, and
+the grandfather branch comes out with it.
+
 With M4 gone, every defect ever recorded in `BUGS.md` and `BUGS_AUDIT.md` Round 1
 is closed; the open list is `BUGS_AUDIT.md` Round 2's residual — the NULL-org
 chat backfill, which is an owner decision, not a bug.

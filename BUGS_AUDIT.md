@@ -45,6 +45,16 @@ Three residuals, all deliberate or missing-test, not regressions:
   `(org_id IS NULL AND created_by IS NULL)` rows to *every* authenticated
   user, by design, "until the item-1 backfill". Pre-P3 chats remain
   cross-tenant visible until the creator backfill runs. **Owner decision.**
+  Measured on live 2026-10-04: exactly **2 chats / 8 turns**, both inside
+  `company_brain`, whose `brain_access` row names one unambiguous owner — the
+  change is small and evidence-based, not a policy debate.
+  `ops/backfill_chat_owner.py` now performs it: dry run by default, one
+  transaction, previous values written to `/tmp/kestrel_backfill_chat_owner.json`
+  for reversal, and it refuses to guess — a chat whose brain has no recorded
+  owner, or whose brain is still a `'creating'` claim, is reported and left NULL.
+  Once those two rows are stamped, the `OR (org_id IS NULL AND created_by IS
+  NULL)` escape hatch can be deleted. (Also on live: `acme_isolated` under
+  org_A/user_A is a leftover from the September isolation tests, not a customer.)
 - **SEC-2 nuance.** A Postgres outage now fails closed as **403** rather than
   the 503 this file suggested; documented as an explicit choice in the
   `brain_allowed` docstring.
