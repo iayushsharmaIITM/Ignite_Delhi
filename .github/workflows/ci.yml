@@ -10,6 +10,9 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: pip install -r requirements.txt
+      # The battery now includes the frontend static gates (transport invariant +
+      # CSS-utility invariant) even in --quick: they need no browser and they
+      # both exist because the port shipped with the opposite of each.
       - name: Fast verification battery (mock, no browser)
         run: ./verify.sh --quick
       - name: Frontend build
@@ -42,3 +45,64 @@ jobs:
         run: |
           npm ci
           npm run build
+
+  ui:
+    # The behavioural gate: drives the SERVED React bundle (KESTREL_UI=react)
+    # through the ask/stream/citation/files/draft/menus/keyboard/deep-link suite,
+    # plus lint, then the Clerk-mode gate against a Postgres service mapped onto
+    # the lab port the test insists on (5434) — the same guarantee the local lab
+    # gives, so a token-less request cannot quietly start passing.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: kestrel
+          POSTGRES_PASSWORD: kestrel
+          POSTGRES_DB: kestrel
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U kestrel -d kestrel"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://kestrel:kestrel@localhost:5434/kestrel
+      PROVIDER: mock
+      AUTH_MODE: "off"
+      KESTREL_UI: react
+      HOST: 127.0.0.1
+      PORT: "8000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install app + dev dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Install a browser
+        run: python -m playwright install --with-deps chromium
+      - name: Frontend deps + lint
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+      - name: React UI acceptance suite (served bundle)
+        run: |
+          python3 app.py > /tmp/app.log 2>&1 &
+          for i in $(seq 1 40); do curl -sf http://127.0.0.1:8000/health >/dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:8000/ | grep -q 'id="root"' || { echo "app did not serve the React bundle"; cat /tmp/app.log; exit 1; }
+          # CI has no Chrome channel: let Playwright use the chromium it installed.
+          KESTREL_TEST_BROWSER=chromium python3 check_ui_react.py --base http://127.0.0.1:8000
+      - name: Clerk-mode gate (auth on, token + control)
+        run: python3 tests/test_react_clerk.py
+      - name: Application log on failure
+        if: failure()
+        run: tail -60 /tmp/app.log || true

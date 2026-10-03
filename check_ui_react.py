@@ -1,245 +1,428 @@
-"""UI smoke test for the React frontend — click every control, fail on any console error.
+"""React UI acceptance suite — the served bundle, driven like a user.
 
-WHY THIS EXISTS
-The legacy check_ui.py drove a real browser through the static HTML shell.
-The React frontend has a completely different DOM (no .nav-item, no #app,
-no shell.js) — so it needs its own suite. This drives Playwright through
-every interactive control in the React app and fails if anything throws.
+    python3 check_ui_react.py                       # auto-detect the running app
+    python3 check_ui_react.py --base http://127.0.0.1:8020
+    python3 check_ui_react.py --headful             # watch it
 
-    python3 check_ui_react.py                  # auto-detect React on :5173
-    python3 check_ui_react.py --base http://localhost:5173
-    python3 check_ui_react.py --headful        # show the browser window
+What this replaces
+------------------
+The old suite predated the port: it described a React DOM with "no .nav-item,
+no shell.js", clicked every button on three views and called that coverage. It
+could not see a broken ask, a lost citation, a draft that never opened, a chat
+that would not restore, or Back/Forward going nowhere.
 
-Exit codes: 0 = all clean, 1 = failures.
+This one drives the real surfaces with the model-dependent calls intercepted
+(canned NDJSON — no provider, no cost, deterministic) and asserts OUTCOMES:
+
+  * ask → both turns appear immediately, steps stream into the turn's own log,
+    the answer renders, citations arrive after `done`, the log collapses and
+    re-expands, and the conversation is saved and remembered in the URL
+  * citation chip → source modal with the verbatim passage highlighted
+  * ⋯ menu → add-documents sheet, per-file verdicts and the pipeline stream
+  * draft box → generated draft, and Send quoting the server's refusal
+  * brains page → rows, live stats, two-step armed delete
+  * composer menus, keyboard (Enter / Shift+Enter / Escape)
+  * deep links + Back/Forward (the URL and the screen agree)
+  * a restored chat keeps its per-turn logs, attachments and citations
+
+Exit 0 = every claim above held, and the console stayed clean throughout.
 """
-
 from __future__ import annotations
 
 import argparse
 import json
 import os
 import sys
-import time
 
-from playwright.sync_api import sync_playwright, Page, Browser
+from playwright.sync_api import Page, sync_playwright
 
-# Controls that mutate state or navigate away — exercised by hand instead.
-SKIP_TEXTS = {
-    "Delete", "Click again to delete",  # destructive
-    "Graph",                             # triggers confirm() about legacy hand-off
-    "Rename", "Pin",                     # sidebar dropdown items (alert())
-    "Connect",                           # starts the real Slack OAuth round-trip
-    "Import ",                           # real connector import (503/400 without config)
-    # overlay-opening triggers (post-port they cover the viewport and would
-    # make the blanket click-loop throw) — each has its own targeted check
-    "New brain", "Brains", "Add documents", "Switch brain", "Conversation actions",
-    # state toggles the blanket loop can't follow (the retract moves the whole
-    # bar off-canvas; the view pop re-parents) — covered by targeted checks
-    "Retract sidebar", "View and sort",
-}
+VIEW_SIZES = {"desktop": (1440, 1000), "mobile": (390, 844)}
 
-# Views to exercise (React app has chat, connectors, graph).
-VIEWS = ["chat", "connectors", "graph"]
+SOURCE_DOC = "05_policy_SLA-credit-01.md"
+
+# Canned /api/ask stream: the shape the server actually emits (orchestrator
+# {stage:"step"} rows, {type:"chunk"}, and {type:"references"} AFTER
+# {stage:"done"} — the ordering that used to lose the chips on reload).
+ANSWER = (
+    "The **Bluepeak renewal** is at risk because the service credit was approved "
+    "outside the SLA window.\n\n"
+    "- Owner: Tomás Ferrer\n"
+    "- Credit: 12%\n"
+)
+ASK_STREAM = "".join(
+    json.dumps(ev) + "\n"
+    for ev in [
+        {"stage": "start", "dataset": "company_brain"},
+        {"stage": "step", "label": "Router: general chat — bypassing retrieval agents", "ms": 120},
+        {"stage": "step", "label": "Delegating to graph_agent", "ms": 900},
+        {"type": "chunk", "text": ANSWER[:60]},
+        {"type": "chunk", "text": ANSWER[60:160]},
+        {"type": "chunk", "text": ANSWER[160:]},
+        {"stage": "done"},
+        {"type": "references", "items": [
+            # A phrase that actually occurs in the document: the modal
+            # highlights by searching the excerpt, so a made-up one renders no
+            # <mark> at all.
+            {"source": SOURCE_DOC,
+             "excerpt": "To ensure service credits are granted consistently"},
+        ]},
+    ]
+)
+
+RESTORED_TURNS = [
+    {"role": "user", "text": "What did we promise Bluepeak?", "at": 1759400000000,
+     "attachments": [{"name": "sla.pdf", "kind": "file", "size": 1234}]},
+    {"role": "bot", "text": "We promised a 12% service credit.", "at": 1759400004000,
+     "workedMs": 2400,
+     "steps": [{"label": "Router: general chat — bypassing retrieval agents", "at": 1759400000500, "ms": 120},
+               {"label": "Delegating to graph_agent", "at": 1759400001000, "ms": 900}],
+     "sources": [{"source": SOURCE_DOC,
+                  "excerpt": "To ensure service credits are granted consistently"}]},
+]
 
 
-def console_errors(page: Page) -> list[str]:
-    """Collect console errors from the page."""
-    errors: list[str] = []
-    page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
-    page.on("pageerror", lambda exc: errors.append(str(exc)))
-    return errors
+def reset(suite: Suite, url: str) -> None:
+    """Every section starts from a known page: a section that aborts inside an
+    overlay used to leave the next one clicking at a covered screen."""
+    suite.page.goto(url, wait_until="networkidle")
+    suite.page.wait_for_timeout(1100)
 
 
-def check(name: str, ok: bool, detail: str = "") -> bool:
-    print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"  {detail}" if detail and not ok else ""))
-    return ok
+
+def launch(p, headless: bool = True):
+    """Chrome when asked for (or when it is what is installed), chromium in CI.
+
+    Local dev has Chrome and no Playwright-managed chromium; the CI job installs
+    chromium and has no Chrome channel. KESTREL_TEST_BROWSER picks.
+    """
+    want = os.environ.get("KESTREL_TEST_BROWSER", "chrome").lower()
+    if want == "chromium":
+        return p.chromium.launch(headless=headless)
+    try:
+        return p.chromium.launch(channel="chrome", headless=headless)
+    except Exception:  # noqa: BLE001 - fall back to whatever is installed
+        return p.chromium.launch(headless=headless)
 
 
-def run_checks(page: Page, base: str) -> list[str]:
-    """Run all UI checks against the React app. Returns list of failures."""
-    failures: list[str] = []
-    errors: list[str] = []
+class Suite:
+    def __init__(self, page: Page) -> None:
+        self.page = page
+        self.failures: list[str] = []
+        self.console: list[str] = []
+        self.requests: list[str] = []
+        page.on("console", lambda m: self.console.append(m.text) if m.type == "error" else None)
+        page.on("pageerror", lambda e: self.console.append(str(e)))
+        page.on("request", lambda r: self.requests.append(f"{r.method} {r.url}"))
 
-    def track(name: str, ok: bool, detail: str = "") -> None:
-        if not check(name, ok, detail):
-            failures.append(name)
+    # ---- reporting -------------------------------------------------------
+    def check(self, name: str, ok: bool, detail: str = "") -> bool:
+        print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"  — {detail}" if detail and not ok else ""))
+        if not ok:
+            self.failures.append(name)
+        return ok
 
-    page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
-    page.on("pageerror", lambda exc: errors.append(str(exc)))
+    def section(self, title: str) -> None:
+        print(f"[{title}]")
 
-    # ---- Chat view (default) ----
-    print("[chat]")
-    page.goto(base, wait_until="networkidle")
+    def console_clean(self, label: str) -> None:
+        real = [c for c in self.console if "Failed to load resource" not in c]
+        self.check(f"console clean ({label})", not real, "; ".join(real[:3]))
+        self.console.clear()
+
+    def asked(self, needle: str) -> bool:
+        return any(needle in r for r in self.requests)
+
+    # ---- routing ---------------------------------------------------------
+    def intercept(self) -> None:
+        page = self.page
+        page.route("**/api/ask*", lambda route: route.fulfill(
+            status=200, content_type="application/x-ndjson", body=ASK_STREAM))
+        page.route("**/api/chats", lambda route: (
+            route.fulfill(status=200, content_type="application/json",
+                          body=json.dumps({"ok": True}))
+            if route.request.method == "POST" else route.continue_()
+        ))
+        page.route("**/api/chats/smoke-restore", lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body=json.dumps({"ok": True, "chat": {"id": "smoke-restore", "turns": RESTORED_TURNS}})))
+        page.route("**/api/actions/draft", lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body=json.dumps({"ok": True, "draft": {
+                "to": "tomas@bluepeak.example",
+                "subject": "Bluepeak renewal",
+                "body": "Hi Tomás,\n\nStatus per the SLA."}})))
+        page.route("**/api/actions/send", lambda route: route.fulfill(
+            status=503, content_type="application/json",
+            body=json.dumps({"detail": "Email sending is not configured."})))
+        page.route("**/api/brains", lambda route: (
+            route.fulfill(status=200, content_type="application/json",
+                          body=json.dumps({"ok": True, "documents": 1, "appended": True,
+                                           "ingested": [{"name": "notes.txt", "ok": True}]}))
+            if route.request.method == "POST" else route.continue_()
+        ))
+        page.route("**/api/brains/*/events*", lambda route: route.fulfill(
+            status=200, content_type="application/x-ndjson",
+            body=json.dumps({"stage": "poll", "state": "INGESTING"}) + "\n"
+                 + json.dumps({"stage": "ready"}) + "\n"))
+
+
+def section_chat(suite: Suite, base: str) -> None:
+    page = suite.page
+    reset(suite, base)
+    page = suite.page
+    suite.section("chat / ask")
+    suite.check("react shell served", page.locator("#root").count() == 1)
+    suite.check("composer present", page.locator("textarea#q").is_visible())
+    suite.check("sidebar present", page.locator('aside[aria-label="Kestrel navigation"]').is_visible())
+    suite.check("sliding rail mounted", page.locator(".sb-slide").count() == 1)
+
+    page.locator(".chip").first.click()
+    page.wait_for_timeout(250)
+    suite.check("starter chip fills the composer", bool(page.input_value("#q").strip()))
+    page.fill("#q", "")
+
+    page.fill("#q", "Why is the Bluepeak renewal at risk?")
+    page.press("#q", "Enter")
     page.wait_for_timeout(1500)
 
-    # Sidebar must be present
-    sidebar = page.locator('aside[aria-label="Kestrel navigation"]')
-    track("sidebar visible", sidebar.is_visible())
+    suite.check("user turn appears", page.locator(".turn.user").count() >= 1)
+    suite.check("bot turn appears immediately", page.locator(".turn.bot").count() >= 1)
+    suite.check("answer rendered",
+                "Bluepeak renewal" in (page.locator(".turn.bot .bubble").last.text_content() or ""))
+    steps = page.locator(".turn.bot .w-step")
+    suite.check("working log has the engine's steps", steps.count() >= 2, f"{steps.count()} steps")
+    suite.check("step durations measured", "·" in (steps.first.text_content() or ""))
+    suite.check("citation chips rendered", page.locator(".turn .srcs button").count() >= 1)
+    acts = page.locator(".turn.bot .msg-acts button")
+    suite.check("message actions present", acts.count() >= 3, f"{acts.count()} actions")
+    suite.check("working log collapsed after done", page.locator(".working.collapsed").count() >= 1)
+    page.locator(".working-head").first.click()
+    page.wait_for_timeout(250)
+    suite.check("working log re-expands on click",
+                "collapsed" not in (page.locator(".working").first.get_attribute("class") or "collapsed"))
+    page.locator(".working-head").first.click()
+    page.wait_for_timeout(200)
 
-    # Composer must be present (legacy form#f bar-card anatomy)
-    textarea = page.locator("textarea#q")
-    track("composer textarea visible", textarea.is_visible())
+    suite.check("conversation saved", any(
+        r.startswith("POST") and "/api/chats" in r for r in suite.requests))
+    suite.check("URL remembers the chat", "chat=" in page.url)
+    suite.check("?new=1 cleared from the URL", "new=1" not in page.url)
+    suite.console_clean("ask")
 
-    # Send button must be present
-    send_btn = page.locator('button[aria-label="Send"], button[aria-label="Stop generating"]')
-    track("send button visible", send_btn.count() > 0)
+def section_source_modal(suite: Suite, base: str) -> None:
+    page = suite.page
+    reset(suite, base)
+    page = suite.page
+    # ---------------------------------------------------------------- source modal
+    suite.section("source modal")
+    page.locator(".turn .srcs button").first.click()
+    page.wait_for_timeout(900)
+    modal = page.locator("#source-modal")
+    suite.check("modal opens", modal.is_visible())
+    suite.check("modal names the document", SOURCE_DOC in (page.locator("#src-name").text_content() or ""))
+    suite.check("origin line shown", "corpus" in (page.locator("#src-where").text_content() or "").lower())
+    suite.check("cited passage highlighted", page.locator("#source-modal mark").count() >= 1)
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(300)
+    suite.check("Escape closes the modal", not modal.is_visible())
+    page.locator(".turn .srcs button").first.click()
+    page.wait_for_timeout(800)
+    page.mouse.click(20, 20)
+    page.wait_for_timeout(300)
+    suite.check("backdrop click closes the modal", not modal.is_visible())
+    suite.console_clean("source modal")
 
-    # Brain selector must be present (legacy #brainswitch)
-    brain_btn = page.locator("#brainswitch")
-    track("brain selector visible", brain_btn.count() > 0)
-
-    # Suggestion chips must be present (legacy DEMO starters on landing)
-    chips = page.locator(".chip")
-    bluepeak_chip = page.locator('.chip:has-text("Bluepeak")')
-    track("suggestion chips visible", chips.count() >= 3 and bluepeak_chip.count() >= 1,
-          f"chips={chips.count()} bluepeak={bluepeak_chip.count()}")
-
-    # Sidebar nav items (legacy .nav-item anchors)
-    for label in ["New chat", "New brain", "Brains"]:
-        btn = page.locator(f'.nav-item:has-text("{label}")').first
-        track(f'sidebar nav item "{label}"', btn.count() > 0)
-
-    # Chats view/sort pop opens from the chats head (legacy #sb-viewmenu)
-    page.click('.head-btn')
-    viewmenu_visible = page.locator("#sb-viewmenu").is_visible()
-    track("chats view/sort menu opens", viewmenu_visible)
-    if viewmenu_visible:
-        page.keyboard.press("Escape")
-        page.click("#home")  # dismiss (pop closes on outside click)
-
-    # Click every safe button and verify no errors. Locators re-resolve live,
-    # so a button the app's own state has hidden (e.g. home chips unmount once
-    # an ask moves the app into the thread view) is skipped, not a failure.
-    all_buttons = page.locator('button:visible')
-    clicked = 0
-    threw = 0
-    for i in range(all_buttons.count()):
-        btn = all_buttons.nth(i)
-        try:
-            if not btn.is_visible():
-                continue
-            if btn.is_disabled():
-                continue
-            text = (btn.text_content() or "").strip()
-            aria = btn.get_attribute("aria-label") or ""
-            full = f"{text} {aria}"
-            if any(s in full for s in SKIP_TEXTS):
-                continue
-            if not text and not aria:
-                continue
-            btn.click(timeout=3000)
-            clicked += 1
-        except Exception:
-            threw += 1
-
-    track("no click threw", threw == 0, f"{threw} threw out of {clicked}")
-    track("console clean (chat)", not errors, "; ".join(errors[:3]))
-
-    # ---- Connectors view ----
-    print("[connectors]")
-    errors.clear()
-    page.goto(f"{base}/?view=connectors", wait_until="networkidle")
+def section_draft_box(suite: Suite, base: str) -> None:
+    page = suite.page
+    reset(suite, base)
+    page = suite.page
+    # ---------------------------------------------------------------- draft
+    suite.section("draft box")
+    page.locator('.turn.bot .msg-acts button[title*="mail" i]').last.click()
+    page.wait_for_timeout(900)
+    draft = page.locator("#draft textarea")
+    suite.check("draft box opens", draft.count() >= 1)
+    suite.check("draft body prefilled",
+                "Status per the SLA" in (draft.input_value() if draft.count() else ""))
+    page.locator("#draft button", has_text="Send").first.click()
     page.wait_for_timeout(1000)
+    toasts = page.locator("[data-sonner-toast]")
+    toast_text = " ".join(toasts.all_text_contents()) if toasts.count() else ""
+    suite.check("send failure quotes the server", "not configured" in toast_text,
+                toast_text[:120] or "no toast")
+    page.locator("#draft button", has_text="Close").first.click()
+    page.wait_for_timeout(300)
+    suite.console_clean("draft")
 
-    # The Connectors view itself (the sidebar no longer carries a Connectors
-    # button — legacy parity; it lives in the gear menu in clerk mode).
-    connectors_head = page.locator('h1:has-text("Connectors")')
-    track("connectors view renders", connectors_head.count() > 0)
+def section_files_sheet(suite: Suite, base: str) -> None:
+    page = suite.page
+    # The demo brain is deliberately read-only; uploads need a brain that accepts documents.
+    reset(suite, base + "/?brain=kestrel_full")
+    page = suite.page
+    # ---------------------------------------------------------------- files sheet
+    suite.section("files sheet")
+    page.click("#menu2-toggle")
+    page.wait_for_timeout(250)
+    page.locator("#menu2 button", has_text="Add documents").first.click()
+    page.wait_for_timeout(400)
+    sheet = page.locator("#files-sheet")
+    suite.check("sheet opens from the ⋯ menu", sheet.is_visible())
+    suite.check("drop zone present", page.locator("#files-sheet .drop").count() == 1)
+    page.set_input_files("#file-input", {"name": "notes.txt", "mimeType": "text/plain",
+                                         "buffer": b"Bluepeak notes"})
+    page.wait_for_timeout(300)
+    suite.check("picked file listed", page.locator("#filelist li").count() >= 1)
+    page.click("#files-go")
+    page.wait_for_timeout(1600)
+    suite.check("per-file verdict from the server",
+                "added" in (page.locator("#filelist").text_content() or ""))
+    suite.check("pipeline reported",
+                "complete" in (page.locator("#pipeline").text_content() or "").lower())
+    page.click("#files-close")
+    page.wait_for_timeout(300)
+    suite.console_clean("files sheet")
 
-    # Click buttons in connectors view
-    conn_buttons = page.locator('button:visible')
-    conn_clicked = 0
-    conn_threw = 0
-    for i in range(conn_buttons.count()):
-        btn = conn_buttons.nth(i)
-        try:
-            if not btn.is_visible():
-                continue
-            if btn.is_disabled():
-                continue
-            text = (btn.text_content() or "").strip()
-            aria = btn.get_attribute("aria-label") or ""
-            full = f"{text} {aria}"
-            if any(s in full for s in SKIP_TEXTS):
-                continue
-            if not text and not aria:
-                continue
-            btn.click(timeout=3000)
-            conn_clicked += 1
-        except Exception:
-            conn_threw += 1
+def section_composer_menus_keyboard(suite: Suite, base: str) -> None:
+    page = suite.page
+    reset(suite, base)
+    page = suite.page
+    # ---------------------------------------------------------------- menus + keyboard
+    suite.section("composer menus / keyboard")
+    page.click("#brainswitch")
+    page.wait_for_timeout(300)
+    suite.check("brain menu opens", page.locator("#brainmenu").is_visible())
+    suite.check("brain menu lists options", page.locator("#brainmenu button").count() >= 1)
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(250)
+    suite.check("Escape closes the brain menu", not page.locator("#brainmenu").is_visible())
 
-    track("connectors: no click threw", conn_threw == 0, f"{conn_threw} threw")
-    track("console clean (connectors)", not errors, "; ".join(errors[:3]))
+    page.click("#menu2-toggle")
+    page.wait_for_timeout(250)
+    menu2 = page.locator("#menu2")
+    suite.check("⋯ menu opens", menu2.is_visible())
+    suite.check("question count shown", "question" in (menu2.text_content() or "").lower())
+    suite.check("export items present", page.locator("#export-md").count() == 1)
+    page.locator("#clear-chat").click()
+    page.wait_for_timeout(250)
+    suite.check("clear arms before acting",
+                "Really clear" in (page.locator("#clear-chat").text_content() or ""))
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(300)
 
-    # ---- Graph view ----
-    print("[graph]")
-    errors.clear()
-    page.goto(f"{base}/?view=graph", wait_until="networkidle")
+    page.fill("#q", "first line")
+    page.press("#q", "Shift+Enter")
+    page.wait_for_timeout(200)
+    suite.check("Shift+Enter inserts a newline", "\n" in page.input_value("#q"))
+    turns_before = page.locator(".turn").count()
+    page.press("#q", "Enter")
+    page.wait_for_timeout(1200)
+    suite.check("Enter sends", page.locator(".turn").count() > turns_before)
+    suite.console_clean("menus")
+
+def section_brains_page(suite: Suite, base: str) -> None:
+    page = suite.page
+    reset(suite, base + "/?view=brains")
+    page = suite.page
+    # ---------------------------------------------------------------- brains page
+    suite.section("brains page")
+    page.goto(base + "/?view=brains", wait_until="networkidle")
     page.wait_for_timeout(1500)
+    suite.check("brains page renders", page.locator("h1", has_text="Brains").count() == 1)
+    rows = page.locator('ul[aria-label="Brain list"] li')
+    suite.check("brain rows listed", rows.count() >= 1, f"{rows.count()} rows")
+    if rows.count():
+        suite.check("live graph stats shown", "nodes" in (rows.first.text_content() or ""))
+    del_btn = page.locator("button", has_text="Delete").first
+    if del_btn.count():
+        del_btn.click()
+        page.wait_for_timeout(250)
+        suite.check("delete arms first", "Confirm" in (del_btn.text_content() or ""))
+    suite.console_clean("brains")
 
-    # GraphView renders an SVG or canvas
-    graph_svg = page.locator('svg, canvas')
-    track("graph view renders", graph_svg.count() > 0)
+def section_deep_links_history(suite: Suite, base: str) -> None:
+    page = suite.page
+    reset(suite, base)
+    page = suite.page
+    # ---------------------------------------------------------------- deep links + history
+    suite.section("deep links / history")
+    page.goto(base + "/?view=graph", wait_until="networkidle")
+    page.wait_for_timeout(1000)
+    suite.check("graph view renders", page.locator("svg").count() >= 1)
+    page.go_back()
+    page.wait_for_timeout(1200)
+    suite.check("Back returns to the chat view", page.locator("textarea#q").is_visible())
+    page.go_forward()
+    page.wait_for_timeout(1000)
+    suite.check("Forward returns to the graph view", "graph" in page.url)
+    page.goto(base + "/?chat=smoke-restore", wait_until="networkidle")
+    page.wait_for_timeout(1500)
+    suite.check("restored chat renders its turns", page.locator(".turn").count() >= 2)
+    suite.check("restored turn keeps its working log", page.locator(".turn.bot .w-step").count() >= 1)
+    suite.check("restored attachment rendered", page.locator(".turn.user .atts .att").count() >= 1)
+    suite.check("restored bot turn has its citation", page.locator(".turn .srcs button").count() >= 1)
+    suite.console_clean("deep links")
 
-    track("console clean (graph)", not errors, "; ".join(errors[:3]))
+SECTIONS = [
+    ("chat / ask", section_chat),
+    ("source modal", section_source_modal),
+    ("draft box", section_draft_box),
+    ("files sheet", section_files_sheet),
+    ("composer menus / keyboard", section_composer_menus_keyboard),
+    ("brains page", section_brains_page),
+    ("deep links / history", section_deep_links_history),
+]
 
-    # ---- Deep-link restore ----
-    print("[deep-link]")
-    errors.clear()
-    page.goto(f"{base}/?view=chat", wait_until="networkidle")
-    page.wait_for_timeout(500)
-    # Verify the app is still functional after navigation
-    track("app alive after navigation", textarea.is_visible())
 
-    return failures
+def run(suite: Suite, base: str) -> None:
+    for name, fn in SECTIONS:
+        try:
+            fn(suite, base)
+        except Exception as exc:  # noqa: BLE001 - one broken section must not
+            # hide the others: report it and keep going.
+            suite.check(f"{name}: section completed", False, str(exc).splitlines()[0][:180])
+            suite.console.clear()
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="React UI smoke test")
+    parser = argparse.ArgumentParser(description="React UI acceptance suite")
     parser.add_argument("--base", default=None, help="base URL (default: auto-detect)")
-    parser.add_argument("--headful", action="store_true", help="show browser window")
+    parser.add_argument("--headful", action="store_true")
     args = parser.parse_args()
 
     base = args.base
     if not base:
-        # Try to detect React frontend
         result = os.popen("python3 detect_frontend.py --json 2>/dev/null").read()
         try:
             data = json.loads(result)
-            if data["verdict"] == "react":
-                # Find which port
-                for port, info in data["ports"].items():
-                    if info["frontend"] == "react":
-                        base = f"http://127.0.0.1:{port}"
-                        break
+            for port, info in data.get("ports", {}).items():
+                if info.get("frontend") == "react":
+                    base = f"http://127.0.0.1:{port}"
+                    break
         except (json.JSONDecodeError, KeyError):
             pass
-
     if not base:
-        print("No React frontend detected. Start it with:")
-        print("  cd frontend && npm run dev")
-        print("Or pass --base explicitly.")
+        print("No React frontend detected. Start it with `python3 app.py` "
+              "(KESTREL_UI=react) or `cd frontend && npm run dev`, or pass --base.")
         return 1
 
-    print(f"React UI smoke test — {base}\n")
-
+    print(f"React UI acceptance suite — {base}\n")
     with sync_playwright() as p:
-        # channel="chrome": this Mac has no Playwright-managed chromium; the
-        # parity scripts (parity_shots.py) use the same channel.
-        browser = p.chromium.launch(channel="chrome", headless=not args.headful)
-        page = browser.new_page(viewport={"width": 1440, "height": 1000})
-
+        browser = launch(p, headless=not args.headful)
+        page = browser.new_page(viewport={"width": VIEW_SIZES["desktop"][0],
+                                          "height": VIEW_SIZES["desktop"][1]})
+        suite = Suite(page)
+        suite.intercept()
         try:
-            failures = run_checks(page, base)
+            run(suite, base)
         finally:
             browser.close()
 
     print()
-    if failures:
-        print(f"{len(failures)} FAILED: " + ", ".join(failures))
+    if suite.failures:
+        print(f"{len(suite.failures)} FAILED: " + ", ".join(suite.failures))
         return 1
-    print("All views clean: every control clicked, zero console errors.")
+    print("All sections clean: ask, citations, draft, files, menus, keyboard, "
+          "deep links and history — zero console errors.")
     return 0
 
 

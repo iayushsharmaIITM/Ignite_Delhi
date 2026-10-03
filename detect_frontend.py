@@ -24,6 +24,15 @@ TIMEOUT = 3
 REACT_MARKERS = ('id="root"', "vite", "/src/main.tsx")
 LEGACY_MARKERS = ("ui.js", "auth.js", "shell.css")
 
+# A SERVED React build (python app.py, KESTREL_UI=react) looks different from the
+# Vite dev server: no /@vite/client, no main.tsx — a hashed bundle under /assets.
+# Missing this was why the detector reported "legacy" while React was live.
+SERVED_REACT_MARKERS = ('id="root"', "/assets/index-")
+
+# The dev server ports we actually see. 5174 is the documented local port
+# (ops/docs use it); 5173 is Vite's default.
+DEFAULT_PORTS = [5174, 5173, 8000]
+
 
 def probe_port(port: int) -> dict:
     """Fetch a port and return {reachable, headers, html_snippet}."""
@@ -57,6 +66,10 @@ def classify(port: int, data: dict) -> str | None:
 
     if has_root and (has_vite_header or has_main_tsx):
         return "react"
+    # a built bundle served by the backend at "/"
+    if has_root and all(m in html_lower for m in SERVED_REACT_MARKERS) \
+            and not (has_ui_js or has_auth_js):
+        return "react"
     if (has_ui_js or has_auth_js) and has_shell_css:
         return "legacy"
     # Fallback: if only one marker set is present
@@ -69,7 +82,7 @@ def classify(port: int, data: dict) -> str | None:
 
 def detect(preferred_port: int | None = None) -> dict:
     """Probe both ports and return a verdict dict."""
-    ports_to_probe = [preferred_port] if preferred_port else [5173, 8000]
+    ports_to_probe = [preferred_port] if preferred_port else DEFAULT_PORTS
     results: dict[int, dict] = {}
     verdicts: dict[int, str | None] = {}
 
@@ -111,8 +124,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Detect which Kestrel frontend is live")
     parser.add_argument("--json", action="store_true", help="output JSON")
     parser.add_argument("--port", type=int, default=None, help="probe a specific port only")
+    parser.add_argument("--ports", default=None,
+                        help="comma-separated ports to probe (default: 5174,5173,8000)")
     args = parser.parse_args()
 
+    if args.ports:
+        global DEFAULT_PORTS
+        DEFAULT_PORTS = [int(p) for p in args.ports.split(",") if p.strip()]
     result = detect(preferred_port=args.port)
 
     if args.json:

@@ -113,18 +113,24 @@ def owner_identity() -> tuple[str, str]:
     """The org/user that owns the demo brain in the lab DB.
 
     Authorization is fail-closed: a brain with no access row 403s for everyone,
-    so a made-up org would test the deny path, not the allow path.
+    so a made-up org would test the deny path, not the allow path. A fresh lab
+    database (CI starts from one) has no rows at all, so seed one — the gate is
+    about whether a signed token is accepted, not about who did the backfill.
     """
     with psycopg.connect(DATABASE_URL, row_factory=psycopg.rows.dict_row) as c, c.cursor() as cur:
         row = cur.execute(
             "select org_id, created_by from brain_access "
             "where brain = 'company_brain' limit 1"
         ).fetchone()
-    if not row or not row["org_id"]:
-        print("REFUSING: no brain_access row for company_brain in the lab DB — "
-              "run the backfill/seed first; the allow path cannot be tested.")
-        sys.exit(2)
-    return row["org_id"], row["created_by"] or "user_test"
+        if not row:
+            row = cur.execute(
+                "insert into brain_access (brain, org_id, created_by, is_shared) "
+                "values ('company_brain', 'org_gate', 'user_gate', false) "
+                "on conflict (brain) do update set org_id = excluded.org_id "
+                "returning org_id, created_by"
+            ).fetchone()
+            print("seeded a brain_access row for company_brain (lab DB was empty)")
+    return row["org_id"], row["created_by"] or "user_gate"
 
 
 def token(org_id: str, user_id: str, ttl: int = 600) -> str:
@@ -175,10 +181,14 @@ def run_browser(signed_in: bool, jwt_token: str, failures: list[str]) -> dict:
     result: dict = {}
 
     with sync_playwright() as p:
-        try:
-            browser = p.chromium.launch(channel="chrome", headless=True)
-        except Exception:  # noqa: BLE001 - fall back to the bundled chromium
+        want = os.environ.get("KESTREL_TEST_BROWSER", "chrome").lower()
+        if want == "chromium":
             browser = p.chromium.launch(headless=True)
+        else:
+            try:
+                browser = p.chromium.launch(channel="chrome", headless=True)
+            except Exception:  # noqa: BLE001 - fall back to whatever is installed
+                browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
         page.add_init_script(f"({CLERK_STUB})({{ token: {json.dumps(jwt_token)} }})")
 
@@ -291,10 +301,11 @@ def in_process_contract(good: str) -> tuple[int, int]:
 
 def main() -> int:
     failures: list[str] = []
+    # Import the app first: storage.init() creates the schema on a fresh lab DB,
+    # which owner_identity() may then need to seed.
+    print("[contract] in-process, auth.inject_jwks_for_test")
     org_id, user_id = owner_identity()
     good_token = token(org_id, user_id)
-
-    print("[contract] in-process, auth.inject_jwks_for_test")
     with_token, without = in_process_contract(good_token)
     print(f"  /api/brains with a signed token: {with_token} | without: {without}")
     if with_token != 200:

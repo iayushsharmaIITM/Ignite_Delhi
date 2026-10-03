@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { apiFetch } from "@/lib/api"
 import { t } from "@/lib/i18n"
 
@@ -26,6 +26,10 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
   const [pipeline, setPipeline] = useState("")
   const [done, setDone] = useState("")
   const [busy, setBusy] = useState(false)
+  // Legacy re-renders the rows, applies the verdicts and leaves them visible
+  // (index.html:2106-2111) — the port cleared `picked` on success, so the
+  // "added/failed" verdicts vanished exactly when they mattered.
+  const [uploaded, setUploaded] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const addPicked = (list: FileList | null) => {
     if (!list?.length) return
@@ -43,6 +47,16 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
     // (legacy accumulates, index.html:2044-2059).
     setNotes((prev) => [...prev, ...newNotes])
   }
+
+  // A fresh open starts clean; until then the last run's verdicts stay readable.
+  useEffect(() => {
+    if (open) return
+    setPicked([])
+    setNotes([])
+    setPipeline("")
+    setDone("")
+    setUploaded(false)
+  }, [open])
 
   const upload = async () => {
     if (!picked.length || !brain || busy) return
@@ -84,7 +98,7 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
           (data.appended ? `Added to “${brain}”` : `Brain “${brain}” updated`) +
             ` — ${data.documents} document(s) in this brain. Ask away.`,
         )
-        setPicked([])
+        setUploaded(true)
         onAdded?.()
       } else {
         setPipeline("")
@@ -173,7 +187,7 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
           <div className="pipeline" id="pipeline">{pipeline}</div>
           <div className="done" id="files-done">{done}</div>
           <div className="cta">
-            <button type="button" id="files-go" disabled={!picked.length || !brain || busy} onClick={upload}>
+            <button type="button" id="files-go" disabled={!picked.length || !brain || busy || uploaded} onClick={upload}>
               {t("files.add", "Add to brain")}
             </button>
           </div>

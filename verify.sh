@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # The single battery entrypoint (BUILD_PLAN.md section 2.2).
 #
-#   ./verify.sh           full battery, including the browser UI smoke test
-#   ./verify.sh --quick   skip check_ui.py (no browser / CI boxes)
+#   ./verify.sh           full battery, including the React UI acceptance suite
+#   ./verify.sh --quick   skip the browser suites (no browser / CI fast lane)
+#   KESTREL_CLERK_GATE=1 DATABASE_URL=<lab 5434> ./verify.sh   + clerk-mode gate
 #
 # Exit 0 = every suite green. The app tier is started here with PROVIDER=mock
 # forced, so the battery never depends on the Cognee tenant being up. An env
@@ -102,16 +103,55 @@ else
   FAILS=$((FAILS + 1))
 fi
 
-# --- 6. UI smoke --------------------------------------------------------------
-if [ "$QUICK" -eq 1 ]; then
-  note ui "SKIP  (--quick)"
+# --- 6. frontend static gates (no browser) -----------------------------------
+# The transport invariant (every /api call authenticated, one code path) and the
+# CSS-utility invariant (no class that emits nothing). Both are cheap and both
+# exist because the port shipped with the opposite of each.
+if python3 tests/test_frontend_api_transport.py > /tmp/kestrel_verify_fe_transport.log 2>&1; then
+  note frontend-transport "PASS"
 else
-  if python3 check_ui.py > /tmp/kestrel_verify_ui.log 2>&1; then
-    note ui "PASS"
+  note frontend-transport "FAIL — see /tmp/kestrel_verify_fe_transport.log"
+  FAILS=$((FAILS + 1))
+fi
+if python3 tests/test_frontend_css_utilities.py > /tmp/kestrel_verify_fe_css.log 2>&1; then
+  note frontend-css "PASS"
+else
+  note frontend-css "FAIL — see /tmp/kestrel_verify_fe_css.log"
+  FAILS=$((FAILS + 1))
+fi
+
+# --- 7. React UI acceptance suite (browser) -----------------------------------
+# Drives the SERVED bundle: ask/stream/citations/source modal/files sheet/draft/
+# menus/keyboard/deep links/history, with the model calls intercepted. This is
+# the suite that proves the frontend the product hands a browser actually works.
+# check_ui.py (the pre-port legacy suite) was retired here: it depended on a
+# playwright-cli binary that no longer exists, drove webkit, and the legacy shell
+# is now reachable only via KESTREL_UI=legacy — smoke.py still covers its pages
+# over HTTP. See docs/FRONTEND_FIX_PLAN.md D2.
+if [ "$QUICK" -eq 1 ]; then
+  note ui-react "SKIP  (--quick)"
+else
+  if python3 check_ui_react.py --base "$BASE" > /tmp/kestrel_verify_ui_react.log 2>&1; then
+    note ui-react "PASS"
   else
-    note ui "FAIL — see /tmp/kestrel_verify_ui.log"
+    note ui-react "FAIL — see /tmp/kestrel_verify_ui_react.log"
     FAILS=$((FAILS + 1))
   fi
+fi
+
+# --- 8. Clerk-mode gate (optional: needs the lab database + a browser) --------
+# Proves the app works in the LIVE auth configuration, with a control run that
+# must 401. Opt-in because it boots its own app on its own port and writes to the
+# lab DB (it refuses anything that is not port 5434).
+if [ "${KESTREL_CLERK_GATE:-0}" = "1" ]; then
+  if python3 tests/test_react_clerk.py > /tmp/kestrel_verify_clerk.log 2>&1; then
+    note clerk-gate "PASS"
+  else
+    note clerk-gate "FAIL — see /tmp/kestrel_verify_clerk.log"
+    FAILS=$((FAILS + 1))
+  fi
+else
+  note clerk-gate "SKIP  (set KESTREL_CLERK_GATE=1 with DATABASE_URL=<lab> to run)"
 fi
 
 echo "== done: $FAILS failing suite(s) =="
