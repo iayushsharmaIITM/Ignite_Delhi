@@ -966,11 +966,27 @@ export default function App() {
   }
   const handleBrainChange = (b: string) => {
     if (b === "__upload__") { setCreateOpen(true); return }
+    // CH-14: the conversation on screen belongs to the brain it was asked in.
+    // Nothing cleared it, so switching brains left brain A's thread visible
+    // under brain B — and the next save filed that conversation into B. An
+    // in-flight answer made it worse: its chunks kept writing into the thread
+    // the user had just abandoned. The switcher's own confirm text promises
+    // "this starts a fresh chat"; now the code does it.
+    ;(window as unknown as { CONTROLLER?: AbortController }).CONTROLLER?.abort()
+    // -1 makes every write from the abandoned ask a no-op (setBotText checks the
+    // index before touching a turn), so a late chunk cannot reappear anywhere.
+    botIdxRef.current = -1
+    // Cleared on the ref as well as in state: the aborted ask's save effect can
+    // fire before React commits setTurns([]), and a stale turnsRef would have
+    // filed brain A's conversation under brain B with a brand-new id.
+    turnsRef.current = []
+    setTurns([])
     setChatId(null)
     openView("chat")
     setBrain(b)
     const u = new URL(location.href)
     u.searchParams.set("brain", b)
+    u.searchParams.delete("chat")
     history.pushState(null, "", u)
   }
   const openChat = async (id: string, chatBrain?: string) => {

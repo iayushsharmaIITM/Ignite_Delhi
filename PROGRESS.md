@@ -1,3 +1,82 @@
+## Cutover finished and audit Round 2 closed 2026-10-04
+
+Continued the handover below. The platform is now the built React app on `:8000`
+and every Round 2 defect is fixed with a check that fails if the guard is removed.
+
+**Migrations, deliberately.** Live `:5433` went `0003 → 0004 → 0005` with a
+`pg_dump` before each (Homebrew's `pg_dump` is v14 against a v17 server, so the
+dump runs inside the container). Alembic needs `DATABASE_URL` exported: `env.py`
+only rewrites the DSN to the `psycopg` dialect when that variable is set, and
+`psycopg2` is not installed — pointing at `alembic.ini` alone dies on import.
+`0005_chat_tombstones` is new from this pass. Lab (`:5434`) was migrated first
+and everything below was rehearsed there.
+
+**Round 2 (CH-1…CH-13) — closed.** The headline is CH-1: a chat save rewrites
+`turns` wholesale while both clients sent only their last 60 turns, so the 61st
+message deleted turns 1..60 silently and permanently. Now a save carrying fewer
+turns than the database holds is refused (409) unless it *declares* a trim, both
+clients send the whole conversation, and the cap comes from `/api/config` so the
+server's number and the client's number cannot drift apart again. Deletions are
+remembered (`deleted_chats`): a POST with a deleted id gets 410 Gone and the
+client moves the conversation to a fresh id instead of resurrecting the one the
+user threw away. `DELETE` answers 404 when it removed no rows, which is what the
+route's own comment always claimed. Filing a chat under a brain is now a brain
+access like every other write. `_ts` accepts the ISO string the server itself
+returns, so restored turns keep their real times. The list reports `total` and
+`truncated`. `get_chat` reads chat and turns in one transaction, and a psycopg
+error on any chat route is a 503 that also clears the cached availability verdict
+instead of becoming a 500.
+
+**CH-4 and CH-13 were found in the browser, not in the code.** At 1440 the chat
+row's left 34px belonged to the row rather than the link (clicks vanished while
+the cursor promised a pointer) and the invisible delete button still hit-tested,
+so a mobile tap there armed delete instead of opening. Fixing the padding
+exposed CH-13: `openChat` wrote `?chat=` without clearing `?view=`, so opening a
+chat from another view left a contradictory URL and a reload dropped the user
+back on Brains with the conversation invisible — the exact symptom the owner
+reported, and the defect the crashed client audit had reproduced but never
+filed. Both are now locked: four new gates in `check_ui_react.py`, and the
+owner's two symptoms pass end to end (open a chat from Brains → survives a
+reload; delete → it does not come back).
+
+**Verification.** New `tests/test_chat_integrity.py` (19 checks) wired into
+`verify.sh` as `[chat-integrity]` — lab-only because it writes rows, cleaning up
+after itself. Battery with `KESTREL_CLERK_GATE=1` on the lab database: documents
+25/25, pipe-states 13/13, connectors 90/90, tenants 10/10, smoke 4/4,
+frontend-transport, frontend-css, chat-integrity, ui-react, clerk-gate — 0
+failing. `test_auth_isolation.py` had to become re-runnable: durable tombstones
+made its fixed fixture id collide with its own deletion on a second run.
+
+**One fix needed a second attempt**, recorded because the first looked right:
+CH-12's gate read `authMode !== "clerk"`, but the mode starts as `"unknown"`
+until `/api/config` resolves, so the prefetch still fired signed-out. Verified
+afterwards by network evidence on the live server — a signed-out load makes
+exactly one backend request, `/api/config`.
+
+That correction broke `tests/test_react_clerk.py`, and the test was the thing
+that was wrong: its single control run conflated **a session that cannot mint a
+token** (must still ask, 401, and show the server's words) with **no session at
+all** (must not ask). It now drives three profiles — token, noToken, signedOut —
+and the sidebar's signed-out state says "Sign in to see your chats" instead of
+inventing an empty history.
+
+**Browser audit tail closed, and it found one more (CH-14).** Light/dark parity
+was measured by computing real rendered contrast in the page at 1440 and 390 in
+both themes — every checked surface clears WCAG AA (worst 5.84:1 on the sidebar,
+most above 11:1) with no page errors. Mid-stream brain switching turned out to be
+a genuine data-integrity defect: `handleBrainChange` neither aborted the running
+ask nor cleared the thread, so brain A's conversation stayed on screen under
+brain B and the next save filed it into B — while the switcher's own confirm text
+promised "this starts a fresh chat". It now aborts, blanks the thread in state
+*and* on the ref (the aborted ask's save effect can fire before React commits),
+and drops the stale `?chat=`. Two new acceptance gates lock it, alongside the
+four for CH-4/CH-13.
+
+**Live state:** `:8000` serves `frontend/dist` (React) with `AUTH_MODE=clerk`,
+`/brains` and `/upload` 307 into the app, `/graph` still legacy (D-2), DB at
+`0005`. Remaining: the owner decisions below, plus the audit tail (light/dark
+parity and mid-stream brain switching have never had a browser pass).
+
 ## Session handover — React port landed, cutover unfinished 2026-10-04
 
 State at 00:32 IST. The previous working session was cut off at 00:18 by a

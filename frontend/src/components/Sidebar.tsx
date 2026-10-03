@@ -234,6 +234,11 @@ export function Sidebar({
       <div className="chat-empty err" title={chatsError}>
         {chatsError}
       </div>
+    ) : authMode === "clerk" && !signedIn ? (
+      // CH-12's corollary: with no session the app does not ask at all, so this
+      // panel must not claim the history is empty either. The honest statement
+      // is "nothing has been looked at yet", not "you have nothing".
+      <div className="chat-empty">{t("nav.sign_in_for_chats", "Sign in to see your chats")}</div>
     ) : groups.length === 0 ? (
       <div className="chat-empty">{t("nav.no_chats", "No saved chats yet")}</div>
     ) : chatView.mode === "timeline" ? (

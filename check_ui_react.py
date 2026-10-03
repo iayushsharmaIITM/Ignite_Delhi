@@ -516,6 +516,41 @@ def section_deep_links_history(suite: Suite, base: str) -> None:
                     page.url)
     else:
         suite.check("chat rows exist to click", False, "none in the sidebar")
+
+    # CH-14: switching brain mid-stream must ABANDON the old conversation, not
+    # carry it into the new brain (it used to stay visible, and the next save
+    # filed brain A's history under brain B). Needs two brains; skipped if this
+    # fixture set only has one.
+    page.goto(base + "/?new=1", wait_until="networkidle")
+    page.wait_for_timeout(1200)
+    page.fill("textarea#q", "Walk me through the Bluepeak renewal")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(1200)
+    partial = (page.locator(".bubble").last.text_content() or "").strip()
+    page.locator('[aria-label="Switch brain"]').click()
+    page.wait_for_timeout(400)
+    menu = page.locator("#brainmenu")
+    opts = menu.locator("button")
+    if menu.is_visible() and opts.count() >= 2:
+        current = (page.locator("#brainname").text_content() or "").strip()
+        idx = next((i for i in range(opts.count())
+                    if not (opts.nth(i).text_content() or "").strip().startswith(current)), None)
+        if idx is not None:
+            opts.nth(idx).click()          # arms (a live chat needs a confirm)
+            page.wait_for_timeout(300)
+            opts.nth(idx).click()          # confirms
+            page.wait_for_timeout(2500)
+            suite.check("switching brain mid-stream clears the thread",
+                        page.locator(".bubble").count() == 0,
+                        f"{page.locator('.bubble').count()} bubbles left")
+            body = page.locator("#thread-wrap").text_content() or ""
+            suite.check("the abandoned answer did not follow into the new brain",
+                        bool(partial) and partial[:40] not in body,
+                        f"leaked {partial[:40]!r}")
+        else:
+            suite.check("a second brain was offered to switch to", False, str(idx))
+    else:
+        print("  note  only one brain in this fixture set — CH-14 switch not exercised")
     suite.console_clean("deep links")
 
 SECTIONS = [

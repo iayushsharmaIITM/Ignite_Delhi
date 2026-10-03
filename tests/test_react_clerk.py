@@ -30,10 +30,13 @@ Two halves that cannot drift apart:
               own words in a .bubble.err state with the composer freed
   control   the same page with a session that cannot mint a token
             → the same requests 401 and the UI shows the server's own words
+  signedOut   and with NO session at all
+            → the app must not request anything but /api/config (CH-12), and the
+              chats panel says "sign in" rather than inventing an empty history
 
-The control is the point: without it the positive run could pass for the wrong
-reason (auth off, or a route that forgot its gate). Both runs must behave as
-described or the gate fails.
+The controls are the point: without them the positive run could pass for the
+wrong reason (auth off, or a route that forgot its gate). All three must behave
+as described or the gate fails.
 
 Runs against the LAB database only (asserts 5434) — it creates a chat, and the
 live database is not a test fixture.
@@ -157,14 +160,19 @@ def wait_for(url: str, seconds: int = 30) -> bool:
 # --------------------------------------------------------------------------
 CLERK_STUB = """
 (args) => {
-  const token = args.token;
-  const signedIn = !!token;
+  const token = args.token || "";
+  // Three shapes, because they mean different things to the app:
+  //   token      - a real session that can mint a token (the working case)
+  //   noToken    - a session that CANNOT mint one: the app must still ask, take
+  //                the 401, and show the server's own words
+  //   signedOut  - no session at all: the app must not ask in the first place
+  const hasSession = args.mode !== "signedOut";
   window.Clerk = {
     loaded: true,
-    session: signedIn ? { getToken: async () => token } : null,
-    client: { sessions: signedIn ? [{ getToken: async () => token }] : [] },
-    user: signedIn ? { firstName: 'Test', lastName: 'User',
-                       primaryEmailAddress: 'test@example.com' } : null,
+    session: hasSession ? { getToken: async () => token } : null,
+    client: { sessions: hasSession ? [{ getToken: async () => token }] : [] },
+    user: hasSession ? { firstName: 'Test', lastName: 'User',
+                         primaryEmailAddress: 'test@example.com' } : null,
     addListener() {}, openSignIn() {}, closeSignIn() {},
     signOut: async () => {}, openUserProfile() {},
   };
@@ -172,7 +180,7 @@ CLERK_STUB = """
 """
 
 
-def run_browser(signed_in: bool, jwt_token: str, failures: list[str]) -> dict:
+def run_browser(mode: str, jwt_token: str, failures: list[str]) -> dict:
     """Drive the served app; return observed API statuses + UI facts."""
     seen: dict[str, int] = {}
     bearer: dict[str, str] = {}
@@ -190,7 +198,8 @@ def run_browser(signed_in: bool, jwt_token: str, failures: list[str]) -> dict:
             except Exception:  # noqa: BLE001 - fall back to whatever is installed
                 browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
-        page.add_init_script(f"({CLERK_STUB})({{ token: {json.dumps(jwt_token)} }})")
+        page.add_init_script(f"({CLERK_STUB})({{ mode: {json.dumps(mode)}, "
+                             f"token: {json.dumps(jwt_token)} }})")
 
         def on_response(resp):
             url = resp.url
@@ -222,7 +231,7 @@ def run_browser(signed_in: bool, jwt_token: str, failures: list[str]) -> dict:
             result["bearer"] = dict(bearer)
             result["console"] = list(console)
 
-            if signed_in:
+            if mode == "token":
                 # 1. an ask streams a turn through the served bundle
                 page.fill("#q", "What is the Bluepeak renewal status?")
                 page.press("#q", "Enter")
@@ -349,7 +358,7 @@ def main() -> int:
         print(f"app up on {BASE} (AUTH_MODE=clerk, KESTREL_UI=react, PROVIDER=mock)\n")
 
         print("[positive] signing in with a real signed JWT")
-        pos = run_browser(True, good_token, failures)
+        pos = run_browser("token", good_token, failures)
         print("  api:", pos.get("api"))
         for path, expect in (("brains", 200), ("chats", 200)):
             got = pos.get("api", {}).get(path)
@@ -380,20 +389,42 @@ def main() -> int:
         if pos.get("console_after_ask"):
             failures.append(f"positive: console errors: {pos['console_after_ask'][:2]}")
 
-        print("[control] same page, a session that cannot mint a token")
-        ctl = run_browser(False, "", failures)
-        print("  api:", ctl.get("api"))
+        # A session that cannot produce a token: the app must still ask, take the
+        # 401, and quote the server. An empty list here would read as "you have
+        # nothing", which is the single most misleading state in this surface.
+        print("[noToken] same page, a session that cannot mint a token")
+        nt = run_browser("noToken", "", failures)
+        print("  api:", nt.get("api"))
         for path, expect in (("brains", 401), ("chats", 401)):
-            got = ctl.get("api", {}).get(path)
+            got = nt.get("api", {}).get(path)
             if got != expect:
-                failures.append(f"control: /api/{path} was {got}, expected {expect}")
-        # The honest-state assertion: the server's own words, not an empty list.
-        body = ctl.get("body_text", "")
+                failures.append(f"noToken: /api/{path} was {got}, expected {expect}")
+        body = nt.get("body_text", "")
         if "Clerk session token" not in body:
-            failures.append("control: the 401 was not surfaced in the UI "
+            failures.append("noToken: the 401 was not surfaced in the UI "
                             "(expected the server's own message on screen)")
         if "No saved chats yet" in body:
-            failures.append("control: still rendered the misleading empty-chats state")
+            failures.append("noToken: still rendered the misleading empty-chats state")
+
+        # CH-12's half of the same promise: with NO session there is nothing to
+        # authenticate with, so asking is a bug rather than a fallback - it put
+        # two 401s in the console on every signed-out load. The app must request
+        # nothing but /api/config, and the chats panel must say "sign in" instead
+        # of inventing an empty history.
+        print("[signedOut] no session — the app must not ask at all")
+        so = run_browser("signedOut", "", failures)
+        print("  api:", so.get("api"))
+        asked = sorted(so.get("api", {}))
+        if asked != ["config"]:
+            failures.append(f"signedOut: expected only /api/config, it asked for {asked}")
+        body = so.get("body_text", "")
+        if "No saved chats yet" in body:
+            failures.append("signedOut: claimed an empty history it never read")
+        if "Sign in" not in body:
+            failures.append("signedOut: no sign-in state was offered on screen")
+        if so.get("console"):
+            failures.append("signedOut: console errors on a signed-out load: "
+                            f"{(so.get('console') or [])[:2]}")
     finally:
         app.terminate()
         try:

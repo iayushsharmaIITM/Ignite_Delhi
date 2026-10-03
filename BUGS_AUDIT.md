@@ -1061,6 +1061,76 @@ Tier 2 shipped.
 
 # ROUND 2 — the live queue (opened 2026-10-04)
 
+## STATUS — Round 2 CLOSED (same day), audit tail excepted
+
+Every CH item below is fixed in this tree and the fix was **verified by
+execution**, not by reading:
+
+- **`tests/test_chat_integrity.py`** — 19 checks, wired into `verify.sh` as
+  `[chat-integrity]` (it writes rows, so it runs only against the lab DB and
+  removes everything it creates). Covers CH-1, CH-2, CH-3, CH-5, CH-6, CH-7,
+  CH-8, CH-9.
+- **A real-browser probe** at 1440x900 and at 390x844 with touch emulation: the
+  anchor now starts at the row's left edge (`gap=0`), every sampled offset
+  hit-tests to `a.chat-link`, the hidden delete button reports
+  `pointer-events: none` on a hover device and is visible *and* tappable at
+  opacity .45 on a touch device (CH-4) — and the owner's two symptoms pass
+  end-to-end: opening a chat from the Brains view survives a reload, and a
+  deleted chat does not come back.
+- **`./verify.sh` with `KESTREL_CLERK_GATE=1` on the lab database**: documents
+  25/25, pipe-states 13/13, connectors 90/90, tenants 10/10, smoke 4/4,
+  frontend-transport, frontend-css, **chat-integrity**, ui-react (four new
+  gates), **clerk-gate** — 0 failing suites.
+- Migrations: `0005_chat_tombstones` applied to lab and live (each preceded by a
+  `pg_dump` in `/tmp`); live is at `0005_chat_tombstones`, 7 chats intact.
+
+**CH-13 — found by this pass and fixed.** `openChat` wrote `?chat=` without
+clearing `?view=`, so opening a chat from another view left the URL
+self-contradictory: the conversation loaded while the screen stayed on Brains,
+and only a reload proved it. This is the defect the dead client audit had
+reproduced and never reported. Locked by two acceptance gates ("the stale view
+param is cleared", "the jump survives a reload").
+
+**CH-11 audit tail — closed.** The dead audit's unfinished surface (light/dark
+parity, mid-stream brain switching) was covered by this pass:
+
+- **Theme parity** measured in the page at 1440 and 390, in both themes, by
+  computing real rendered contrast: every checked surface clears WCAG AA, worst
+  case 5.84:1 (sidebar nav), most above 11:1, with no page errors in either
+  theme.
+- **Mid-stream switching** turned up CH-14, and is now gated in the acceptance
+  suite (two brains required; skipped with a printed note when the fixture set
+  has one).
+
+What remains unaudited is cosmetic rather than behavioural: the connectors shelf
+and the settings menu have never been walked in both themes at both widths.
+
+**One fix needed a second attempt, recorded because the first looked correct:**
+CH-12's gate read `authMode !== "clerk" || signedIn`, but `authMode` starts as
+`"unknown"` until `/api/config` resolves — so the prefetch still fired on every
+signed-out load. The corrected rule treats unknown as "wait". Verified by
+network evidence on the live Clerk-mode server: the only backend request on a
+signed-out load is `/api/config`, and the console holds nothing but Clerk's own
+development-mode warning.
+
+Fixing it broke `tests/test_react_clerk.py`, and on inspection the test was the
+one that had been wrong — its single "control" run conflated two different
+states:
+
+- **a session that cannot mint a token** → the app must still ask, take the 401
+  and quote the server's own words, or an unreadable history reads as an empty
+  one.
+- **no session at all** → asking is a bug, not a fallback. Nothing should be
+  requested but `/api/config`, and because the panel is no longer populated by a
+  401 it must not claim "No saved chats yet" either: a signed-out sidebar now
+  says **"Sign in to see your chats"**, which is the truth — nothing has been
+  looked at.
+
+The gate runs all three profiles now (token / noToken / signedOut) and all three
+pass, so the distinction is locked rather than re-litigated.
+
+---
+
 Chat subsystem + React shell. Provenance: the previous session was cut off at
 00:18 IST by a provider quota error while fixing exactly this area. It left two
 audits behind — a server-side chat/storage audit (15 findings, delivered but
@@ -1086,6 +1156,9 @@ TestClient on `:8020` · **[B]** reproduced in a real browser on `:8020`.
 | CH-9 | LOW | Only `text` is size-capped — `steps`/`sources`/`attachments` unbounded; `int(t["workedMs"])` on `"abc"` → 500 | `app.py:640`, `storage.py:261` | [P] |
 | CH-10 | LOW | Schema authority split: `init()` DDL duplicates 0004 verbatim, `0001_baseline` is a no-op, live DB still at `0003`; `chats.brain_id` is never created by `init()` so `ops/backfill.py` breaks on a bootstrap DB | `storage.py:80-116`, `0004:28-31`, `0002:308-311` | [R] |
 | CH-11 | OPEN TASK | The client-side bug hunt was never finished — its audit agent died mid-run. The React shell has had no complete defect pass. | — | — |
+| CH-12 | LOW | Signed-out visitors throw two console errors: the app prefetches `/api/chats?limit=500` and `/api/brains` before anyone is signed in, and both correctly 401. The authorization is right — the fetch should simply not happen when there is no session. | `lib/api.ts:148`, `useBrains` call site | [B] |
+| CH-13 | HIGH | `openChat` set `?chat=` without clearing `?view=`: opening a chat from another view left the URL contradictory, so a reload landed back on Brains with the conversation loaded but invisible. Found and fixed by this pass. | `App.tsx` `openChat` | [B] |
+| CH-14 | HIGH | Switching brain mid-stream neither aborted the ask nor cleared the thread: brain A's conversation stayed on screen under brain B, and the next save filed it into B. The switcher's own confirm text promised "this starts a fresh chat" — the code did not. Now aborts, blanks the thread (state AND the ref, so the aborted ask's save cannot resurrect it) and drops the stale `?chat=`. | `App.tsx` `handleBrainChange` | [B] |
 
 ## The owner's two reported symptoms, mapped
 
@@ -1103,6 +1176,10 @@ TestClient on `:8020` · **[B]** reproduced in a real browser on `:8020`.
    re-inserts the chat with its turn window — so the chat returns.
 
 ## Fix order (Round 2)
+
+Executed 2026-10-04 in this order; see the STATUS block above for what verifies
+each item. Step 0's "open acceptance FAIL" was itself a bug in the assertion, not
+in the app (the gate compared the whole `into <brain>` label against a row).
 
 0. **Commit the in-flight work first** — 11 files of turn-7 fixes are uncommitted
    and fragile; the turn-detail columns (`steps`/`worked_ms`/`stopped`/`error`)
