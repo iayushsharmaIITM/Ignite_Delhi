@@ -10,6 +10,11 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: pip install -r requirements.txt
+      # Every tracked file, every push. commit.sh guards the stage area locally;
+      # this is the backstop for anything that got in before that guard existed,
+      # and it fails the build rather than printing a warning.
+      - name: No secret-shaped strings in tracked files
+        run: bash ops/check_secrets.sh --all
       # The battery now includes the frontend static gates (transport invariant +
       # CSS-utility invariant) even in --quick: they need no browser and they
       # both exist because the port shipped with the opposite of each.

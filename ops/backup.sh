@@ -32,4 +32,28 @@ echo "[5/5] Integrity manifest…"
 docker exec cognee-oss sh -c 'cd / && find /app/.cognee /cognee-storage -type f | sort | xargs sha256sum 2>/dev/null | sha256sum' \
   | awk '{print "live-state-checksum: " $1}' > "$OUT/LIVE_STATE_CHECKSUM.txt"
 ls -la "$OUT" | tail -n +2
+
+# --- retention ---------------------------------------------------------------
+# A backup scheme nobody prunes turns into a full disk, and a full disk is how
+# backups stop quietly. Keep the newest KESTREL_BACKUP_KEEP (default 14) and
+# delete only timestamp-shaped directories under var/backups - the guard below
+# aborts rather than rm-ing anything if the working directory is not that path.
+KEEP="${KESTREL_BACKUP_KEEP:-14}"
+# The script already cd'd to the repo root, so this is <root>/var/backups.
+cd var/backups || { echo "retention: no var/backups directory - nothing to prune"; exit 0; }
+case "$(pwd)" in
+  */Kestrel_brains/var/backups) : ;;
+  *) echo "RETENTION ABORT: not inside var/backups (got $(pwd)) - nothing deleted"; exit 1 ;;
+esac
+TOTAL=$(ls -1d */ 2>/dev/null | wc -l | tr -d ' ')
+echo "retention: $TOTAL backup(s) present, keeping the newest $KEEP"
+if [ "$TOTAL" -gt "$KEEP" ]; then
+  ls -1d */ | head -n "$((TOTAL - KEEP))" | while read -r d; do
+    case "$d" in
+      *[0-9]T*[0-9]Z/) rm -rf -- "$d" && echo "      pruned $d" ;;
+      *) echo "      kept (unexpected name, not touching): $d" ;;
+    esac
+  done
+fi
+
 echo "BACKUP OK: $OUT"
