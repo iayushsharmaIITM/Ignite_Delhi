@@ -1,0 +1,64 @@
+// Kestrel runtime topology — current state on one laptop, plus the release paths.
+// Evidence: docs/architecture/deployment-topology.md (every node cites code/config/runtime).
+// Render: dot -Tsvg deployment-topology.dot -o topology.svg
+digraph kestrel_topology {
+  rankdir=TB;
+  fontname="Helvetica"; node [fontname="Helvetica", fontsize=11];
+  edge [fontname="Helvetica", fontsize=9];
+
+  subgraph cluster_laptop {
+    label="macOS laptop (unsupervised)"; style=dashed; color=gray50;
+
+    browser [label="Owner browser\nClerk session", shape=ellipse];
+    app  [label="Live web tier\npython3 app.py\n127.0.0.1:8000\nPROVIDER=cloud AUTH_MODE=clerk", shape=box, style=bold];
+
+    subgraph cluster_prod_containers {
+      label="compose.oss.yml"; style=rounded; color=gray60;
+      pglive [label="kestrel-db\npostgres:17\n:5433", shape=cylinder];
+      cognee [label="cognee-oss\ncognee/cognee:1.6.1\n:8888", shape=box3d];
+      langfuse [label="kestrel-langfuse\nlangfuse:2\n:3000", shape=box3d, color=gray45, fontcolor=gray35];
+      volstate [label="cognee_oss_state", shape=cylinder];
+      voldata  [label="cognee_oss_data", shape=cylinder];
+    }
+
+    backupjob [label="launchd com.kestrel.backup\nnightly 03:17 (verified)", shape=note];
+    stackjob  [label="launchd com.kestrel.stackup\nBROKEN: TCC, exit 126\n(BLOCKERS M-ops.1)", shape=note, color=red, fontcolor=red];
+    backups   [label="~/Kestrel_backups\ndb.sql + 2 volume tars\n+ SHA256SUMS", shape=folder];
+  }
+
+  tokenharbor [label="tokenharbor.ai/v1\ndeepseek :free\n(quota window!)", shape=ellipse, color=orange, fontcolor=orange];
+  clerk       [label="Clerk dev instance\nample-skink-6708 (JWKS)", shape=ellipse];
+  github      [label="GitHub Actions\nci.yml: fast + ui\n(no deploy step)", shape=component];
+
+  subgraph cluster_lab {
+    label="lab stack (compose.lab.yml, project kestrel_lab) — scratch, write target for tests";
+    style=rounded; color=blue4;
+    labpg [label="kestrel-lab-db\n:5434", shape=cylinder, color=blue4];
+    labcog [label="kestrel-lab-cognee\n:8889", shape=box3d, color=blue4];
+    batterytier [label="verify.sh app tier\n:8020 PROVIDER=mock\nauth-isolation/chat-integrity/\nbrain-claim run here", shape=component, color=blue4];
+    driller [label="ops/restore_lab.sh\napp on :8010", shape=component, color=blue4];
+  }
+
+  browser -> app [label="HTTPS-less, localhost"];
+  app -> pglive [label="DATABASE_URL 5433"];
+  app -> cognee [label="COGNEE_SERVICE_URL 8888"];
+  app -> clerk  [label="verify Bearer JWT"];
+  app -> tokenharbor [label="llm route=auto", color=orange];
+  cognee -> tokenharbor [label="own LLM endpoint; lab copy is quota-blocked", color=orange, style=dashed];
+  cognee -> volstate;
+  cognee -> voldata;
+  app -> langfuse [label="observability, optional", style=dotted];
+
+  backupjob -> pglive [label="pg_dump via docker exec"];
+  backupjob -> volstate [label="tar :ro"];
+  backupjob -> voldata [label="tar :ro"];
+  backupjob -> backups [label="receipt OK/FAIL/STALE"];
+  driller -> backups [label="restores nightly artefacts"];
+  driller -> labpg [label="drop schema, reload"];
+  driller -> labcog;
+
+  batterytier -> labpg [label="writes itest-* rows only"];
+  github -> batterytier [label="./verify.sh --quick", style=dashed];
+
+  stackjob -> app [label="would restart it", color=red, style=dashed, fontcolor=red];
+}

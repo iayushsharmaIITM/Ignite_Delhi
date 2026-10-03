@@ -1,0 +1,52 @@
+%% Kestrel runtime topology — Mermaid view for Markdown readers.
+%% Same facts and evidence as deployment-topology.md; graphviz source is canonical.
+flowchart TB
+  browser([Owner browser<br/>Clerk session])
+
+  subgraph LAPTOP["macOS laptop — unsupervised"]
+    app["Live web tier<br/>python3 app.py :8000<br/>PROVIDER=cloud, AUTH_MODE=clerk"]
+    subgraph PROD["compose.oss.yml"]
+      pglive[("kestrel-db<br/>postgres:17 :5433")]
+      cognee["cognee-oss :8888"]
+      volstate[("cognee_oss_state")]
+      voldata[("cognee_oss_data")]
+    end
+    backupjob["launchd com.kestrel.backup<br/>nightly 03:17 — verified"]
+    stackjob["launchd com.kestrel.stackup<br/>BROKEN: TCC exit 126"]
+    backups["~/Kestrel_backups<br/>db.sql + 2 tars + SHA256SUMS"]
+  end
+
+  tokenharbor([tokenharbor.ai<br/>deepseek :free — quota window])
+  clerk([Clerk ample-skink-6708 JWKS])
+  github["GitHub Actions ci.yml<br/>fast + ui, no deploy step"]
+
+  subgraph LAB["Lab stack — scratch write target for tests"]
+    labpg[("kestrel-lab-db :5434")]
+    labcog["kestrel-lab-cognee :8889"]
+    battery["verify.sh app tier :8020<br/>PROVIDER=mock"]
+    drill["ops/restore_lab.sh app :8010"]
+  end
+
+  browser --> app
+  app -->|DATABASE_URL| pglive
+  app -->|COGNEE_SERVICE_URL| cognee
+  app -->|verify Bearer| clerk
+  app -->|llm route=auto| tokenharbor
+  cognee --> tokenharbor
+  cognee --> volstate
+  cognee --> voldata
+  backupjob -->|pg_dump| pglive
+  backupjob -->|tar :ro| volstate
+  backupjob --> voldata
+  backupjob -->|receipt| backups
+  drill -->|restores nightly artefacts| backups
+  drill -->|drop+reload schema| labpg
+  drill --> labcog
+  battery -->|itest-* rows only| labpg
+  github -.->|verify.sh --quick| battery
+  stackjob -.->|would restart, cannot execute| app
+
+  classDef broken stroke:#d33,color:#d33,stroke-dasharray:4 3;
+  classDef quota stroke:#f80,color:#a50;
+  class stackjob broken;
+  class tokenharbor quota;

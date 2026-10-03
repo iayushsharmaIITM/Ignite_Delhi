@@ -185,6 +185,18 @@ else
   FAILS=$((FAILS + 1))
 fi
 
+# --- 6a. doc freshness --------------------------------------------------------
+# A stale route inside an instruction document is not cosmetic: an agent obeys it.
+# CLAUDE_CONTEXT.md used to tell agents to verify with pytest, which this file's own
+# header says collects 2 of 13 checks — following the doc produced a false green.
+if bash ops/doc_health.sh > /tmp/kestrel_verify_doc_health.log 2>&1; then
+  DW=$(grep -c '^  WARN' /tmp/kestrel_verify_doc_health.log 2>/dev/null || true)
+  note doc-health "PASS  $(tally /tmp/kestrel_verify_doc_health.log)${DW:+ / $DW warn}"
+else
+  note doc-health "FAIL — see /tmp/kestrel_verify_doc_health.log"
+  FAILS=$((FAILS + 1))
+fi
+
 # --- 6b. chat integrity (Round 2: CH-1..CH-9) ---------------------------------
 # The rules that keep a conversation from being silently rewritten: a save with
 # fewer turns than the server holds is refused unless it declares a trim; a
@@ -208,9 +220,20 @@ if [[ "${DATABASE_URL:-}" == *5434* ]]; then
     note brain-claim "FAIL — see /tmp/kestrel_verify_claim.log"
     FAILS=$((FAILS + 1))
   fi
+  # P3 Clerk isolation (cross-identity brain access). Lab-only like the two above:
+  # it creates its own database and refuses any other server. It used to be
+  # reachable only from a pytest line in CLAUDE_CONTEXT.md, while running the file
+  # directly printed nothing and exited 0 — a green that measured nothing.
+  if python3 test_auth_isolation.py > /tmp/kestrel_verify_auth_iso.log 2>&1; then
+    note auth-isolation "PASS  $(tally /tmp/kestrel_verify_auth_iso.log)"
+  else
+    note auth-isolation "FAIL — see /tmp/kestrel_verify_auth_iso.log"
+    FAILS=$((FAILS + 1))
+  fi
 else
   note chat-integrity "SKIP  (needs DATABASE_URL=<lab 5434> — it writes rows)"
   note brain-claim "SKIP  (needs DATABASE_URL=<lab 5434> — it writes rows)"
+  note auth-isolation "SKIP  (needs DATABASE_URL=<lab 5434> — it creates a database)"
 fi
 
 # --- 7. React UI acceptance suite (browser) -----------------------------------

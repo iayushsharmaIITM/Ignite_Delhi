@@ -1,3 +1,73 @@
+## The harness itself got reviewed, and it failed three ways 2026-10-04
+
+Ran the installed plugin set over the project in dependency order — Better Harness
+(three independent read-only evidence passes + lead reconciliation), then
+`better-harness:init` for the missing entrypoint, then architecture, API, and UI
+passes. Full defect ledger: BUGS_AUDIT **Round 4**; rendered report:
+`.qoder/better-harness-runs/2026-10-04-full/report.canvas.tsx`.
+
+**What it found that we had not.** The project had no agent entrypoint at all
+(`entrypoints: 0` in the asset inventory), and the document agents were actually
+routed through — `CLAUDE_CONTEXT.md` — told them to verify with `pytest`, which
+`verify.sh` itself says collects 2 of 13 checks. So the instruction surface could
+produce a false green on request. Separately, the two suites that guard history loss
+and the creation race were unreachable from any automated path, and a third file
+(`test_auth_isolation.py`) had **no runner**: running it printed nothing and exited 0,
+and because it creates and truncates a database on whatever `DATABASE_URL` names, its
+documented invocation was writing to the **live** server by default. `commit.sh`'s
+`git add -A` was one routine commit away from putting the review's own evidence lanes
+into history.
+
+**Fixed with measurements, not intentions.** `AGENTS.md` created from repository
+evidence only (every command re-run before being written down); `ops/doc_health.sh`
+added and wired into the battery as the `doc-health` tier — and proved to have teeth by
+temporarily removing `AGENTS.md` (exit 1) and restoring it (exit 0); the isolation
+suite given a real runner (5/5 under both `python3` and `pytest`) plus a
+lab-only refusal (a 5433 URL now exits 1 with the reason); `chat-integrity` and
+`brain-claim` added to the CI job that already provisions Postgres on 5434 (its red/green
+effect is only observable after a push, which is the owner's call); `.qoder/` ignored,
+confirmed by `git status`; and `POST /api/chats`'s full chain documented with
+line-level citations (`docs/api-analysis/post-api-chats.md`).
+
+**Two findings I want on record about my own method.** First, verifying the repair
+route for the isolation suite is what revealed it was pytest-only — had I implemented
+the review's suggestion literally, I would have added a **vacuous gate that always
+passes**, the exact defect class this project has now been asked to hunt twice.
+Second, while checking whether the CI wiring needed a dependency I found
+`requirements-dev.txt` does not contain `pytest` at all, so that suite cannot be added
+to CI without the owner approving a new dev dependency; it is documented rather than
+smuggled in.
+
+**One incident, stated plainly.** While probing prerequisites I ran
+`python3 test_auth_isolation.py` with the ambient `.env`, which pointed it at the live
+Postgres container. It ran `TRUNCATE` on four tables inside that server's pre-existing
+`kestrel_test_auth` database (created 28 Sep by an earlier invocation, 0 rows before
+and after — verified). **No application table was read or written**: the app's data
+lives in `kestrel`, which was untouched. That incidental write is what the refusal
+guard above exists to prevent, and it is the reason the guard is the fix rather than a
+note in the docs.
+
+**Artefacts added.** `AGENTS.md`; `ops/doc_health.sh`;
+`docs/architecture/{deployment-topology.md,.dot,.mmd,doc-health.md}`;
+`docs/api-analysis/{post-api-chats.md,agent-readiness.md}`;
+`docs/ui-review/UX-AUDIT-2026-10-04.md`.
+
+**Measured, and honestly bounded.** The API's agent-readiness score went 50.0% →
+57.6% after declaring the bearer scheme, servers and description (it stays "Needs
+Work": one Critical check — typed error/response schemas — is still failing, and
+adding `response_model` would *filter* fields the React client reads, so it is
+documented as a deliberate next step, not a quick win). CodeRabbit could not run: the
+CLI is not installed and installing it is the owner's call — the independent-review
+function it would have served was covered by the three read-only evidence passes
+instead. The UI audit produced six findings, including a focus-ring gap and 18 raw hex
+literals in components that `DESIGN.md` forbids; two of its first-pass numbers were
+thrown away after re-measurement (a "20 contrast failures" artifact of comparing text
+against transparent backgrounds, and a focus check that used scripted instead of real
+`Tab` focus).
+
+Battery after all of it: `./verify.sh` exit 0 with the new `doc-health` and
+`auth-isolation` tiers; `./verify.sh --quick` (the CI lane) also green.
+
 ## Two reviewers read the work cold, and both were right 2026-10-04
 
 The previous entry's evidence was largely real, but a fair amount of it was

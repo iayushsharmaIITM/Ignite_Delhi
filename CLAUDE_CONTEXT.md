@@ -146,15 +146,22 @@ vision OCR) · `storage.py` (Postgres) · `auth.py` (Clerk JWT, fail-closed) ·
 4. **SEC-5 backfill:** legacy NULL-org chat rows are grandfathered
    visible/deletable (safe default taken owner-absent); a real owner call can
    tighten it.
-5. Old `BUGS.md` **M4 (TOCTOU)** remains open (pre-audit era).
+5. `BUGS.md` **M4 (TOCTOU)** — closed 2026-10-04 by the brain-claim work
+   (`INSERT … ON CONFLICT DO NOTHING` reservation + `tests/test_brain_claim.py`).
+   This line said "remains open" until the Round 3 review caught it.
 
 ## 8. Verification commands
 
+> Corrected 2026-10-04 by the harness review. This section used to route
+> verification through `pytest`, which `verify.sh` itself says collects 2 of
+> `test_pipeline_states.py`'s 13 checks and none of `test_tenants.py`'s 10 — so an
+> agent following it reported a false green. `AGENTS.md` is now the entrypoint; this
+> file is historical context.
+
 ```bash
-./verify.sh                                   # full battery (mock-forced)
-python3 -m pytest test_auth_isolation.py -q   # 5/5
+./verify.sh                                   # full battery (mock tier on :8020)
+./verify.sh --quick                           # CI lane: no browser, no lab writes
 python3 warmup.py --token-file /tmp/tok.txt   # needs owner token file (§6.2/§6.3)
-python3 -m pytest test_documents.py test_pipeline_states.py -q
 ```
 
 ## 9. Tomorrow morning (Sept 29)
@@ -178,6 +185,7 @@ plan; P1–P3 done, P4 next) → `PROJECT_TIMELINE_AND_STATUS.md` (full history
 through 28 Sept morning) → `INDIA_PRICING.md`, `STUDENT_PACK_STACK.md`
 (business case) → source: `app.py`, `orchestrator.py`, `memory_layer.py`.
 
-**Git:** single branch `main`, one commit per logical change, history is
-clean and green at `e07a219` (OCR ladder). Nothing uncommitted but the
-future.
+**Git:** single branch `main`, one commit per logical change, no force-push or
+history rewrite (owner rule). This paragraph used to declare the history "green at
+`e07a219`"; a pinned revision in a context doc goes stale within an afternoon, so
+read `PROGRESS.md` (newest first) and `git log --oneline -5` for current state.

@@ -106,6 +106,16 @@ jobs:
           curl -sf http://127.0.0.1:8000/ | grep -q 'id="root"' || { echo "app did not serve the React bundle"; cat /tmp/app.log; exit 1; }
           # CI has no Chrome channel: let Playwright use the chromium it installed.
           KESTREL_TEST_BROWSER=chromium python3 check_ui_react.py --base http://127.0.0.1:8000
+      - name: Chat-integrity and brain-claim invariants
+        # The history-loss (CH-1..CH-9) and creation-race (M4) guarantees were only
+        # ever reachable through the local battery: the fast job has no database, and
+        # this job — which DOES provide Postgres on 5434 — never called verify.sh. So a
+        # regression in either class could land with no automated check seeing it.
+        # test_auth_isolation.py is deliberately absent: it needs pytest, which
+        # requirements-dev.txt does not carry, and adding a dependency is the owner's call.
+        run: |
+          python3 tests/test_chat_integrity.py
+          python3 tests/test_brain_claim.py
       - name: Clerk-mode gate (auth on, token + control)
         run: python3 tests/test_react_clerk.py
       - name: Application log on failure

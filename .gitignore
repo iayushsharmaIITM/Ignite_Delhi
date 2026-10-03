@@ -27,6 +27,8 @@ screenshots/*.tmp
 
 # agent working data — not project source
 .workbuddy-ai/
+# harness review runs (frozen evidence lanes + rendered reports)
+.qoder/
 
 # playwright CLI
 .playwright-cli/

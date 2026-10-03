@@ -1414,3 +1414,48 @@ fall back to a bare PASS for suites that don't use that format. Round 2's
 - CI has still never run this battery end to end on a machine that is not this
   laptop. `verify.sh --quick` is what CI executes; the browser and lab-DB suites are
   local-only, and `frontend/dist` sync is the one artefact check CI does own.
+
+---
+
+## Round 4 — Better Harness review of the harness itself (2026-10-04)
+
+Requested as "use the installed plugins to review platform creation", executed as the
+`better-harness:better-harness` workflow: one frozen evidence bundle (normal depth,
+30-day window), three **independent read-only** evidence passes (Session / Project
+Harness / Agent Customize), then a lead reconciliation against the Agent Work Loop
+model. Rendered report: `.qoder/better-harness-runs/2026-10-04-full/` (`findings.json`
++ `report.canvas.tsx`, validator `status: pass`). Companion artefacts produced by the
+other plugin passes live in `docs/architecture/`, `docs/api-analysis/` and
+`docs/ui-review/`.
+
+Scores were assigned by the lead from evidence ceilings, not from finding counts:
+Task Understanding 52 · Controlled Execution 70 · Change Validation 66 · Reliable
+Delivery 48 · Learning Capture 44. Session evidence was **unavailable inside the
+frozen window** (the bundle's session lane reported 0 eligible sessions with
+`disabled-source-root`, while the lead lane counted 9 episode records and 0
+edited/closed ones) — so behaviour claims stay `Unobserved` and the scores are capped
+accordingly rather than being back-filled from this conversation's own runs.
+
+| ID | Sev | Defect | Status |
+|----|-----|--------|--------|
+| H-1 | HIGH | `CLAUDE_CONTEXT.md` §8 routed verification through `pytest`, which `verify.sh:17-19` declares collects 2 of 13 checks — following the doc produced a **false green**. It also still said M4 was open and pinned state to a ~30-commit-old revision | CLOSED — corrected in place; `AGENTS.md` is now the entrypoint; `ops/doc_health.sh` asserts all three so the class cannot return |
+| H-2 | HIGH | The CH-1…CH-9 / M4 invariant suites run only when a human locally starts the lab: the CI `fast` job has no database and the `ui` job provisions Postgres on 5434 but never calls `verify.sh`. A history-loss regression could land with no automated detector | CLOSED (pending push) — `chat-integrity` + `brain-claim` added to the `ui` job |
+| H-3 | MED | `test_auth_isolation.py` had **no runner**: `python3 test_auth_isolation.py` printed nothing and exited 0 — a green that measured nothing. Worse, it creates a database and `TRUNCATE`s tables on whatever server `DATABASE_URL` names, and with no `DATABASE_URL` that is **live** | CLOSED — real standalone runner (5/5 both routes, measured) + lab-only refusal (verified: a 5433 URL now exits 1 with the reason); wired into the battery as `auth-isolation 5/5` |
+| H-4 | MED | `commit.sh`'s `git add -A` would have swept the harness evidence store (`.qoder/…`, provider-derived session facts) into history on the next routine commit; three sibling agent stores were already ignored, this one was not | CLOSED — `.qoder/` ignored; `git status` no longer lists it |
+| H-5 | LOW | Learning-capture evidence boundary: the reviewed window cannot distinguish repeated work, so no durable-owner decision could be made or ruled out | OPEN (provider-side) — re-collect with session source roots enabled, or keep marking reports session-limited |
+
+**Deliberately deferred, not rejected:** the postman rules pair (`.md` + `.mdc` in a
+marketplace cache that is overwritten on update), a `vercel` command named
+`-conventions`, the inventory classifying `ci.yml` as the only "Workflow" asset, and
+the `DESIGN.md` ownership attribution to `iayushsharmaIITM/Ignite_Delhi` — the last one
+I verified myself and it is a **git-remote lookup artefact**, not a defect: `DESIGN.md`
+is this project's own design system and `origin` is that URL. Promoting it would have
+been a false finding, which is the reason the lead re-measures rather than accepts.
+
+**New defects recorded elsewhere, still open:** the served UI fails four of its own
+`DESIGN.md` rules (`docs/ui-review/UX-AUDIT-2026-10-04.md`: focus ring on suggestion
+chips, sub-44px touch targets, no `main` landmark, 19 raw hex literals in components);
+and the public API contract is formally **not agent-ready** — 57.6% weighted against
+the 8-pillar rubric with one Critical failure still open
+(`docs/api-analysis/agent-readiness.md`; auth is now declared, error/response schemas
+are not).

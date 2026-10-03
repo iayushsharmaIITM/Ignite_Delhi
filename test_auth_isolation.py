@@ -4,7 +4,14 @@ Runs WITHOUT network: the Clerk JWT verifier's JWKS source is injected with a
 test RSA keypair, tokens are signed locally. Exercises auth.py + the app's
 brain-authorization rule with AUTH_MODE=clerk.
 
-    python3 test_auth_isolation.py
+    DATABASE_URL=<lab 5434> python3 test_auth_isolation.py
+    DATABASE_URL=<lab 5434> python3 -m pytest test_auth_isolation.py -q
+
+Both routes run all five checks. They used to differ: the file had no runner, so
+`python3 test_auth_isolation.py` imported the module (creating a database),
+defined five tests, ran none of them, and exited 0 — a green that measured
+nothing. pytest is still required to import this file (fixtures and `raises`), so
+it needs `pip install pytest`, which requirements-dev.txt does not carry.
 """
 
 from __future__ import annotations
@@ -28,6 +35,16 @@ _TEST_DB = "kestrel_test_auth"
 
 def _use_test_db() -> None:
     import psycopg
+    # The same rule the battery applies to every suite that writes: with no
+    # DATABASE_URL this module falls through to .env — the LIVE demo database —
+    # and this function CREATES a database there and TRUNCATES tables in it. The
+    # isolation the suite needs is real; the server it runs on was not guarded.
+    url = storage.DATABASE_URL
+    if "5434" not in url and os.environ.get("KESTREL_ALLOW_LIVE_DB", "0") != "1":
+        raise SystemExit(
+            "REFUSING: this suite creates and truncates a database on the server "
+            f"named by DATABASE_URL ({url.split('@')[-1] if '@' in url else url}). "
+            "Point it at the lab (port 5434), or insist with KESTREL_ALLOW_LIVE_DB=1.")
     admin = storage.DATABASE_URL.rsplit("/", 1)[0] + "/kestrel"
     with psycopg.connect(admin, autocommit=True) as conn:
         exists = conn.execute(
@@ -56,8 +73,9 @@ _KID = "test-kid"
 TEST_URL = "https://clerk.test/.well-known/jwks.json"
 
 
-@pytest.fixture(scope="module", autouse=True)
-def setup():
+def _inject_jwks() -> None:
+    """Serve the verifier a local keypair. Shared by pytest's fixture and the
+    standalone runner below, so neither route can drift from the other."""
     from jwt import PyJWK  # noqa: F401  (verifies the import path works)
     import base64
 
@@ -71,6 +89,11 @@ def setup():
     auth._JWKS_TS.clear()
     auth._JWKS_DATA.clear()
     auth.inject_jwks_for_test(TEST_URL, jwks)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def setup():
+    _inject_jwks()
     yield
 
 
@@ -152,3 +175,25 @@ def test_chat_isolation():
     assert storage.delete_chat(cid) is True
     with pytest.raises(storage.ResurrectError):
         storage.upsert_chat(record, org="org_A", brain="acme_isolated")
+
+
+def _run_all() -> int:
+    """Standalone entrypoint, so `python3 test_auth_isolation.py` runs the checks
+    instead of importing them. Reports in the format verify.sh's tally counts."""
+    _inject_jwks()
+    tests = [v for k, v in sorted(globals().items())
+             if k.startswith("test_") and callable(v)]
+    failed = []
+    for t in tests:
+        try:
+            t()
+            print(f"  PASS  {t.__name__}")
+        except Exception as exc:  # noqa: BLE001 - report, never swallow
+            failed.append(t.__name__)
+            print(f"  FAIL  {t.__name__}  {type(exc).__name__}: {str(exc)[:120]}")
+    print(f"\n{len(tests) - len(failed)} passed, {len(failed)} failed")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run_all())

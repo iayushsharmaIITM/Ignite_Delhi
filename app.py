@@ -66,7 +66,52 @@ import storage  # noqa: E402
 from memory_layer import recall  # noqa: E402
 from summarizer import summarize_history  # noqa: E402
 
-app = FastAPI(title="Kestrel Company Brain")
+app = FastAPI(
+    title="Kestrel Company Brain",
+    version="0.1.0",
+    description=(
+        "Retrieval over a company's own documents. Ask a brain a question and it "
+        "answers with citations that name the source file; conversations are "
+        "persisted per brain. Every read/write route is tenant-scoped: knowing an "
+        "id is not ownership. Start at GET /api/config for the live auth mode, the "
+        "turn cap the server enforces, and which brain-create path this server "
+        "answers; GET /health for provider, upstream and LLM routing."
+    ),
+    servers=[{"url": os.getenv("PUBLIC_BASE_URL", "http://127.0.0.1:8000").rstrip("/")}],
+)
+
+
+def _custom_openapi() -> dict:
+    """Publish an honest contract: the routes DO require a bearer token in clerk
+    mode, but the generated schema advertised no security scheme at all, so an
+    agent reading /openapi.json could only discover auth by failing.
+
+    This documents the requirement; it does not enforce or change it. Enforcement
+    stays in require_tenant()/auth.active(), and AUTH_MODE=off (the verification
+    battery, single-user installs) genuinely needs no token — which is what the
+    scheme's description says, rather than pretending auth is always on.
+    """
+    if app.openapi_schema:
+        return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+    schema = get_openapi(
+        title=app.title, version=app.version, openapi_version=app.openapi_version,
+        description=app.description, routes=app.routes, servers=app.servers)
+    schema.setdefault("components", {})["securitySchemes"] = {
+        "ClerkBearer": {
+            "type": "http", "scheme": "bearer", "bearerFormat": "JWT",
+            "description": ("Clerk session token as `Authorization: Bearer <jwt>`. "
+                            "Required while the server runs AUTH_MODE=clerk; not "
+                            "required while it runs AUTH_MODE=off. GET /api/config "
+                            "reports which mode is live."),
+        },
+    }
+    schema["security"] = [{"ClerkBearer": []}]
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = _custom_openapi
 
 
 # S9: response hardening. No CSP — the pages run inline scripts throughout,
