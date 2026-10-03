@@ -13,8 +13,8 @@ type Props = {
   onToggle: () => void
   currentBrain: string
   currentChat: string | null
-  view: "chat" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph"
-  onViewChange: (v: "chat" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph") => void
+  view: "chat" | "brains" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph"
+  onViewChange: (v: "chat" | "brains" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph") => void
   onBrainChange: (brain: string) => void
   onNewChat: () => void
   onOpenChat: (chatId: string, brain?: string) => void
@@ -270,8 +270,8 @@ export function Sidebar({
         <div className="nav-label">Workspace</div>
         {navItem(false, "New chat", "ask", onNewChat)}
         {navItem(false, "New brain", "upload", () => onBrainChange("__upload__"))}
-        {navItem(view === "legacy-brains", "Brains", "brains", () => onViewChange("legacy-brains"))}
-        {navItem(view === "graph" || view === "legacy-graph", "Graph", "graph", () => onBrainChange("__graph__"))}
+        {navItem(view === "legacy-brains" || view === "brains", "Brains", "brains", () => onViewChange("brains"))}
+        {navItem(view === "graph" || view === "legacy-graph", "Graph", "graph", () => onViewChange("graph"))}
         <div id="sb-chats">
           <div className="chats-head">
             <span className="nav-label">Chats</span>

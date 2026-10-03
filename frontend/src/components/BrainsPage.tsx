@@ -48,6 +48,7 @@ function DeleteButton({ name, onDeleted }: { name: string; onDeleted: () => void
   const [armed, setArmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const authHeaders = useAuthHeaders()
 
   const disarm = useCallback(() => {
     setArmed(false)
@@ -63,10 +64,9 @@ function DeleteButton({ name, onDeleted }: { name: string; onDeleted: () => void
     disarm()
     setBusy(true)
     try {
-      const headers = await useAuthHeaders()
       const r = await fetch(`/api/brains/${encodeURIComponent(name)}`, {
         method: "DELETE",
-        headers,
+        headers: authHeaders,
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok || !d.ok) throw new Error(d.detail || `HTTP ${r.status}`)
@@ -76,7 +76,7 @@ function DeleteButton({ name, onDeleted }: { name: string; onDeleted: () => void
       toast.error((e as Error).message)
       setBusy(false)
     }
-  }, [armed, name, onDeleted, disarm])
+  }, [armed, name, onDeleted, disarm, authHeaders])
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 

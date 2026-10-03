@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useRef, useState, type FormEven
 import { toast } from "sonner"
 import { Sidebar, type SidebarUser } from "@/components/Sidebar"
 import { Connectors } from "@/components/Connectors"
+import { BrainsPage } from "@/components/BrainsPage"
 import { SourceModal } from "@/components/SourceModal"
 import { FilesSheet } from "@/components/FilesSheet"
 import { CreateBrainDialog } from "@/components/CreateBrainDialog"
@@ -229,10 +230,10 @@ export default function App() {
   const [railTip, setRailTip] = useState<{ x: number; y: number; label: string; answer: string } | null>(null)
 
   const [createOpen, setCreateOpen] = useState(false)
-  const [view, setView] = useState<"chat" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph">(
+  const [view, setView] = useState<"chat" | "brains" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph">(
     (() => {
       const v = new URLSearchParams(location.search).get("view")
-      return v === "connectors" || v === "graph" || v === "legacy-brains" || v === "legacy-upload" ? v : "chat"
+      return v === "connectors" || v === "graph" || v === "brains" || v === "legacy-brains" || v === "legacy-upload" || v === "legacy-graph" ? v : "chat"
     })(),
   )
 
@@ -551,7 +552,7 @@ export default function App() {
     ;(window as unknown as { CONTROLLER?: AbortController }).CONTROLLER?.abort()
     stopWork(true)
   }
-  const openView = (v: "chat" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph") => {
+  const openView = (v: "chat" | "brains" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph") => {
     setView(v)
     const u = new URL(location.href)
     if (v === "chat") u.searchParams.delete("view")
@@ -560,12 +561,6 @@ export default function App() {
   }
   const handleBrainChange = (b: string) => {
     if (b === "__upload__") { setCreateOpen(true); return }
-    if (b === "__graph__") {
-      if (confirm("The knowledge-graph view still lives in the legacy shell. Open it?")) {
-        location.href = `/graph${brain ? `?brain=${encodeURIComponent(brain)}` : ""}`
-      }
-      return
-    }
     setChatId(null)
     openView("chat")
     setBrain(b)
@@ -895,6 +890,8 @@ export default function App() {
           <Connectors />
         ) : view === "graph" ? (
           <GraphView brain={brain} />
+        ) : view === "brains" ? (
+          <BrainsPage />
         ) : view === "legacy-brains" ? (
           <LegacyMount path="/brains" label="Brains" />
         ) : view === "legacy-upload" ? (
