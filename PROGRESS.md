@@ -1,3 +1,40 @@
+## M4 closed — a brain name is claimed, not probed 2026-10-04
+
+The one defect the 22 Sep pass deliberately left open because it needed a design
+decision rather than a patch. `cognee_cloud.exists(name)` reports only the past,
+so two concurrent `POST /api/brains` with the same new name both heard "does not
+exist", both ingested, and the ownership row then credited the finished dataset
+to whichever writer inserted first: the loser's documents sat inside a brain it
+could no longer reach, and nothing in the log was wrong. A lock was the wrong
+shape too — an upload runs for minutes and a crashed process takes its lock with
+it.
+
+The rule now: claim the name with an atomic `INSERT … ON CONFLICT DO NOTHING`
+(`status='creating'`) **before** any work, flip it to `'ready'` only when the
+dataset is confirmed. A concurrent create gets 409. The creator may re-enter its
+own claim instantly, so a failed upload never locks its author; another identity
+may retake a claim only after 15 minutes and only while the dataset still does
+not exist, which means that create died mid-flight — a finished brain is never
+handed over. Every clean failure path (too many files, nothing uploaded, nothing
+readable, nothing ingested) drops its own claim, so a rejected upload cannot
+squat a name.
+
+`migrations/versions/0006_brain_claim` (default `'ready'`, so pre-existing rows
+keep their meaning) applied to lab and live, each after a `pg_dump`. Proved by
+`tests/test_brain_claim.py` — 20 checks wired into `verify.sh` as
+`[brain-claim]`, driving the real race with two concurrent multipart uploads from
+two identities and asserting one 200, one 409, one `ready` row, the loser told to
+retry rather than silently merged, and the winner's brain unreadable to the
+loser.
+
+Battery green, twelve suites: documents 25/25, pipe-states 13/13, connectors
+90/90, tenants 10/10, smoke 4/4, frontend-transport, frontend-css,
+chat-integrity, brain-claim, ui-react, clerk-gate.
+
+With M4 gone, every defect ever recorded in `BUGS.md` and `BUGS_AUDIT.md` Round 1
+is closed; the open list is `BUGS_AUDIT.md` Round 2's residual — the NULL-org
+chat backfill, which is an owner decision, not a bug.
+
 ## Cutover finished and audit Round 2 closed 2026-10-04
 
 Continued the handover below. The platform is now the built React app on `:8000`

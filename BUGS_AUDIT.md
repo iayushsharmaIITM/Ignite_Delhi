@@ -3,7 +3,8 @@
 Fresh audit run after P3 (Clerk auth) shipped and both Clerk dashboard actions
 went live. This file is a **fix work-queue**: every entry below is OPEN.
 It does not renumber `BUGS.md`; that pass's C1–C3 / H1–H5 / M1–M7 are fixed
-except **M4 (TOCTOU)**, which stays open there (see Cross-reference).
+except **M4 (TOCTOU)**, which stayed open there until this pass closed it too —
+see the `0006_brain_claim` note at the end of Round 2.
 
 Method: read the source, then re-verify against the live stack
 (`localhost:8000`, Clerk mode) and by execution — signed-JWT probes, direct
@@ -994,9 +995,10 @@ screen. Kill the connection mid-answer → partial text stays, labeled.
 
 ## Cross-reference: previously known / out of scope
 
-- **BUGS.md M4 (TOCTOU on brain creation)** — still the one deliberately-open
-  item from that pass; SEC-9 is adjacent (the ownership row makes the race
-  worse, not better). Fix together.
+- **BUGS.md M4 (TOCTOU on brain creation)** — was the one deliberately-open item
+  from that pass; **closed 2026-10-04** by the claim rule at the end of Round 2.
+  It needed the design decision that pass declined to make (a reservation rather
+  than a lock), which is why it waited.
 - **BUGS.md "What is genuinely solid"** still holds — `/api/source` path
   safety, upload caps, `renderDetail` escaping, two-layer reserved-name guard.
   This audit found the *siblings* of those defenses missing (SEC-1, SEC-6,
@@ -1199,4 +1201,40 @@ in the app (the gate compared the whole `into <brain>` label against a row).
    turns keep their real times.
 5. **CH-7 → CH-10** as a batch; **CH-11** (finish the client audit) before any
    further UI work is called done.
+
+---
+
+# M4 ADDENDUM — brain creation is now exclusive (2026-10-04)
+
+The last item the September pass deliberately left open. It waited because it
+needed a design decision, not a patch: `cognee_cloud.exists(name)` can only
+report the past, so no amount of careful ordering around a probe closes a race.
+
+**The rule:** a brain name is *claimed* — an ownership row written with
+`status = 'creating'` by an atomic `INSERT … ON CONFLICT DO NOTHING` — before any
+upload work starts, and flipped to `'ready'` only when the dataset is confirmed.
+A second create of the same name while a claim is in flight is refused with 409,
+so one tenant's documents can never end up inside a brain it cannot reach.
+
+Why a reservation rather than the lock BUGS.md suggested:
+- a per-tenant advisory lock would have to be held across an ingest that takes
+  minutes, and an upload that dies with the process leaves the lock;
+- the claim survives the process, is visible to operators, and degrades on its
+  own terms: the creator may always re-enter its own claim instantly (a failed
+  upload must not lock its author out), while another identity may retake a
+  claim only after 15 minutes **and only because the caller already knows the
+  dataset does not exist** — i.e. that create died mid-flight and left nothing
+  behind. A completed brain is never handed over.
+- every clean failure path (too many files, nothing uploaded, nothing readable,
+  nothing ingested) drops its own claim, so a rejected upload cannot squat a name
+  — the SEC-9 lesson seen from the other side.
+
+**Proof** — `tests/test_brain_claim.py`, 20 checks, wired into `verify.sh` as
+`[brain-claim]` (lab database only; it writes and deletes ownership rows). It
+drives the actual race with two concurrent multipart `POST /api/brains` from two
+identities and asserts exactly one 200, exactly one 409, one ownership row
+saying `ready`, that the loser is told to retry rather than silently merged, and
+that the winner's brain is unreadable to the loser. Migration
+`0006_brain_claim` (default `'ready'`, so every pre-existing row keeps its
+meaning) is applied to lab and live, each after a `pg_dump`.
 

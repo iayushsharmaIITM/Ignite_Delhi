@@ -183,6 +183,11 @@ def init() -> bool:
             cur.execute("ALTER TABLE brain_access ADD COLUMN IF NOT EXISTS created_by text")
             cur.execute("ALTER TABLE brain_access ADD COLUMN IF NOT EXISTS org_id text")
             cur.execute("ALTER TABLE brain_access ADD COLUMN IF NOT EXISTS is_shared boolean NOT NULL DEFAULT false")
+            # M4: a brain name is CLAIMED (status='creating') before any work
+            # starts, so two concurrent creates cannot both pass an exists()
+            # probe. Mirrors migration 0006 for bootstrapped databases.
+            cur.execute("ALTER TABLE brain_access ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'ready'")
+            cur.execute("ALTER TABLE brain_access ADD COLUMN IF NOT EXISTS claimed_at timestamptz")
             # CH-2: the deletion tombstone. `chats`/`turns` cannot remember what
             # was removed, so a POST with a deleted id re-created the chat.
             cur.execute(
@@ -296,7 +301,7 @@ def upsert_chat(record: dict, org: str | None = None,
                         or (created_by and prior["created_by"] == created_by)):
                     raise OwnershipError(chat_id)
             # CH-2: a deleted id stays deleted. The client still holding it gets
-            # a 409 and starts a new conversation instead of resurrecting the
+            # a 410 and starts a new conversation instead of resurrecting the
             # chat the user threw away (another tab, or this tab's own stale
             # save tick, used to bring the whole thread back).
             cur.execute("SELECT 1 FROM deleted_chats WHERE id = %s", (chat_id,))
@@ -503,6 +508,114 @@ def register_brain(brain: str, org_id: str | None, created_by: str | None,
         pass
 
 
+# A claim held by its own creator is always re-enterable — a failed upload must
+# not lock its author out. A claim held by SOMEONE ELSE can only be retaken after
+# this long, and only because the caller asks while the dataset does NOT exist,
+# which means that create died mid-flight and left nothing behind.
+CLAIM_STALE_SECONDS = 900
+
+
+def claim_brain(brain: str, org_id: str | None, created_by: str | None) -> str:
+    """Reserve a brain name for this identity BEFORE the work starts (M4).
+
+    The atomic INSERT ... ON CONFLICT DO NOTHING is the whole point: `exists()`
+    can only ever answer a question about the past, so two concurrent creates
+    both heard "new" and both ingested - the loser's documents ended up inside a
+    brain it could no longer reach, and the ownership row credited the dataset to
+    whichever writer inserted first.
+
+    Returns:
+      'claimed'      the name was unclaimed; this caller may create it
+      'owned'        this identity already has a ready brain of that name
+      'retry'        this creator's own in-flight claim, taken again now
+      'stolen'       a dead creator's stale claim on a name with no dataset
+      'taken'        someone else is creating it right now - fail closed
+      'unavailable'  storage is down; the caller must not proceed unclaimed
+    """
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO brain_access
+                             (brain, org_id, created_by, is_shared, status, claimed_at)
+                   VALUES (%s, %s, %s, false, 'creating', now())
+                   ON CONFLICT (brain) DO NOTHING
+                   RETURNING brain""",
+                (brain, org_id, created_by),
+            )
+            if cur.fetchone():
+                return "claimed"
+            cur.execute(
+                """SELECT org_id, created_by, status,
+                          extract(epoch FROM (now() - claimed_at)) AS age
+                   FROM brain_access WHERE brain = %s""",
+                (brain,),
+            )
+            row = cur.fetchone()
+            if row is None:                       # raced away, or no such row
+                return "taken"
+            mine = bool((org_id and row["org_id"] == org_id)
+                        or (created_by and row["created_by"] == created_by))
+            if row["status"] == "ready":
+                return "owned" if mine else "taken"
+            if mine:
+                cur.execute(
+                    "UPDATE brain_access SET claimed_at = now() "
+                    "WHERE brain = %s AND status = 'creating'",
+                    (brain,),
+                )
+                return "retry" if cur.rowcount else "taken"
+            if (row["age"] or 0) > CLAIM_STALE_SECONDS:
+                # A create that started more than CLAIM_STALE_SECONDS ago with no
+                # dataset to show for it never finished. Hand the name over rather
+                # than poisoning it forever - the SEC-9 lesson seen from the other
+                # side: a dead claim must not lock out the next legitimate user.
+                cur.execute(
+                    """UPDATE brain_access
+                          SET org_id = %s, created_by = %s, claimed_at = now()
+                        WHERE brain = %s AND status = 'creating'
+                          AND extract(epoch FROM (now() - claimed_at)) > %s""",
+                    (org_id, created_by, brain, CLAIM_STALE_SECONDS),
+                )
+                return "stolen" if cur.rowcount else "taken"
+            return "taken"
+    except Exception:  # noqa: BLE001 - a claim we cannot record is not a claim
+        return "unavailable"
+
+
+def release_brain_claim(brain: str, org_id: str | None,
+                        created_by: str | None) -> None:
+    """Drop OUR OWN in-flight claim after a failed create.
+
+    Without this a rejected upload squats the name forever - the SEC-9 failure,
+    seen from the other side: an ownership row for a brain that does not exist
+    locks out the next person who legitimately uses that name.
+    """
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """DELETE FROM brain_access
+                    WHERE brain = %s AND status = 'creating'
+                      AND org_id IS NOT DISTINCT FROM %s
+                      AND created_by IS NOT DISTINCT FROM %s""",
+                (brain, org_id, created_by),
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def mark_brain_ready(brain: str) -> None:
+    """A confirmed dataset: flip the claim to 'ready' and stop timing it."""
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE brain_access SET status = 'ready', claimed_at = NULL "
+                "WHERE brain = %s",
+                (brain,),
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def unregister_brain(brain: str) -> None:
     """Delete the ownership row. S2: delete_brain calls this AFTER the tenant
     dataset is gone — otherwise the stale row squats the name forever (a
@@ -520,7 +633,7 @@ def brain_access(brain: str) -> dict | None:
         with _conn() as conn, conn.cursor() as cur:
             # H2: created_by must be readable — the org-less-creator rule
             # (SEC-8) checks it, and without this column it always saw None.
-            cur.execute("SELECT brain, org_id, created_by, is_shared FROM brain_access WHERE brain = %s",
+            cur.execute("SELECT brain, org_id, created_by, is_shared, status FROM brain_access WHERE brain = %s",
                         (brain,))
             return cur.fetchone()
     except Exception:  # noqa: BLE001

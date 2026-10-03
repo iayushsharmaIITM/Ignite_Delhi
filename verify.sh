@@ -135,8 +135,17 @@ if [[ "${DATABASE_URL:-}" == *5434* ]]; then
     note chat-integrity "FAIL — see /tmp/kestrel_verify_integrity.log"
     FAILS=$((FAILS + 1))
   fi
+  # M4: creation exclusivity. Same lab-only rule — it writes ownership rows and
+  # deletes them again.
+  if python3 tests/test_brain_claim.py > /tmp/kestrel_verify_claim.log 2>&1; then
+    note brain-claim "PASS"
+  else
+    note brain-claim "FAIL — see /tmp/kestrel_verify_claim.log"
+    FAILS=$((FAILS + 1))
+  fi
 else
   note chat-integrity "SKIP  (needs DATABASE_URL=<lab 5434> — it writes rows)"
+  note brain-claim "SKIP  (needs DATABASE_URL=<lab 5434> — it writes rows)"
 fi
 
 # --- 7. React UI acceptance suite (browser) -----------------------------------

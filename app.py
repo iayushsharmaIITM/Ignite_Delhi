@@ -1626,6 +1626,9 @@ async def create_brain(
     # to. Silently appending to a brain the user thinks is new would produce
     # answers from documents they never saw — so the 409 is the default, and
     # `append=True` is the opt-in the UI offers once the user has been told.
+    held_claim = False          # M4: set only when WE reserved this name below
+    claim_org: str | None = None
+    claim_uid: str | None = None
     try:
         already_exists = cognee_cloud.exists(safe)
     except Exception as exc:  # noqa: BLE001 - tenant-down is availability
@@ -1658,12 +1661,46 @@ async def create_brain(
         # authenticated identity may found a brain (identity already gated
         # above); ownership is stamped at success (SEC-9) so the second
         # request already answers to it.
-        pass
+        #
+        # M4: and now the name is RESERVED before any work starts, which is
+        # what the probe could never do. `exists()` reports the past, so two
+        # concurrent creates both heard "new", both ingested, and the dataset
+        # was credited to whichever writer inserted its ownership row first -
+        # leaving the other tenant's documents inside a brain it could no
+        # longer reach. A claim is a reservation, not an observation.
+        ident = getattr(request.state, "identity", None) or {}
+        claim_org, claim_uid = ident.get("org_id"), ident.get("user_id")
+        if auth.active():
+            verdict = storage.claim_brain(safe, claim_org, claim_uid)
+            if verdict == "unavailable":
+                # Without a recorded claim there is no exclusivity, and running
+                # an unreserved create is exactly the race this closes.
+                raise HTTPException(
+                    status_code=503,
+                    detail=("The brain service cannot record ownership right now, "
+                            "so this name cannot be reserved safely. Please try "
+                            "again in a moment."),
+                )
+            if verdict == "taken":
+                raise HTTPException(
+                    status_code=409,
+                    detail=(f"A brain called '{safe}' is being created right now. "
+                            "Try again in a moment, or pick another name."),
+                )
+            # 'claimed' / 'retry' / 'stolen' mean WE hold an in-flight claim and
+            # must drop it if the work fails; 'owned' is our own finished brain
+            # whose dataset went missing, so its row stays as it is.
+            held_claim = verdict in ("claimed", "retry", "stolen")
+
+    def drop_claim() -> None:
+        if held_claim:
+            storage.release_brain_claim(safe, claim_org, claim_uid)
 
     # Cap the count before reading anything, then cap each file WHILE reading it.
     # S5: uploads cost embedding + LLM — bound per caller like asks.
     _check_rate(request, "upload")
     if len(files) > documents.MAX_FILES:
+        drop_claim()
         raise HTTPException(
             status_code=413,
             detail=f"Too many files: {len(files)}. The limit is {documents.MAX_FILES}.",
@@ -1674,6 +1711,7 @@ async def create_brain(
         for upload in files
     ]
     if not payload:
+        drop_claim()
         raise HTTPException(status_code=400, detail="No files were uploaded.")
 
     # Parsing a PDF or DOCX is CPU-bound and synchronous. Running it inline in an
@@ -1682,6 +1720,7 @@ async def create_brain(
     # mid-demo. Push it to a worker thread.
     docs, failures = await asyncio.to_thread(documents.extract_many, payload)
     if not docs:
+        drop_claim()
         detail = "; ".join(f"{f['name']}: {f['error']}" for f in failures[:5])
         raise HTTPException(
             status_code=400,
@@ -1707,6 +1746,7 @@ async def create_brain(
     # the failed ones — so the UI printed "created with 0 document(s), 4,231
     # characters" and linked to a dashboard that could not answer anything.
     if not succeeded:
+        drop_claim()
         reasons = "; ".join(
             f"{r['name']}: {r.get('error', 'unknown error')}" for r in failed[:5]
         )
@@ -1725,6 +1765,10 @@ async def create_brain(
     if auth.active():
         storage.register_brain(safe, identity.get("org_id"),
                                identity.get("user_id"), shared=False)
+        # M4: the reservation becomes a fact. The claim is flipped here, and only
+        # here, because a brain may only be owned once its dataset actually
+        # exists - a 'creating' row is a claim, a 'ready' row is a brain.
+        storage.mark_brain_ready(safe)
 
     # Record which filenames went into this brain so its answers can cite the
     # files the user actually chose. The tenant will not store document names
