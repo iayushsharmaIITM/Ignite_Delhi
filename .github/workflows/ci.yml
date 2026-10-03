@@ -17,6 +17,26 @@ jobs:
         run: |
           npm ci
           npm run build
+      # frontend/dist is committed because the app tier has no Node
+      # (ops/build_frontend.sh). A committed build artifact is only safe while
+      # something proves it matches the sources — this is that something. The
+      # build is deterministic (verified by building twice and comparing sha256
+      # of every file), so a diff here means someone edited src/ without
+      # re-running ops/build_frontend.sh.
+      - name: dist is in sync with src
+        run: |
+          git diff --stat -- frontend/dist
+          git diff --exit-code -- frontend/dist
+      # Serving dist is only correct if the files index.html references exist.
+      # A missing asset is a blank page / 404 in the browser, which no
+      # compile-time check would catch.
+      - name: served bundle is self-consistent
+        run: |
+          test -f frontend/dist/index.html
+          grep -oE '/assets/[A-Za-z0-9._-]+' frontend/dist/index.html | sort -u | while read -r asset; do
+            test -f "frontend/dist${asset}" || { echo "index.html references missing ${asset}"; exit 1; }
+          done
+          echo "bundle self-consistent"
       - name: Marketing build
         working-directory: marketing
         run: |

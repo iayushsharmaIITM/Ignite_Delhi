@@ -1,4 +1,14 @@
-@import "tailwindcss";
+/*
+ * source("../src") pins Tailwind's automatic content detection to the source
+ * tree. Without it, Tailwind scans from the project root and skips only
+ * .gitignore'd paths — and frontend/dist is committed (the app tier has no
+ * Node), so the PREVIOUS build's bundle became an input to the next one:
+ * un-ignoring dist silently grew the stylesheet by ~10 KB with utilities
+ * harvested from compiled class strings, and changed every asset hash
+ * (87,515 → 97,530 bytes CSS, verified 2026-10-03). The build must be a
+ * function of src/, not of its own output.
+ */
+@import "tailwindcss" source("../src");
 
 /*
  * Kestrel design tokens - shadcn/ui theme mapped to the Deck palette.

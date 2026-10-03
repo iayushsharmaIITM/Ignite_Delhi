@@ -139,6 +139,61 @@ class NoCacheStaticFiles(StaticFiles):
 
 app.mount("/static", NoCacheStaticFiles(directory=os.path.join(HERE, "static")), name="static")
 
+# --------------------------------------------------------------------------
+# The React frontend (docs/FRONTEND_FIX_PLAN.md Phase A)
+# --------------------------------------------------------------------------
+# frontend/ is a Vite + React app that renders the same DOM the legacy shell
+# did, styled by the legacy stylesheets. It is a built artifact (frontend/dist,
+# committed — the app tier has no Node), and it is served from the ORIGIN ROOT
+# because its index.html references /assets/... absolutely and it has no path
+# routes: every deep link is a query param on / (?brain= ?chat= ?view= ?new=).
+#
+# KESTREL_UI selects which UI a browser gets at "/":
+#   react  — frontend/dist/index.html (with /assets, /favicon.svg)
+#   legacy — static/index.html, the pre-port dashboard
+# The default is legacy until the react path is verified end to end; flipping
+# it is this one line, and flipping back is the rollback.
+DIST_DIR = os.path.join(HERE, "frontend", "dist")
+UI_MODE = (os.getenv("KESTREL_UI") or "legacy").strip().lower()
+if UI_MODE not in ("react", "legacy"):
+    # A typo must not silently pick a UI the operator did not ask for.
+    raise SystemExit(f"KESTREL_UI={UI_MODE!r} is not one of: react, legacy")
+
+
+def _dist_file(name: str) -> str:
+    return os.path.join(DIST_DIR, name)
+
+
+def react_available() -> bool:
+    return os.path.isfile(_dist_file("index.html"))
+
+
+class ImmutableStaticFiles(StaticFiles):
+    """Content-hashed build assets (index-CAqIOa5l.js): cache them forever.
+
+    The opposite policy to NoCacheStaticFiles above, and for the same reason:
+    those files have no content hash and heuristically cache stale; these have
+    a hash in the name, so a new build is a new URL and the old one can never
+    be served by mistake. Without an explicit header, browsers revalidate every
+    asset on every load.
+    """
+
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
+
+
+# Mount only dist/assets — never frontend/ itself, which would publish src/,
+# package.json and node_modules. Skipped (with a loud line) when the bundle is
+# absent so the legacy UI still boots from a source-only checkout.
+if os.path.isdir(os.path.join(DIST_DIR, "assets")):
+    app.mount(
+        "/assets",
+        ImmutableStaticFiles(directory=os.path.join(DIST_DIR, "assets")),
+        name="app-assets",
+    )
+
 storage.init()   # Postgres persistence (P2): degrades to unavailable
 try:
     import connectors
@@ -1825,7 +1880,47 @@ def _page(filename: str) -> FileResponse:
 
 @app.get("/")
 def index():
+    """The product frontend: React when asked for and built, legacy otherwise.
+
+    Both are the same product on the same origin and the same API; KESTREL_UI
+    decides which one a browser gets. When react is selected but the bundle is
+    missing, this serves legacy AND says so in the log — the alternative (a
+    silent fallback) is how a deploy ends up on the wrong UI without anyone
+    noticing.
+    """
+    if UI_MODE == "react":
+        if react_available():
+            # Same no-cache rule as _page(): index.html is unhashed and names
+            # the hashed bundle, so a cached copy pins an old build.
+            return FileResponse(
+                _dist_file("index.html"),
+                headers={
+                    "Cache-Control": "no-cache, must-revalidate",
+                    "Pragma": "no-cache",
+                },
+            )
+        print(
+            "KESTREL_UI=react but frontend/dist/index.html is missing — "
+            "serving the legacy dashboard. Run ops/build_frontend.sh.",
+            flush=True,
+        )
     return _page("index.html")
+
+
+@app.get("/favicon.svg")
+def favicon():
+    """dist/index.html asks for /favicon.svg; without this it 404s on every
+    load (a console error, which the UI smoke suite treats as a failure)."""
+    if UI_MODE == "react" and os.path.isfile(_dist_file("favicon.svg")):
+        return FileResponse(_dist_file("favicon.svg"), media_type="image/svg+xml")
+    raise HTTPException(status_code=404, detail="No favicon.")
+
+
+@app.get("/icons.svg")
+def icons_sprite():
+    if UI_MODE == "react" and os.path.isfile(_dist_file("icons.svg")):
+        return FileResponse(_dist_file("icons.svg"), media_type="image/svg+xml")
+    raise HTTPException(status_code=404, detail="No icon sprite.")
 
 
 @app.get("/graph")
@@ -1854,6 +1949,16 @@ if __name__ == "__main__":
             "every request would 401. Refusing to boot.")
     if auth.mode() == "clerk":
         print(f"auth: clerk mode, JWKS {auth.jwks_url()}", flush=True)
+    # Which frontend "/" will hand a browser — printed at boot so a deploy's
+    # logs answer "is the React UI live?" without opening a browser.
+    if UI_MODE == "react" and react_available():
+        print(f"ui: react (frontend/dist, {DIST_DIR})", flush=True)
+    elif UI_MODE == "react":
+        print("ui: react REQUESTED but frontend/dist is missing — serving the "
+              "legacy dashboard. Run ops/build_frontend.sh.", flush=True)
+    else:
+        print("ui: legacy (static/index.html; set KESTREL_UI=react to serve "
+              "frontend/dist)", flush=True)
     if not storage.available():
         print("storage: Postgres unavailable — chats fall back to "
               "localStorage; Clerk-mode brains will 403 until it connects.",
