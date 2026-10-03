@@ -194,9 +194,11 @@
 
 | Feature | Legacy | React | Status |
 |---|---|---|---|
-| Sign-in gate | ✅ Full-screen overlay, Clerk mounted | ❌ Not present (relies on API 401) | ❌ **MISSING** |
-| Blur app when locked | ✅ `filter: blur(6px) saturate(.6)` | ❌ Not present | ❌ **MISSING** |
-| Clerk theming | ✅ Theme-matched appearance | ❌ Not present | ❌ **MISSING** |
+| Sign-in gate | ✅ Full-screen overlay, Clerk mounted via `mountSignIn` into `#clerk-mount` | ✅ Full-screen overlay, Clerk `openSignIn()` modal with theme-matched appearance | ✅ FIXED |
+| Blur app when locked | ✅ `filter: blur(6px) saturate(.6)` on `.app-main` | ✅ `blur` class applied via `body.locked` equivalent | ✅ FIXED |
+| Clerk theming | ✅ Theme-matched appearance (light/dark vars) | ✅ Same CSS vars in `AuthGate.tsx` | ✅ FIXED |
+| Sign out | `window.KestrelAuth.signOut()` | SettingsMenu → `Clerk.signOut()` | ✅ |
+| Account modal | `window.KestrelAuth.openAccount()` → `Clerk.openUserProfile()` | SettingsMenu → same | ✅ |
 | Social buttons | ✅ Styled for dark/light | ❌ Not present | ❌ **MISSING** |
 
 #### 2.1.13 Restore / Switch Animations
