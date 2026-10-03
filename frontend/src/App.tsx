@@ -19,7 +19,7 @@ import {
   fetchChat,
   saveChat,
 } from "@/lib/api"
-import { t, setLang, getLang, getLangs, type LangCode } from "@/lib/i18n"
+import { t, fmt, setLang, getLang, getLangs, type LangCode } from "@/lib/i18n"
 import { resolvedTheme, applyTheme, setTheme } from "@/theme"
 import { loadClerk } from "@/lib/clerk"
 
@@ -1128,7 +1128,7 @@ export default function App() {
               />
 
               <div className="pop" id="menu2" hidden={!menu2Open}>
-                <div className="count">{questionCount} question(s)</div>
+                <div className="count">{fmt("menu.questions", { n: questionCount })}</div>
                 <button type="button" id="copy-transcript" onClick={handleCopyTranscript}>{t("menu.copy_transcript", "Copy transcript")}</button>
                 <button type="button" id="menu-addbrain" onClick={() => { setMenu2Open(false); setFilesOpen(true) }}>{t("menu.add_docs", "Add documents to this brain…")}</button>
                 <div className="pop-sep" />

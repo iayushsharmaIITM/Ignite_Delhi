@@ -1,5 +1,6 @@
 import { useRef, useState } from "react"
 import { useAuthHeaders } from "@/lib/api"
+import { t } from "@/lib/i18n"
 
 type Props = {
   open: boolean
@@ -133,10 +134,10 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
     >
       <div className="sheet">
         <div className="head">
-          <strong>Add documents</strong>
+          <strong>{t("files.title", "Add documents")}</strong>
           <span className="where" id="files-target">{brain ? `into ${brain}` : "into the demo brain (read-only)"}</span>
           <span className="sp">
-            <button type="button" id="files-close" onClick={onClose}>Close</button>
+            <button type="button" id="files-close" onClick={onClose}>{t("files.close", "Close")}</button>
           </span>
         </div>
         <div className="body">
@@ -152,11 +153,8 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
             onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove("over") }}
             onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove("over"); addPicked(e.dataTransfer.files) }}
           >
-            <span>Drop files here or choose files</span>
-            <div className="hint">
-              PDF, DOCX, TXT, MD, CSV, JSON, code files · up to 5 MB each · 40 max.
-              Added straight into this brain — no restart, immediately answerable.
-            </div>
+            <span>{t("files.drop", "Drop files here or choose files")}</span>
+            <div className="hint">{t("files.hint", "PDF, DOCX, TXT, MD, CSV, JSON, code files · up to 5 MB each · 40 max. Added straight into this brain — no restart, immediately answerable.")}</div>
           </div>
           <input ref={inputRef} type="file" id="file-input" multiple hidden
                  onChange={(e) => { addPicked(e.target.files); e.target.value = "" }} />
@@ -177,7 +175,7 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
           <div className="done" id="files-done">{done}</div>
           <div className="cta">
             <button type="button" id="files-go" disabled={!picked.length || !brain || busy} onClick={upload}>
-              Add to brain
+              {t("files.add", "Add to brain")}
             </button>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { t } from "@/lib/i18n"
 
 // The sidebar is the legacy shell's `aside.shell` DOM (static/shell.js
 // buildLinks/chatGroup/renderUser), styled by legacy/deck.css. React only
@@ -205,14 +206,14 @@ export function Sidebar({
   let shown = 0
   const listHtml =
     groups.length === 0 ? (
-      <div className="chat-empty">No saved chats yet</div>
+      <div className="chat-empty">{t("nav.no_chats", "No saved chats yet")}</div>
     ) : chatView.mode === "timeline" ? (
       <>
         {sorted.slice(0, 14).map((c) => {
           const key = (c as ChatSummary & { created?: number }).created || c.at
           return chatRow(c.brain || currentBrain, c, relTime(key))
         })}
-        <div className="view-note">Timeline · sorted by {chatView.sort === "created" ? "Created" : "Updated"}</div>
+        <div className="view-note">{t("view.timeline", "Timeline")} · {t("view.sorted", "sorted by")} {chatView.sort === "created" ? t("view.created", "Created") : t("view.updated", "Updated")}</div>
       </>
     ) : (
       <>
@@ -235,7 +236,7 @@ export function Sidebar({
               >
                 <svg className="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d={CARET_D} /></svg>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={FOLDER_D} /></svg>
-                <span className="brain-name">{brain === "demo" ? "Demo brain" : brain}</span>
+                <span className="brain-name">{brain === "demo" ? t("brain.demo", "Demo brain") : brain}</span>
                 <button
                   type="button"
                   className={"row-del group-del" + (groupArmed ? " armed" : "")}
@@ -250,7 +251,7 @@ export function Sidebar({
             </div>
           )
         })}
-        <div className="view-note">Grouped by brain · sorted by {chatView.sort === "created" ? "Created" : "Updated"}</div>
+        <div className="view-note">{t("view.grouped", "Grouped by brain")} · {t("view.sorted", "sorted by")} {chatView.sort === "created" ? t("view.created", "Created") : t("view.updated", "Updated")}</div>
       </>
     )
 
@@ -267,19 +268,19 @@ export function Sidebar({
       </div>
 
       <nav className="nav">
-        <div className="nav-label">Workspace</div>
+        <div className="nav-label">{t("nav.workspace", "Workspace")}</div>
         {navItem(false, "New chat", "ask", onNewChat)}
         {navItem(false, "New brain", "upload", () => onBrainChange("__upload__"))}
         {navItem(view === "legacy-brains" || view === "brains", "Brains", "brains", () => onViewChange("brains"))}
         {navItem(view === "graph" || view === "legacy-graph", "Graph", "graph", () => onViewChange("graph"))}
         <div id="sb-chats">
           <div className="chats-head">
-            <span className="nav-label">Chats</span>
+            <span className="nav-label">{t("nav.chats", "Chats")}</span>
             <button
               type="button"
               className="head-btn"
-              title="View and sort"
-              aria-label="View and sort"
+              title={t("view.toggle", "View and sort")}
+              aria-label={t("view.toggle", "View and sort")}
               onClick={() => setViewMenuOpen((v) => !v)}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d={FILTER_D} /></svg>
@@ -287,20 +288,20 @@ export function Sidebar({
           </div>
           {viewMenuOpen && (
             <div className="pop sb-pop" id="sb-viewmenu">
-              <div className="pop-note">View</div>
+              <div className="pop-note">{t("view.title", "View")}</div>
               <button type="button" onClick={() => { persistView({ ...chatView, mode: "brain" }); setViewMenuOpen(false) }}>
-                <span>By brain</span>{chatView.mode === "brain" && <span className="tick">✓</span>}
+                <span>{t("view.by_brain", "By brain")}</span>{chatView.mode === "brain" && <span className="tick">✓</span>}
               </button>
               <button type="button" onClick={() => { persistView({ ...chatView, mode: "timeline" }); setViewMenuOpen(false) }}>
-                <span>Timeline</span>{chatView.mode === "timeline" && <span className="tick">✓</span>}
+                <span>{t("view.timeline", "Timeline")}</span>{chatView.mode === "timeline" && <span className="tick">✓</span>}
               </button>
               <div className="pop-sep" />
-              <div className="pop-note">Sort by</div>
+              <div className="pop-note">{t("view.sort_by", "Sort by")}</div>
               <button type="button" onClick={() => { persistView({ ...chatView, sort: "updated" }); setViewMenuOpen(false) }}>
-                <span>Updated</span>{chatView.sort === "updated" && <span className="tick">✓</span>}
+                <span>{t("view.updated", "Updated")}</span>{chatView.sort === "updated" && <span className="tick">✓</span>}
               </button>
               <button type="button" onClick={() => { persistView({ ...chatView, sort: "created" }); setViewMenuOpen(false) }}>
-                <span>Created</span>{chatView.sort === "created" && <span className="tick">✓</span>}
+                <span>{t("view.created", "Created")}</span>{chatView.sort === "created" && <span className="tick">✓</span>}
               </button>
             </div>
           )}
@@ -325,7 +326,7 @@ export function Sidebar({
             </>
           ) : (
             <button type="button" className="who" onClick={() => onOpenAccount?.()}>
-              <div className="nm">Sign in</div>
+              <div className="nm">{t("set.sign_in", "Sign in")}</div>
             </button>
           )}
         </div>
