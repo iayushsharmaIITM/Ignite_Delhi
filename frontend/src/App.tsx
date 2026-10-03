@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useRef, useState, type FormEven
 import { toast } from "sonner"
 import { Sidebar, type SidebarUser } from "@/components/Sidebar"
 import { Connectors } from "@/components/Connectors"
-import { SourceDrawer } from "@/components/SourceDrawer"
+import { SourceModal } from "@/components/SourceModal"
 import { CreateBrainDialog } from "@/components/CreateBrainDialog"
 import { GraphView } from "@/components/GraphView"
 import { LegacyMount } from "@/components/LegacyMount"
@@ -476,7 +476,9 @@ export default function App() {
             const idx = botIdxRef.current
             setTurns((t) => {
               const copy = [...t]
-              if (copy[idx]) copy[idx] = { role: "bot", text }
+              // spread, not replace: references can land between chunks and
+              // must survive the next text update
+              if (copy[idx]) copy[idx] = { ...copy[idx], role: "bot", text }
               return copy
             })
             scrollBottom()
@@ -496,7 +498,7 @@ export default function App() {
             const idx = botIdxRef.current
             setTurns((t) => {
               const copy = [...t]
-              if (copy[idx]) copy[idx] = { role: "bot", text }
+              if (copy[idx]) copy[idx] = { ...copy[idx], role: "bot", text }
               return copy
             })
           } else if (ev.stage && ev.stage !== "done" && !ev.message) {
@@ -1122,7 +1124,7 @@ export default function App() {
       </div>
 
       {sourcesPanel && (
-        <SourceDrawer
+        <SourceModal
           title={sourcesPanel.title}
           excerpt={sourcesPanel.excerpt}
           brain={brain}
