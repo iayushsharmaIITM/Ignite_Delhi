@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { t } from "@/lib/i18n"
+import { SlideRail } from "@/components/Animations"
 
 // The sidebar is the legacy shell's `aside.shell` DOM (static/shell.js
 // buildLinks/chatGroup/renderUser), styled by legacy/deck.css. React only
@@ -7,7 +8,7 @@ import { t } from "@/lib/i18n"
 // handler is the pre-port React one. Nav matches legacy exactly (Connectors
 // lives in the gear menu, as on :8000).
 
-type ChatSummary = { id: string; title: string; brain: string; at: number }
+type ChatSummary = { id: string; title: string; brain: string; at: number; created?: number }
 export type SidebarUser = { nm: string; em: string; initials: string; imageUrl?: string } | null
 type Props = {
   mobileOpen?: boolean
@@ -70,6 +71,9 @@ function NavIcon({ name }: { name: string }) {
   )
 }
 
+// Server chat rows carry the dataset name, so the demo folder must recognise
+// both spellings or it reads "company_brain" where legacy shows "Demo brain".
+const DEFAULT_BRAINS = ["company_brain"]
 const VIEW_KEY = "kestrel.sidebar.view"
 const FOLD_KEY = "kestrel.sidebar.collapsed" // legacy: JSON list of folded brains
 const CHAT_CAP = 16
@@ -118,9 +122,10 @@ export function Sidebar({
     try { return JSON.parse(localStorage.getItem(FOLD_KEY) || "[]") } catch { return [] }
   })
   const [armed, setArmed] = useState<string | null>(null) // chat id or "brain:<name>"
+  const navRef = useRef<HTMLElement>(null)
 
   const sorted = useMemo(() => {
-    const keyOf = (c: ChatSummary) => (chatView.sort === "created" ? (c as ChatSummary & { created?: number }).created || c.at : c.at)
+    const keyOf = (c: ChatSummary) => (chatView.sort === "created" ? c.created || c.at : c.at)
     return [...chats].sort((a, b) => keyOf(b) - keyOf(a))
   }, [chats, chatView.sort])
 
@@ -166,11 +171,17 @@ export function Sidebar({
     setArmed(key)
   }
 
-  const navItem = (active: boolean, label: string, icon: string, onClick: () => void) => (
+  // Real hrefs + modifier-click support: legacy lets ⌘/Ctrl/middle-click open a
+  // nav target in a new tab (shell.js:219-229); href="#" made that impossible.
+  const modified = (e: React.MouseEvent) => e.metaKey || e.ctrlKey || e.shiftKey || e.altKey
+
+  const brainQS = currentBrain && currentBrain !== "company_brain" ? `brain=${encodeURIComponent(currentBrain)}` : ""
+
+  const navItem = (active: boolean, label: string, icon: string, onClick: () => void, href: string) => (
     <a
       className={"nav-item" + (active ? " active" : "")}
-      href="#"
-      onClick={(e) => { e.preventDefault(); onClick() }}
+      href={href}
+      onClick={(e) => { if (modified(e)) return; e.preventDefault(); onClick() }}
     >
       <NavIcon name={icon} /><span>{label}</span>
     </a>
@@ -184,9 +195,9 @@ export function Sidebar({
       <div key={brain + "/" + c.id} className={"nav-item chat-item" + (active ? " active" : "")}>
         <a
           className="chat-link"
-          href="#"
+          href={`/?chat=${encodeURIComponent(c.id)}&brain=${encodeURIComponent(brain)}`}
           title={title}
-          onClick={(e) => { e.preventDefault(); onOpenChat(c.id, brain) }}
+          onClick={(e) => { if (modified(e)) return; e.preventDefault(); onOpenChat(c.id, brain) }}
         >
           <span className="chat-title">{title.slice(0, 30)}</span>
         </a>
@@ -219,7 +230,7 @@ export function Sidebar({
     ) : chatView.mode === "timeline" ? (
       <>
         {sorted.slice(0, 14).map((c) => {
-          const key = (c as ChatSummary & { created?: number }).created || c.at
+          const key = c.created || c.at
           return chatRow(c.brain || currentBrain, c, relTime(key))
         })}
         <div className="view-note">{t("view.timeline", "Timeline")} · {t("view.sorted", "sorted by")} {chatView.sort === "created" ? t("view.created", "Created") : t("view.updated", "Updated")}</div>
@@ -245,7 +256,9 @@ export function Sidebar({
               >
                 <svg className="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d={CARET_D} /></svg>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={FOLDER_D} /></svg>
-                <span className="brain-name">{brain === "demo" ? t("brain.demo", "Demo brain") : brain}</span>
+                <span className="brain-name">
+                  {brain === "demo" || DEFAULT_BRAINS.includes(brain) ? t("brain.demo", "Demo brain") : brain}
+                </span>
                 <button
                   type="button"
                   className={"row-del group-del" + (groupArmed ? " armed" : "")}
@@ -276,12 +289,13 @@ export function Sidebar({
         <button type="button" className="sb-collapse" title="Retract sidebar" aria-label="Retract sidebar" onClick={onToggle}>«</button>
       </div>
 
-      <nav className="nav">
+      <nav className="nav" ref={navRef}>
+        <SlideRail containerRef={navRef} />
         <div className="nav-label">{t("nav.workspace", "Workspace")}</div>
-        {navItem(false, "New chat", "ask", onNewChat)}
-        {navItem(false, "New brain", "upload", () => onBrainChange("__upload__"))}
-        {navItem(view === "legacy-brains" || view === "brains", "Brains", "brains", () => onViewChange("brains"))}
-        {navItem(view === "graph" || view === "legacy-graph", "Graph", "graph", () => onViewChange("graph"))}
+        {navItem(false, t("nav.new_chat", "New chat"), "ask", onNewChat, `/?new=1${brainQS ? "&" + brainQS : ""}`)}
+        {navItem(false, t("nav.new_brain", "New brain"), "upload", () => onBrainChange("__upload__"), "/upload")}
+        {navItem(view === "legacy-brains" || view === "brains", t("nav.brains", "Brains"), "brains", () => onViewChange("brains"), `/brains`)}
+        {navItem(view === "graph" || view === "legacy-graph", t("nav.graph", "Graph"), "graph", () => onViewChange("graph"), `/graph${brainQS ? "?" + brainQS : ""}`)}
         <div id="sb-chats">
           <div className="chats-head">
             <span className="nav-label">{t("nav.chats", "Chats")}</span>

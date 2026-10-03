@@ -7,6 +7,8 @@ import "./index.css"
 // (loaded last there, so it wins ties here too). bridge.css dissolves #root.
 import "./legacy/deck.css"
 import "./legacy/shell.css"
+// Inter (self-hosted) must beat deck.css's --sans, which shell.css uses directly
+import "./legacy/fonts.css"
 import "./legacy/bridge.css"
 import "./theme"
 import App from "./App"

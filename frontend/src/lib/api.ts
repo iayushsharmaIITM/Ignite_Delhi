@@ -2,7 +2,10 @@ import { useEffect, useState } from "react"
 import { awaitClerkBoot, getClerkToken } from "@/lib/clerk"
 
 export type Brain = { name: string; chat_count?: number; is_demo?: boolean; is_system?: boolean }
-export type ChatSummary = { id: string; title: string; brain: string; at: number }
+export type ChatSummary = { id: string; title: string; brain: string; at: number; created?: number }
+export type WorkStep = { label: string; at: number; ms?: number }
+export type Attachment = { name: string; kind: "image" | "file"; size: number; url?: string }
+
 export type Turn = {
   role: "user" | "bot"
   text: string
@@ -10,6 +13,10 @@ export type Turn = {
   at?: number
   /** Legacy .bubble.err: the turn is a failure state, not model output. */
   error?: boolean
+  attachments?: Attachment[]
+  steps?: WorkStep[]
+  workedMs?: number
+  stopped?: boolean
 }
 
 /* ==========================================================================
@@ -122,29 +129,38 @@ export function useBrains() {
   return { brains, refreshBrains: refresh, brainsError }
 }
 
-/* Phase 9: server-backed chat history (the single source of truth). */
-export function useChats(brain: string | null) {
+/**
+ * Server-backed chat history — EVERY brain, not just the open one.
+ *
+ * Legacy reads all `kestrel.chats.*` keys and merges the server rows, so the
+ * sidebar keeps working on /brains, /graph and /upload and "Grouped by brain"
+ * can actually show more than one folder (shell.js:55-68,128-214). The port
+ * asked for one brain and only while the chat view was open, so every other
+ * view claimed "No saved chats yet".
+ */
+export function useChats() {
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [chatsError, setChatsError] = useState<string | null>(null)
   const refresh = () => {
-    if (!brain) {
-      setChats([])
-      setChatsError(null)
-      return
-    }
-    apiFetch(`/api/chats?brain=${encodeURIComponent(brain)}`)
+    apiFetch(`/api/chats`)
       .then(async (r) => {
         if (!r.ok) throw new Error(await serverError(r))
         return r.json()
       })
       .then((d) => {
         setChats(
-          (d.chats || []).map((c: { id: string; title: string; brain: string; updated: string }) => ({
-            id: c.id,
-            title: c.title || "Untitled",
-            brain: c.brain || brain,
-            at: c.updated ? new Date(c.updated).getTime() : 0,
-          })),
+          (d.chats || []).map(
+            (c: { id: string; title: string; brain: string; updated: string; created?: string }) => ({
+              id: c.id,
+              title: c.title || "Untitled",
+              brain: c.brain,
+              at: c.updated ? new Date(c.updated).getTime() : 0,
+              // Sorting by "Created" was a no-op without this: every row fell
+              // back to `updated` (storage.list_chats has returned `created`
+              // all along).
+              created: c.created ? new Date(c.created).getTime() : undefined,
+            }),
+          ),
         )
         setChatsError(null)
       })
@@ -155,7 +171,7 @@ export function useChats(brain: string | null) {
         setChatsError((e as Error).message)
       })
   }
-  useEffect(refresh, [brain])
+  useEffect(refresh, [])
   return { chats, refreshChats: refresh, chatsError }
 }
 
@@ -163,17 +179,19 @@ export async function fetchChat(id: string): Promise<Turn[]> {
   const r = await apiFetch(`/api/chats/${encodeURIComponent(id)}`)
   if (!r.ok) throw new Error(await serverError(r))
   const d = await r.json()
-  return (d.chat?.turns || []).map(
-    (t: { role: string; text: string; sources?: Turn["sources"]; at?: number; error?: boolean }) => ({
-      role: t.role === "user" ? "user" : "bot",
-      text: t.text || "",
-      sources: t.sources || undefined,
-      // `at` is stored with every turn; dropping it here stamped every
-      // restored message with the current clock time (legacy:1142).
-      at: t.at,
-      error: t.error,
-    }),
-  )
+  return (d.chat?.turns || []).map((t: Partial<Turn> & { role: string }) => ({
+    role: t.role === "user" ? "user" : "bot",
+    text: t.text || "",
+    sources: t.sources || undefined,
+    // These four were dropped on restore: every message got the current clock
+    // time, attachments vanished, and each answer lost its working log.
+    at: t.at,
+    error: t.error,
+    attachments: t.attachments,
+    steps: t.steps,
+    workedMs: t.workedMs,
+    stopped: t.stopped,
+  }))
 }
 
 export async function saveChat(id: string, title: string, brain: string, turns: Turn[]) {
@@ -213,9 +231,9 @@ export async function getJob(jobId: string): Promise<JobStatus | null> {
   return { state: d.job.state, error_code: d.job.error_code, files: d.files }
 }
 
-export function greeting(): string {
-  const h = new Date().getHours()
-  return h < 12 ? "Morning, how can I help?" : h < 17 ? "Afternoon, how can I help?" : "Evening, how can I help?"
-}
+// greeting() lived here as hardcoded English. The shell now resolves the
+// time-of-day greeting through the dictionary (i18n keys greet.morning /
+// greet.afternoon / greet.evening, the same keys static/index.html:804 uses),
+// so a language switch actually changes it.
 
 export const DEFAULT_BRAIN = "company_brain"

@@ -1,0 +1,16 @@
+/* ============================================================
+ * TYPE OVERRIDE LAYER — the only rule here is font-family.
+ *
+ * Inter is self-hosted (@fontsource-variable/inter, no CDN). Loading it in the
+ * theme alone was not enough: shell.css sets `#q`, `.bname`, `code` and the
+ * source modal from Deck's `--sans` token directly, so the composer and code
+ * blocks would keep the system face while the React surfaces used Inter. This
+ * file is imported AFTER deck.css/shell.css for exactly that reason, and it is
+ * font-family only — no colour, spacing or layout rule belongs here.
+ * ============================================================ */
+
+@import "@fontsource-variable/inter";
+
+:root {
+  --sans: var(--font-sans);
+}

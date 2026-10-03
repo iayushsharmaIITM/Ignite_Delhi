@@ -70,7 +70,14 @@ export function SourceModal({ title, excerpt, brain, onClose }: Props) {
   }, [onClose])
 
   return (
-    <div id="source-modal" role="dialog" aria-modal="true" aria-label="Cited source">
+    <div
+      id="source-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Cited source"
+      // Legacy closes the sheet on a backdrop click (index.html:1812-1815).
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
       <div className="sheet">
         <div className="head">
           <span className="nm" id="src-name">{title}</span>

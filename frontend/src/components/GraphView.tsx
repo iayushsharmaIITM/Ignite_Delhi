@@ -23,7 +23,7 @@ export function GraphView({ brain }: Props) {
     setLoading(true)
     setError(null)
     setSelected(null)
-    apiFetch(`/api/graph?brain=${encodeURIComponent(brain)}`)
+    apiFetch(`/api/graph?dataset=${encodeURIComponent(brain)}`)
       .then(async (r) => {
         // 401/403/5xx answers with JSON, so without this the view rendered the
         // "graph is empty — run ingest.py" state for a permission error.
@@ -123,7 +123,7 @@ export function GraphView({ brain }: Props) {
                             stroke="var(--accent)" strokeWidth="1.5"
                             className="node-dot cursor-pointer transition-all duration-150 ease-out" />
                     <text x={p.x + 10} y={p.y + 4} fontSize="11"
-                          fill={isSel ? "var(--ink)" : "var(--muted)"}>
+                          fill={isSel ? "var(--fg)" : "var(--muted)"}>
                       {labelOf(n)}
                     </text>
                   </g>

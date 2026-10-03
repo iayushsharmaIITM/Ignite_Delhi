@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { SlackAccessDialog } from "@/components/SlackAccessDialog"
 import { apiFetch, serverError } from "@/lib/api"
+import { t } from "@/lib/i18n"
 
 type Status = {
   email_send?: boolean
@@ -39,12 +40,21 @@ function StatusChip({ ok, label }: { ok: boolean | null; label: string }) {
   )
 }
 
-export function Connectors() {
+export function Connectors({ brain = "" }: { brain?: string }) {
   const [status, setStatus] = useState<Status | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [armed, setArmed] = useState<string | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
+  // Import history — legacy's connectors modal carried these exact fields
+  // (channel id / search + brain + count). Without them the React page could
+  // connect an account but never pull anything into a brain.
+  const [importBrain, setImportBrain] = useState(brain)
+  const [importChannel, setImportChannel] = useState("")
+  const [importQuery, setImportQuery] = useState("")
+  const [importLimit, setImportLimit] = useState("25")
+  const [importNote, setImportNote] = useState("")
+  const [importing, setImporting] = useState<"" | "slack" | "gmail">("")
 
   const refresh = useCallback(() => {
     apiFetch("/api/connectors/status")
@@ -66,6 +76,38 @@ export function Connectors() {
   }, [])
 
   useEffect(refresh, [refresh])
+  useEffect(() => { setImportBrain((cur) => cur || brain) }, [brain])
+
+  const runImport = async (source: "slack" | "gmail") => {
+    if (!importBrain.trim()) { setImportNote("A target brain is required."); return }
+    setImporting(source)
+    setImportNote("importing…")
+    try {
+      const r = await apiFetch("/api/connectors/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source,
+          brain: importBrain.trim(),
+          limit: Math.max(1, Math.min(100, Number(importLimit) || 25)),
+          ...(source === "slack" ? { channel: importChannel.trim() } : { query: importQuery.trim() }),
+        }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) { setImportNote(d.detail || `HTTP ${r.status}`); return }
+      // The server's own numbers, never a hopeful "imported!".
+      const failed = Number(d.failed || 0)
+      setImportNote(
+        `Imported ${d.imported ?? 0} of ${Number(d.imported || 0) + failed}` +
+        (failed ? ` · ${failed} failed` : "") +
+        ` → ${importBrain.trim()}`,
+      )
+    } catch (e) {
+      setImportNote("Could not reach the server: " + (e as Error).message)
+    } finally {
+      setImporting("")
+    }
+  }
 
   const disconnect = async (ws: Workspace) => {
     if (armed !== ws.team_id) {
@@ -208,6 +250,63 @@ export function Connectors() {
           </div>
         </section>
       </div>
+
+      <section className="mt-6 rounded-xl border border-border bg-card p-5">
+        <h2 className="text-[15px] font-semibold text-foreground">
+          {t("conn.import_title", "Import history into a brain")}
+        </h2>
+        <p className="mt-1 text-[12.5px] text-muted-foreground">
+          {t("conn.import_sub", "Imported messages become citable documents — the same path as an upload.")}
+        </p>
+        <div className="conn-import mt-3 flex-wrap gap-2">
+          <input
+            value={importBrain}
+            onChange={(e) => setImportBrain(e.target.value)}
+            placeholder={t("conn.brain", "target brain")}
+            aria-label={t("conn.brain", "target brain")}
+          />
+          <input
+            value={importChannel}
+            onChange={(e) => setImportChannel(e.target.value)}
+            placeholder={t("conn.channel", "Slack channel id")}
+            aria-label={t("conn.channel", "Slack channel id")}
+          />
+          <input
+            value={importQuery}
+            onChange={(e) => setImportQuery(e.target.value)}
+            placeholder={t("conn.query", "Gmail search (optional)")}
+            aria-label={t("conn.query", "Gmail search query")}
+          />
+          <input
+            value={importLimit}
+            onChange={(e) => setImportLimit(e.target.value)}
+            type="number"
+            min={1}
+            max={100}
+            className="max-w-[84px]"
+            aria-label={t("conn.limit", "how many messages")}
+          />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            className="rounded-lg"
+            disabled={importing === "slack"}
+            onClick={() => void runImport("slack")}
+          >
+            {importing === "slack" ? t("conn.importing", "Importing…") : t("conn.import_slack", "Import Slack channel")}
+          </Button>
+          <Button
+            variant="secondary"
+            className="rounded-lg"
+            disabled={importing === "gmail"}
+            onClick={() => void runImport("gmail")}
+          >
+            {importing === "gmail" ? t("conn.importing", "Importing…") : t("conn.import_gmail", "Import Gmail")}
+          </Button>
+        </div>
+        {importNote && <p className="conn-note">{importNote}</p>}
+      </section>
 
       <SlackAccessDialog open={dialogOpen} onClose={() => { setDialogOpen(false); refresh() }} />
     </div>

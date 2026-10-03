@@ -29,6 +29,7 @@ SKIP_TEXTS = {
     "Graph",                             # triggers confirm() about legacy hand-off
     "Rename", "Pin",                     # sidebar dropdown items (alert())
     "Connect",                           # starts the real Slack OAuth round-trip
+    "Import ",                           # real connector import (503/400 without config)
     # overlay-opening triggers (post-port they cover the viewport and would
     # make the blanket click-loop throw) — each has its own targeted check
     "New brain", "Brains", "Add documents", "Switch brain", "Conversation actions",
@@ -117,6 +118,8 @@ def run_checks(page: Page, base: str) -> list[str]:
         try:
             if not btn.is_visible():
                 continue
+            if btn.is_disabled():
+                continue
             text = (btn.text_content() or "").strip()
             aria = btn.get_attribute("aria-label") or ""
             full = f"{text} {aria}"
@@ -151,6 +154,8 @@ def run_checks(page: Page, base: str) -> list[str]:
         btn = conn_buttons.nth(i)
         try:
             if not btn.is_visible():
+                continue
+            if btn.is_disabled():
                 continue
             text = (btn.text_content() or "").strip()
             aria = btn.get_attribute("aria-label") or ""

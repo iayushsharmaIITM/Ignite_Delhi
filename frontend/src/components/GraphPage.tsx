@@ -140,7 +140,7 @@ export function GraphPage({ brain }: Props) {
     setInspectorOpen(false);
     setExitVisible(false);
 
-    apiFetch(`/api/graph?brain=${encodeURIComponent(brain)}`)
+    apiFetch(`/api/graph?dataset=${encodeURIComponent(brain)}`)
       .then((r) => {
         if (!r.ok) {
           if (r.status === 401 || r.status === 403) {

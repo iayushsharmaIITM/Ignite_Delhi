@@ -39,7 +39,9 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
       next.push({ name: f.name, size: f.size, file: f })
     }
     setPicked(next)
-    setNotes(newNotes)
+    // Append: a second batch used to erase the first batch's warnings
+    // (legacy accumulates, index.html:2044-2059).
+    setNotes((prev) => [...prev, ...newNotes])
   }
 
   const upload = async () => {

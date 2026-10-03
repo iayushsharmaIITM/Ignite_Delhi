@@ -22,14 +22,21 @@
   --color-card-foreground: var(--fg);
   --color-popover: var(--panel);
   --color-popover-foreground: var(--fg);
+  /* --accent is the BRAND amber, because that is what the app means by
+     `text-accent` / `border-accent/40` (41 + 18 usages). shadcn's convention is
+     the opposite — a subtle hover surface — so the primitives that want a
+     surface use --color-accent-surface below. Mapping `accent` to var(--wash)
+     (as the first port did) made every `text-accent` render as near-invisible
+     white-on-charcoal: the bug the dead-utility guard now catches. */
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--fg);
+  --color-accent-surface: var(--wash);
   --color-primary: var(--accent);
   --color-primary-foreground: var(--accent-ink);
   --color-secondary: var(--panel-2);
   --color-secondary-foreground: var(--fg-2);
   --color-muted: var(--panel-2);
   --color-muted-foreground: var(--muted);
-  --color-accent: var(--wash);
-  --color-accent-foreground: var(--fg);
   --color-accent-dim: var(--accent-dim);
   --color-destructive: var(--bad);
   --color-ok: var(--ok);
@@ -44,42 +51,43 @@
   --color-sidebar-border: var(--line);
   --color-sidebar-accent: var(--wash-2);
 
+  /* Deck roles, exposed so the ~120 utilities that used them stop emitting no
+     CSS at all (bg-panel, border-line-2, text-fg-2, bg-wash…). The values stay
+     owned by deck.css — these are aliases, not a second palette. */
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-panel-3: var(--panel-3);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-muted-2: var(--muted-2);
+  --color-wash: var(--wash);
+  --color-wash-2: var(--wash-2);
+  --color-wash-3: var(--wash-3);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-line-3: var(--line-3);
+  --color-accent-2: var(--accent-2);
+  --color-good: var(--good);
+  --color-bad: var(--bad);
+
   --radius-card: 12px;
   --radius-chip: 9999px;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+/* --------------------------------------------------------------------------
+ * Only the tokens the Deck stylesheets do NOT define live here. Everything
+ * else is owned by legacy/deck.css (imported after this file, so it wins any
+ * tie) — re-declaring --bg/--panel/--fg here is how `--warn` ended up defined
+ * twice with two different hues, one of which could never render.
+ * -------------------------------------------------------------------------- */
 :root {
-  --bg: #1a1a1a;
-  --bg-2: #161616;
-  --panel: #212121;
-  --panel-2: #2b2b2b;
-  --panel-3: #333333;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-2: rgba(255, 255, 255, 0.13);
-  --line-3: rgba(255, 255, 255, 0.22);
-  --fg: #ececec;
-  --fg-2: #c9c9c9;
-  --muted: #9a9a9a;
-  --muted-2: #6b6b6b;
-  --accent: #e8873a;
-  --accent-2: #f49d54;
-  --accent-ink: #1a1206;
-  --accent-soft: rgba(232, 134, 59, 0.45);
-  --accent-dim: rgba(232, 134, 59, 0.12);
-  --accent-glow: rgba(232, 134, 59, 0.1);
   --ok: #34d399;
   --ok-dim: rgba(52, 211, 153, 0.12);
-  --warn: #fbbf24;
-  --warn-dim: rgba(251, 191, 36, 0.12);
-  --wash: rgba(255, 255, 255, 0.05);
-  --wash-2: rgba(255, 255, 255, 0.07);
-  --wash-3: rgba(255, 255, 255, 0.04);
-  --good: #4ade80;
-  --bad: #f07070;
-  --warn: #e5c07b;
-  --radius: 12px;
+  /* dim of the same hue as Deck's --warn (#e5c07b), not the spec's #fbbf24 —
+     the rendered colour and its wash must belong to each other. */
+  --warn-dim: rgba(229, 192, 123, 0.12);
 }
 
 /* Light theme - same hues on warm paper */

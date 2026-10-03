@@ -17,14 +17,14 @@ export function LegacyMount({ path, label }: Props) {
   return (
     <div className="relative h-full w-full">
       {!loaded && (
-        <div className="absolute inset-0 grid place-items-center bg-bg" aria-hidden>
+        <div className="absolute inset-0 grid place-items-center bg-background" aria-hidden>
           <span className="inline-block h-3.5 w-3.5 animate-pulse rounded-full bg-accent/80" />
         </div>
       )}
       <iframe
         src={path}
         title={`${label} (legacy page)`}
-        className="h-full w-full border-0 bg-bg"
+        className="h-full w-full border-0 bg-background"
         onLoad={() => setLoaded(true)}
       />
       <div

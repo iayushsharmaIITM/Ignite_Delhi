@@ -553,7 +553,8 @@ const DICT: Record<string, Record<string, string>> = {
     'view.grouped': 'Groupé par cerveau',
     'view.sorted': 'trié par',
     'view.toggle': 'Afficher et trier',
-    'usage.title': 'Statistiques d\'utilisation", \'usage.sub\': \'30 derniers jours · tokens estimés',
+    'usage.title': "Statistiques d'utilisation",
+    'usage.sub': '30 derniers jours · tokens estimés',
     'usage.feature': 'Fonction',
     'usage.brain': 'Cerveau',
     'usage.model': 'Modèle',
@@ -946,6 +947,12 @@ export function setLang(code: LangCode): void {
 
 export function getLang(): LangCode {
   return currentLang
+}
+
+// A page that renders German must SAY it is German: setLang() sets this on a
+// live switch, but the initial load left <html lang="en">.
+if (typeof document !== "undefined") {
+  document.documentElement.lang = currentLang
 }
 
 export function getLangs() {

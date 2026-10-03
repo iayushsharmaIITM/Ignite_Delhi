@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { ArrowDown, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { resolvedTheme } from "@/theme"
+import { t } from "@/lib/i18n"
+import { apiFetch, serverError } from "@/lib/api"
 
 /* ========================================================================
    Animation utility components — ported from legacy shell.css / index.html
@@ -29,6 +31,14 @@ export function SheetModal({ children, className }: { children: ReactNode; class
 export function SlideRail({ containerRef }: { containerRef: React.RefObject<HTMLElement | null> }) {
   const railRef = useRef<HTMLDivElement>(null)
   const rafRef = useRef(0)
+
+  // body.sb-slide-on suppresses the per-row hover wash while the gliding rail
+  // is live (deck.css:195). The component existed but was imported by nobody,
+  // so the signature sidebar interaction was simply absent.
+  useEffect(() => {
+    document.body.classList.add("sb-slide-on")
+    return () => document.body.classList.remove("sb-slide-on")
+  }, [])
 
   useEffect(() => {
     const container = containerRef.current
@@ -291,54 +301,67 @@ export function AuthGate({
   visible: boolean
   children?: ReactNode
 }) {
+  const mountRef = useRef<HTMLDivElement>(null)
+  const [mountFailed, setMountFailed] = useState(false)
+
+  // Port of the legacy gate (static/index.html:2165-2211): mount the sign-in
+  // CARD inline inside #clerk-mount, retrying while Clerk's renderer catches up
+  // with load(). The previous React version called Clerk.openSignIn() behind a
+  // blind 10s poll instead — which left an empty "Sign in to Kestrel" card with
+  // a modal floating over it, and no inline fallback at all when the modal
+  // could not open.
   useEffect(() => {
     if (!visible) return
+    const el = mountRef.current
+    if (!el) return
     const w = window as unknown as {
       Clerk?: {
-        openSignIn?: (props?: Record<string, unknown>) => void
-        closeSignIn?: () => void
         loaded?: boolean
+        client?: { sessions?: unknown[] }
+        mountSignIn?: (node: HTMLElement, opts?: Record<string, unknown>) => void
+        unmountSignIn?: (node: HTMLElement) => void
+        openSignIn?: (opts?: Record<string, unknown>) => void
       }
     }
-
-    // If Clerk is already loaded (load() has resolved), open immediately
-    if (w.Clerk?.loaded) {
-      openSignIn()
-      return
-    }
-
-    // Otherwise poll for Clerk to appear and become loaded
-    // (the App's auth effect calls loadClerk which awaits Clerk.load())
-    const interval = setInterval(() => {
-      if (w.Clerk?.loaded) {
-        clearInterval(interval)
-        openSignIn()
+    let tries = 30
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const tryMount = () => {
+      const clerk = w.Clerk
+      if (!clerk?.loaded || !clerk.mountSignIn) {
+        if (tries-- > 0) { timer = setTimeout(tryMount, 300); return }
+        // Last resort: the modal, or say so instead of showing a blank card.
+        if (clerk?.openSignIn) clerk.openSignIn({ appearance: appearanceProps() })
+        else setMountFailed(true)
         return
       }
-    }, 100)
-
-    // Timeout after 10s to avoid hanging forever
-    const timeout = setTimeout(() => {
-      clearInterval(interval)
-      openSignIn()
-    }, 10000)
-
-    return () => {
-      clearInterval(interval)
-      clearTimeout(timeout)
-    }
-  }, [visible])
-
-  function openSignIn() {
-    const w = window as unknown as {
-      Clerk?: {
-        openSignIn?: (props?: Record<string, unknown>) => void
-        closeSignIn?: () => void
+      try {
+        clerk.mountSignIn(el, { appearance: appearanceProps() })
+      } catch {
+        if (tries-- > 0) { timer = setTimeout(tryMount, 300); return }
+        setMountFailed(true)
       }
     }
-    if (!w.Clerk) return
+    tryMount()
+    return () => { if (timer) clearTimeout(timer) }
+  }, [visible])
 
-    // Mirror the legacy auth.js appearance() — theme-matched Clerk component variables
+  // A theme switch must re-render Clerk's card or it keeps the old palette.
+  useEffect(() => {
+    if (!visible) return
+    const onTheme = () => {
+      const w = window as unknown as {
+        Clerk?: { unmountSignIn?: (n: HTMLElement) => void; mountSignIn?: (n: HTMLElement, o?: Record<string, unknown>) => void }
+      }
+      const el = mountRef.current
+      if (!el) return
+      try { w.Clerk?.unmountSignIn?.(el) } catch { /* not mounted */ }
+      try { w.Clerk?.mountSignIn?.(el, { appearance: appearanceProps() }) } catch { /* retry loop owns it */ }
+    }
+    window.addEventListener("kestrel:theme", onTheme)
+    return () => window.removeEventListener("kestrel:theme", onTheme)
+  }, [visible])
+
+  function appearanceProps() {
     const light = resolvedTheme() === "light"
     const variables = light
       ? {
@@ -366,29 +389,16 @@ export function AuthGate({
           header: { display: "none" },
         }
 
-    const props = {
-      appearance: {
-        variables,
-        elements: {
-          formButtonPrimary: "bg-accent text-accent-foreground hover:bg-accent/90",
-          socialButtonsBlockButton: "border border-line bg-panel text-foreground hover:bg-wash-2",
-          socialButtonsBlockButtonArrow: "text-muted-foreground",
-          footerActionLink: "text-accent hover:text-accent-2",
-        },
+    return {
+      variables,
+      elements: {
+        formButtonPrimary: "bg-accent text-accent-foreground hover:bg-accent/90",
+        socialButtonsBlockButton: "border border-line bg-panel text-foreground hover:bg-wash-2",
+        socialButtonsBlockButtonArrow: "text-muted-foreground",
+        footerActionLink: "text-accent hover:text-accent-2",
       },
-      routing: "hash",
     } as Record<string, unknown>
-
-    w.Clerk.openSignIn?.(props)
   }
-
-  // Close Clerk modal when the gate hides
-  useEffect(() => {
-    if (!visible) {
-      const w = window as unknown as { Clerk?: { closeSignIn?: () => void } }
-      w.Clerk?.closeSignIn?.()
-    }
-  }, [visible])
 
   if (!visible) return null
   return (
@@ -409,8 +419,15 @@ export function AuthGate({
         >
           ◆
         </div>
-        <div className="auth-title">Sign in to Kestrel</div>
-        <div className="auth-sub">Your company's answers, grounded in your documents.</div>
+        <div className="auth-title">{t("gate.title", "Sign in to Kestrel")}</div>
+        <div className="auth-sub">{t("gate.sub", "Your company's answers, grounded in your documents.")}</div>
+        {/* Legacy #clerk-mount: Clerk renders the form here, inside our card. */}
+        <div id="clerk-mount" ref={mountRef} />
+        {mountFailed && (
+          <p className="auth-sub" role="alert">
+            Could not load the sign-in form. Check the network connection and reload.
+          </p>
+        )}
         {children}
       </div>
     </div>
@@ -423,7 +440,7 @@ export function AuthGate({
 
 export function SettingsMenu({
   open,
-  onClose: _onClose,
+  onClose,
   onLanguage,
   onTheme,
   onUsage,
@@ -444,32 +461,65 @@ export function SettingsMenu({
   onSignOut: () => void
   signedIn: boolean
 }) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  // deck.css makes .settings-pop position:fixed with NO offsets — legacy
+  // computes them from the gear's rect (shell.js:581-585). Without this the
+  // menu rendered at its static position, i.e. wherever that happened to be.
+  useLayoutEffect(() => {
+    if (!open) return
+    const menu = ref.current
+    if (!menu) return
+    const gear = document.querySelector<HTMLElement>(".sb-user .gear")
+    const r = gear?.getBoundingClientRect()
+    menu.style.left = "12px"
+    menu.style.bottom = r ? `${Math.max(10, window.innerHeight - r.top + 8)}px` : "72px"
+  }, [open])
+
+  // The legacy pop closes on any click outside it (or the gear) and on Escape
+  // (shell.js:1013-1018). `onClose` used to be accepted and ignored.
+  useEffect(() => {
+    if (!open) return
+    const onDocClick = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el?.closest(".settings-pop") || el?.closest(".sub-pop") || el?.closest(".sb-user .gear")) return
+      onClose()
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+    document.addEventListener("click", onDocClick)
+    document.addEventListener("keydown", onKey)
+    return () => {
+      document.removeEventListener("click", onDocClick)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [open, onClose])
+
   if (!open) return null
   return (
-    <div className="settings-pop" role="menu" aria-label="Settings">
+    <div className="settings-pop" role="menu" aria-label="Settings" ref={ref}>
       <button type="button" className="set-item" onClick={onLanguage} role="menuitem">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>
-        <span>Language</span>
+        <span>{t("set.language", "Language")}</span>
         <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6"/></svg>
       </button>
       <button type="button" className="set-item" onClick={onTheme} role="menuitem">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg>
-        <span>App theme</span>
+        <span>{t("set.theme", "App theme")}</span>
         <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6"/></svg>
       </button>
       <div className="set-sep" />
       <button type="button" className="set-item" onClick={onUsage} role="menuitem">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M20 20H4"/></svg>
-        <span>Usage stats</span>
+        <span>{t("set.usage", "Usage stats")}</span>
       </button>
       <button type="button" className="set-item" onClick={onUpgrade} role="menuitem">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5 15c-1.5 1.5-2 5-2 5s3.5-.5 5-2M14 4c3-2 7-1 7-1s1 4-1 7l-6 6-4-4 4-6z"/><circle cx="14.5" cy="9.5" r="1.4"/></svg>
-        <span>Upgrade</span>
+        <span>{t("set.upgrade", "Upgrade")}</span>
       </button>
       {onConnectors && (
         <button type="button" className="set-item" onClick={onConnectors} role="menuitem">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M9 7v10M15 7v10M6 4h12M6 20h12" /><circle cx="9" cy="12" r="2.6" /><circle cx="15" cy="12" r="2.6" /></svg>
-          <span>Connectors</span>
+          <span>{t("set.connectors", "Connectors")}</span>
         </button>
       )}
       {signedIn && (
@@ -477,11 +527,11 @@ export function SettingsMenu({
           <div className="set-sep" />
           <button type="button" className="set-item" onClick={onAccount} role="menuitem">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"/></svg>
-            <span>Manage account</span>
+            <span>{t("set.account", "Manage account")}</span>
           </button>
           <button type="button" className="set-item" onClick={onSignOut} role="menuitem">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 17l5-5-5-5M15 12H3"/></svg>
-            <span>Disconnect</span>
+            <span>{t("set.signout", "Disconnect")}</span>
           </button>
         </>
       )}
@@ -640,6 +690,160 @@ export function MessageActions({
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M17 13V4M17 13l-4 7c-1.2 0-2-.9-2-2v-4H5.8a1.8 1.8 0 0 1-1.8-2.1l1-5.5A2 2 0 0 1 7 5h10"/></svg>
       </button>
       <span className="time">{time}</span>
+    </div>
+  )
+}
+
+/* ========================================================================
+   Usage + Upgrade modals — legacy .km-scrim/.km-sheet (deck.css:407-460)
+   ========================================================================
+   Both surfaces existed in the stylesheets and in the legacy shell
+   (shell.js:640-704) while the React settings menu answered them with a
+   toast. The keys (usage.*, up.*) and the endpoint (/api/usage) were already
+   there too, unused. */
+
+export type UsageModalProps = { open: boolean; onClose: () => void }
+
+type UsageRow = {
+  feature: string
+  brain: string
+  model: string
+  calls: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_ms: number
+}
+
+export function UsageModal({ open, onClose }: UsageModalProps) {
+  const [rows, setRows] = useState<UsageRow[]>([])
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading")
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    if (!open) return
+    setState("loading")
+    apiFetch("/api/usage")
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await serverError(r))
+        return r.json()
+      })
+      .then((d) => {
+        setRows(d.usage || [])
+        setState("ready")
+      })
+      .catch((e) => {
+        setError((e as Error).message)
+        setState("error")
+      })
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [open, onClose])
+
+  if (!open) return null
+  const calls = rows.reduce((n, r) => n + Number(r.calls || 0), 0)
+  const tokens = rows.reduce(
+    (n, r) => n + Number(r.prompt_tokens || 0) + Number(r.completion_tokens || 0), 0)
+  const ms = rows.reduce((n, r) => n + Number(r.total_ms || 0), 0)
+
+  return (
+    <div className="km-scrim" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="km-sheet" role="dialog" aria-modal="true" aria-label={t("usage.title", "Usage stats")}>
+        <div className="km-head">
+          <h2>{t("usage.title", "Usage stats")}</h2>
+          <button type="button" className="km-x" onClick={onClose} aria-label={t("src.close", "Close")}>✕</button>
+        </div>
+        <p className="km-sub">{t("usage.sub", "Last 30 days · estimated tokens")}</p>
+        {state === "loading" && <p className="u-empty">{t("usage.loading", "Loading…")}</p>}
+        {state === "error" && <p className="u-empty err">{error}</p>}
+        {state === "ready" && rows.length === 0 && (
+          <p className="u-empty">{t("usage.empty", "No model calls recorded yet.")}</p>
+        )}
+        {state === "ready" && rows.length > 0 && (
+          <>
+            <table className="u-table">
+              <thead>
+                <tr>
+                  <th>{t("usage.feature", "Feature")}</th>
+                  <th>{t("usage.brain", "Brain")}</th>
+                  <th>{t("usage.model", "Model")}</th>
+                  <th className="num">{t("usage.calls", "Calls")}</th>
+                  <th className="num">{t("usage.tokens", "Tokens")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={`${r.feature}-${r.brain}-${r.model}-${i}`}>
+                    <td>{r.feature}</td>
+                    <td>{r.brain}</td>
+                    <td>{r.model}</td>
+                    <td className="num">{r.calls}</td>
+                    <td className="num">{Number(r.prompt_tokens) + Number(r.completion_tokens)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="u-total">
+              <span>{t("usage.calls", "Calls")}: <b>{calls}</b></span>
+              <span>{t("usage.tokens", "Tokens")}: <b>{tokens}</b></span>
+              <span>{t("usage.time", "Time")}: <b>{(ms / 1000).toFixed(1)}s</b></span>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const TIERS = [
+  { key: "free", price: 0, hot: false, current: true },
+  { key: "pro", price: 50, hot: true, current: false },
+  { key: "biz", price: 99, hot: false, current: false },
+] as const
+
+export function UpgradeModal({ open, onClose }: UsageModalProps) {
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [open, onClose])
+
+  if (!open) return null
+  return (
+    <div className="km-scrim" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="km-sheet" role="dialog" aria-modal="true" aria-label={t("set.upgrade", "Upgrade")}>
+        <div className="km-head">
+          <h2>{t("set.upgrade", "Upgrade")}</h2>
+          <button type="button" className="km-x" onClick={onClose} aria-label={t("src.close", "Close")}>✕</button>
+        </div>
+        <p className="km-sub">{t("upg.sub", "Simple plans that scale with your company brain.")}</p>
+        <div className="tiers">
+          {TIERS.map((tier) => (
+            <div className={"tier" + (tier.hot ? " hot" : "")} key={tier.key}>
+              <div className="tn">{t(`up.${tier.key}`, tier.key)}</div>
+              <div className="tp">
+                ${tier.price}<small>{t("up.per_month", "/month")}</small>
+              </div>
+              <ul>
+                {[1, 2, 3].map((n) => (
+                  <li key={n}>{t(`up.${tier.key}_f${n}`, "")}</li>
+                ))}
+              </ul>
+              {/* Honest: these plans are not purchasable yet (legacy shows the
+                  same disabled buttons — shell.js:682-704). */}
+              <button type="button" className={"tbtn" + (tier.hot ? " hot" : "")} disabled>
+                {tier.current ? t("up.current", "Current plan") : t("up.soon", "Coming soon")}
+              </button>
+            </div>
+          ))}
+        </div>
+        <p className="km-note">{t("upg.note", "Plans are not purchasable yet — nothing is charged.")}</p>
+      </div>
     </div>
   )
 }
