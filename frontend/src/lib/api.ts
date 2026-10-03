@@ -142,7 +142,10 @@ export function useChats() {
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [chatsError, setChatsError] = useState<string | null>(null)
   const refresh = () => {
-    apiFetch(`/api/chats`)
+    // The sidebar caps what it RENDERS; it must not also cap what it KNOWS, or
+    // a folder with 23 chats shows 5 with no sign the rest exist (and a delete
+    // looks like a no-op because the next one slides in).
+    apiFetch(`/api/chats?limit=500`)
       .then(async (r) => {
         if (!r.ok) throw new Error(await serverError(r))
         return r.json()

@@ -73,6 +73,9 @@ def init() -> bool:
     global _status
     try:
         with _conn() as conn, conn.cursor() as cur:
+            # Columns added after a table already exists need an explicit
+            # ALTER; the alembic revision 0004_turn_detail does the same for
+            # databases that are migration-managed.
             cur.execute(
                 """CREATE TABLE IF NOT EXISTS chats (
                      id text PRIMARY KEY,
@@ -92,9 +95,25 @@ def init() -> bool:
                      sources jsonb NOT NULL DEFAULT '[]',
                      attachments jsonb NOT NULL DEFAULT '[]',
                      at timestamptz,
+                     -- Turn detail the client has always sent: the engine's
+                     -- working-log steps, the measured duration, the stopped
+                     -- marker and the error state. Without these columns a
+                     -- restored chat lost its logs, its "stopped" label and
+                     -- rendered failures as answers (they were dropped on save).
+                     steps jsonb NOT NULL DEFAULT '[]',
+                     worked_ms int,
+                     stopped boolean NOT NULL DEFAULT false,
+                     error boolean NOT NULL DEFAULT false,
                      PRIMARY KEY (chat_id, idx)
                    )"""
             )
+            for ddl in (
+                "ALTER TABLE turns ADD COLUMN IF NOT EXISTS steps jsonb NOT NULL DEFAULT '[]'",
+                "ALTER TABLE turns ADD COLUMN IF NOT EXISTS worked_ms int",
+                "ALTER TABLE turns ADD COLUMN IF NOT EXISTS stopped boolean NOT NULL DEFAULT false",
+                "ALTER TABLE turns ADD COLUMN IF NOT EXISTS error boolean NOT NULL DEFAULT false",
+            ):
+                cur.execute(ddl)
             cur.execute(
                 """CREATE TABLE IF NOT EXISTS brain_access (
                      brain text PRIMARY KEY,
@@ -226,8 +245,10 @@ def upsert_chat(record: dict, org: str | None = None,
             for idx, t in enumerate(turns):
                 cur.execute(
                     """INSERT INTO turns (chat_id, idx, role, text, sources,
-                                           attachments, at)
-                       VALUES (%s, %s, %s, %s, %s, %s, COALESCE(%s, now()))""",
+                                           attachments, at, steps, worked_ms,
+                                           stopped, error)
+                       VALUES (%s, %s, %s, %s, %s, %s, COALESCE(%s, now()),
+                               %s, %s, %s, %s)""",
                     (
                         chat_id,
                         idx,
@@ -236,6 +257,10 @@ def upsert_chat(record: dict, org: str | None = None,
                         json.dumps(t.get("sources") or []),
                         json.dumps(t.get("attachments") or []),
                         _ts(t.get("at")),
+                        json.dumps(t.get("steps") or []),
+                        int(t["workedMs"]) if t.get("workedMs") is not None else None,
+                        bool(t.get("stopped")),
+                        bool(t.get("error")),
                     ),
                 )
     finally:
@@ -244,7 +269,11 @@ def upsert_chat(record: dict, org: str | None = None,
 
 
 def list_chats(brain: str | None, org: str | None = None,
-               user_id: str | None = None) -> list:
+               user_id: str | None = None, limit: int = 200) -> list:
+    """Newest first. `limit` is caller-controlled but bounded (the sidebar asks
+    for more when the user expands a folder; the old hard LIMIT 50 silently hid
+    history behind a cap the UI never mentioned)."""
+    limit = max(1, min(int(limit or 200), 500))
     clauses, args = [], []
     if brain:
         clauses.append("brain = %s"); args.append(brain)
@@ -255,7 +284,7 @@ def list_chats(brain: str | None, org: str | None = None,
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(
             f"""SELECT id, brain, title, created, updated FROM chats {where}
-                ORDER BY updated DESC LIMIT 50""", args)
+                ORDER BY updated DESC LIMIT %s""", (*args, limit))
         return cur.fetchall()
 
 
@@ -288,8 +317,9 @@ def get_chat(chat_id: str, org: str | None = None,
         if not chat:
             return None
         cur.execute(
-            """SELECT role, text, sources, attachments, at FROM turns
-               WHERE chat_id = %s ORDER BY idx""",
+            """SELECT role, text, sources, attachments, at, steps,
+                      worked_ms AS "workedMs", stopped, error
+               FROM turns WHERE chat_id = %s ORDER BY idx""",
             (chat_id,),
         )
         chat["turns"] = cur.fetchall()

@@ -14,6 +14,7 @@ import {
   DEFAULT_BRAIN,
   apiConfig,
   apiFetch,
+  serverError,
   useBrains,
   useChats,
   fetchChat,
@@ -355,6 +356,23 @@ export default function App() {
     })(),
   )
 
+  // Legacy restoreHistory() prefix rescue (static/index.html:977-1000): a
+  // truncated or stale ?chat= id (seen in the wild as 12 of 13 characters)
+  // resolves to nothing and blanked the thread. Find the unique chat the id was
+  // meant to be, restore it, and correct the URL.
+  const rescueByPrefix = async (id: string): Promise<string | null> => {
+    if (id.length < 8) return null
+    try {
+      const r = await apiFetch("/api/chats?limit=500")
+      if (!r.ok) return null
+      const d = await r.json()
+      const hits = (d.chats || []).filter((c: { id: string }) => c.id.startsWith(id))
+      return hits.length === 1 ? hits[0].id : null
+    } catch {
+      return null
+    }
+  }
+
   // Deep-link restore (?chat=<id>) and reload resume: the legacy shell
   // remembers the open chat per brain in sessionStorage (static/index.html
   // CHAT_SESSION_KEY) and resumes it unless ?new=1 starts a fresh one.
@@ -363,14 +381,29 @@ export default function App() {
     const id = params.get("chat")
     if (id) {
       setRestoring(true)
-      fetchChat(id)
-        .then((serverTurns) => {
-          if (serverTurns.length) setTurns(serverTurns)
-        })
-        // A restore that fails must say so: silently showing an empty thread
-        // is indistinguishable from a chat that was never saved.
-        .catch((e) => toast.error("Could not restore this chat: " + (e as Error).message))
-        .finally(() => setRestoring(false))
+      const load = async (wanted: string) => {
+        try {
+          const serverTurns = await fetchChat(wanted)
+          setTurns(serverTurns)
+          return true
+        } catch (e) {
+          const better = await rescueByPrefix(wanted)
+          if (better) {
+            const turns2 = await fetchChat(better)
+            setTurns(turns2)
+            setChatId(better)
+            const u = new URL(location.href)
+            u.searchParams.set("chat", better)
+            history.replaceState(null, "", u)
+            return true
+          }
+          // A restore that fails must say so: silently showing an empty thread
+          // is indistinguishable from a chat that was never saved.
+          toast.error("Could not restore this chat: " + (e as Error).message)
+          return false
+        }
+      }
+      load(id).finally(() => setRestoring(false))
       return
     }
     if (params.get("new")) {
@@ -381,17 +414,23 @@ export default function App() {
     try { remembered = sessionStorage.getItem("kestrel.currentChat." + (brain || "demo")) } catch { /* private mode */ }
     if (!remembered) return
     setRestoring(true)
-    fetchChat(remembered)
-      .then((serverTurns) => {
-        if (!serverTurns.length) return
+    ;(async () => {
+      try {
+        const serverTurns = await fetchChat(remembered)
         setTurns(serverTurns)
         setChatId(remembered)
         const u = new URL(location.href)
         u.searchParams.set("chat", remembered)
         history.replaceState(null, "", u)
-      })
-      .catch((e) => toast.error("Could not resume this chat: " + (e as Error).message))
-      .finally(() => setRestoring(false))
+      } catch (e) {
+        // The remembered id is gone (deleted here or in another tab): stop
+        // remembering it rather than failing on every load.
+        try { sessionStorage.removeItem("kestrel.currentChat." + (brain || "demo")) } catch { /* private mode */ }
+        toast.error("Could not resume this chat: " + (e as Error).message)
+      } finally {
+        setRestoring(false)
+      }
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -511,7 +550,7 @@ export default function App() {
       if (!id) { setTurns([]); return }
       setRestoring(true)
       fetchChat(id)
-        .then((serverTurns) => { if (serverTurns.length) setTurns(serverTurns) })
+        .then((serverTurns) => setTurns(serverTurns))
         .catch((e) => toast.error("Could not restore this chat: " + (e as Error).message))
         .finally(() => setRestoring(false))
     }
@@ -882,17 +921,39 @@ export default function App() {
     ;(window as unknown as { CONTROLLER?: AbortController }).CONTROLLER?.abort()
     await new Promise((resolve) => setTimeout(resolve, 200))
     const target = chatBrain ?? brain
-    setSwitching(true)
-    handleBrainChange(target)
+
+    // One history entry and no contradictions: opening a saved chat is not
+    // "starting a new one", so ?new goes; ?chat and ?brain describe what is on
+    // screen. (This used to call handleBrainChange — which clears the chat and
+    // pushes its own entry — and then push a second one.)
+    setBrain(target)
+    setView("chat")
+    setChatId(id)
     const u = new URL(location.href)
     u.searchParams.set("chat", id)
+    u.searchParams.set("brain", target)
+    u.searchParams.delete("new")
     history.pushState(null, "", u)
-    setChatId(id)
-    const serverTurns = await fetchChat(id)
-    if (serverTurns.length) setTurns(serverTurns)
-    else setTurns([])
-    setSwitching(false)
-    setMobileOpen(false)
+
+    setSwitching(true)
+    try {
+      setTurns(await fetchChat(id))
+      setMobileOpen(false)
+    } catch (e) {
+      // A chat that is gone — deleted here, deleted in another tab, or not
+      // ours — left the app sitting on a screen that never changed and never
+      // explained itself, with the dead id still in the URL.
+      setTurns([])
+      setChatId(null)
+      const back = new URL(location.href)
+      back.searchParams.delete("chat")
+      history.replaceState(null, "", back)
+      toast.error("Could not open that chat: " + (e as Error).message)
+      refreshChats()
+    } finally {
+      // The switch dimmer must clear on every path, or the app stays dimmed.
+      setSwitching(false)
+    }
   }
   const newChat = () => {
     const u = new URL(location.href)
@@ -1082,19 +1143,43 @@ export default function App() {
   // Delete handlers
   const handleDeleteChat = async (targetId: string, _brain?: string) => {
     try {
-      await apiFetch(`/api/chats/${encodeURIComponent(targetId)}`, { method: "DELETE" })
-    } catch {}
+      const r = await apiFetch(`/api/chats/${encodeURIComponent(targetId)}`, { method: "DELETE" })
+      if (!r.ok) throw new Error(await serverError(r))
+      // A delete that gives no feedback is indistinguishable from one that did
+      // nothing — especially here, where the next chat in the folder slides
+      // into the row that just disappeared.
+      toast.success(t("chat.deleted", "Chat deleted"))
+    } catch (e) {
+      toast.error("Could not delete the chat: " + (e as Error).message)
+    }
     if (targetId === chatId) newChat()
     refreshChats()
   }
   const handleDeleteBrainChats = async (targetBrain: string) => {
     try {
-      const r = await apiFetch(`/api/chats?brain=${encodeURIComponent(targetBrain)}`)
+      // limit=500: deleting "all chats in this brain" must not stop at the
+      // API's default page size and report success.
+      const r = await apiFetch(`/api/chats?brain=${encodeURIComponent(targetBrain)}&limit=500`)
+      if (!r.ok) throw new Error(await serverError(r))
       const d = await r.json()
-      for (const c of d.chats || []) {
-        await apiFetch(`/api/chats/${encodeURIComponent(c.id)}`, { method: "DELETE" }).catch(() => {})
+      const list: { id: string }[] = d.chats || []
+      let failed = 0
+      for (const c of list) {
+        try {
+          const dr = await apiFetch(`/api/chats/${encodeURIComponent(c.id)}`, { method: "DELETE" })
+          if (!dr.ok) failed += 1
+        } catch {
+          failed += 1
+        }
       }
-    } catch {}
+      if (failed) {
+        toast.warning(`Deleted ${list.length - failed} of ${list.length} chats — ${failed} failed.`)
+      } else if (list.length) {
+        toast.success(`Deleted ${list.length} chat(s) from ${targetBrain}`)
+      }
+    } catch (e) {
+      toast.error("Could not delete the chats: " + (e as Error).message)
+    }
     if (targetBrain === brain) newChat()
     refreshChats()
   }
@@ -1370,7 +1455,20 @@ export default function App() {
         ) : view === "graph" ? (
           <GraphView brain={brain} />
         ) : view === "brains" ? (
-          <BrainsPage />
+          <BrainsPage
+            onAddDocuments={(name) => {
+              // "Add documents" on a brain row: make that the active brain and
+              // open the sheet on the chat surface (the sheet adds to the
+              // CURRENT brain, so the two must agree).
+              setBrain(name)
+              const u = new URL(location.href)
+              u.searchParams.set("brain", name)
+              u.searchParams.set("view", "chat")
+              history.pushState(null, "", u)
+              setView("chat")
+              setFilesOpen(true)
+            }}
+          />
         ) : (
           <>
             <div id="home">

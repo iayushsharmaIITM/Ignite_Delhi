@@ -99,7 +99,11 @@ function DeleteButton({ name, onDeleted }: { name: string; onDeleted: () => void
 /* Brain row                                                           */
 /* ------------------------------------------------------------------ */
 
-function BrainRow({ brain, onDeleted }: { brain: BrainWithStats; onDeleted: () => void }) {
+function BrainRow({ brain, onDeleted, onAddDocuments }: {
+  brain: BrainWithStats
+  onDeleted: () => void
+  onAddDocuments?: (brain: string) => void
+}) {
   const qs = encodeURIComponent(brain.name)
 
   return (
@@ -171,11 +175,13 @@ function BrainRow({ brain, onDeleted }: { brain: BrainWithStats; onDeleted: () =
             Graph
           </a>
         </Button>
-        <Button asChild variant="ghost" size="sm">
-          <a href={`/upload?brain=${qs}`}>
-            <FolderPlus className="h-3.5 w-3.5" />
-            Add documents
-          </a>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onAddDocuments?.(brain.name)}
+        >
+          <FolderPlus className="h-3.5 w-3.5" />
+          Add documents
         </Button>
         {!brain.is_demo && !brain.is_system && (
           <DeleteButton name={brain.name} onDeleted={onDeleted} />
@@ -213,7 +219,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 /* BrainsPage                                                          */
 /* ------------------------------------------------------------------ */
 
-export function BrainsPage() {
+export function BrainsPage({ onAddDocuments }: { onAddDocuments?: (brain: string) => void } = {}) {
   const { brains, refreshBrains, brainsError } = useBrains()
   const [createOpen, setCreateOpen] = useState(false)
   const [enriched, setEnriched] = useState<BrainWithStats[]>([])
@@ -293,7 +299,7 @@ export function BrainsPage() {
         ) : (
           <ul className="mt-6 flex flex-col gap-3" aria-label="Brain list">
             {enriched.map((b) => (
-              <BrainRow key={b.name} brain={b} onDeleted={handleDeleted} />
+              <BrainRow key={b.name} brain={b} onDeleted={handleDeleted} onAddDocuments={onAddDocuments} />
             ))}
           </ul>
         )}
@@ -303,9 +309,13 @@ export function BrainsPage() {
           <a href="/" className="text-accent hover:underline">
             demo dashboard
           </a>
-          <a href="/upload" className="text-accent hover:underline">
+          <button
+            type="button"
+            className="text-accent hover:underline"
+            onClick={() => setCreateOpen(true)}
+          >
             new brain
-          </a>
+          </button>
           <a href="/health" className="text-accent hover:underline">
             /health
           </a>

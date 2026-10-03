@@ -123,6 +123,9 @@ export function Sidebar({
   })
   const [armed, setArmed] = useState<string | null>(null) // chat id or "brain:<name>"
   const navRef = useRef<HTMLElement>(null)
+  // Folders the user expanded past the default per-brain cap. Without this the
+  // sidebar showed 5 of 23 chats with no hint that the other 18 existed.
+  const [showAllBrains, setShowAllBrains] = useState<string[]>([])
 
   const sorted = useMemo(() => {
     const keyOf = (c: ChatSummary) => (chatView.sort === "created" ? c.created || c.at : c.at)
@@ -229,10 +232,21 @@ export function Sidebar({
       <div className="chat-empty">{t("nav.no_chats", "No saved chats yet")}</div>
     ) : chatView.mode === "timeline" ? (
       <>
-        {sorted.slice(0, 14).map((c) => {
+        {sorted.slice(0, showAllBrains.includes("*") ? sorted.length : 14).map((c) => {
           const key = c.created || c.at
           return chatRow(c.brain || currentBrain, c, relTime(key))
         })}
+        {sorted.length > 14 && (
+          <button
+            type="button"
+            className="view-more"
+            onClick={() => setShowAllBrains((prev) => (prev.includes("*") ? [] : ["*"]))}
+          >
+            {showAllBrains.includes("*")
+              ? t("view.show_less", "Show fewer")
+              : t("view.show_all_n", "Show all {n}").replace("{n}", String(sorted.length))}
+          </button>
+        )}
         <div className="view-note">{t("view.timeline", "Timeline")} · {t("view.sorted", "sorted by")} {chatView.sort === "created" ? t("view.created", "Created") : t("view.updated", "Updated")}</div>
       </>
     ) : (
@@ -242,8 +256,10 @@ export function Sidebar({
           const isFolded = folded.includes(brain)
           const groupKey = "brain:" + brain
           const groupArmed = armed === groupKey
-          const rows = isFolded ? null : list.slice(0, PER_BRAIN).map((c) => {
-            if (shown >= CHAT_CAP) return null
+          const expanded = showAllBrains.includes(brain)
+          const visible = isFolded ? [] : (expanded ? list : list.slice(0, PER_BRAIN))
+          const rows = visible.map((c) => {
+            if (shown >= CHAT_CAP && !expanded) return null
             shown += 1
             return chatRow(brain, c)
           })
@@ -259,6 +275,9 @@ export function Sidebar({
                 <span className="brain-name">
                   {brain === "demo" || DEFAULT_BRAINS.includes(brain) ? t("brain.demo", "Demo brain") : brain}
                 </span>
+                {/* The folder says how many it holds, so a capped list never
+                    pretends to be the whole history. */}
+                <span className="brain-count">{list.length}</span>
                 <button
                   type="button"
                   className={"row-del group-del" + (groupArmed ? " armed" : "")}
@@ -270,10 +289,26 @@ export function Sidebar({
                 </button>
               </div>
               {rows}
+              {!isFolded && list.length > PER_BRAIN && (
+                <button
+                  type="button"
+                  className="view-more"
+                  onClick={() => setShowAllBrains((prev) =>
+                    prev.includes(brain) ? prev.filter((b) => b !== brain) : [...prev, brain])}
+                >
+                  {expanded
+                    ? t("view.show_less", "Show fewer")
+                    : t("view.show_all_n", "Show all {n}").replace("{n}", String(list.length))}
+                </button>
+              )}
             </div>
           )
         })}
-        <div className="view-note">{t("view.grouped", "Grouped by brain")} · {t("view.sorted", "sorted by")} {chatView.sort === "created" ? t("view.created", "Created") : t("view.updated", "Updated")}</div>
+        <div className="view-note">
+          {t("view.grouped", "Grouped by brain")} · {t("view.sorted", "sorted by")}{" "}
+          {chatView.sort === "created" ? t("view.created", "Created") : t("view.updated", "Updated")}
+          {chats.length > 0 ? ` · ${chats.length}` : ""}
+        </div>
       </>
     )
 
@@ -293,6 +328,8 @@ export function Sidebar({
         <SlideRail containerRef={navRef} />
         <div className="nav-label">{t("nav.workspace", "Workspace")}</div>
         {navItem(false, t("nav.new_chat", "New chat"), "ask", onNewChat, `/?new=1${brainQS ? "&" + brainQS : ""}`)}
+        {/* href="/upload" is for modifier-click (open in a new tab); the route
+            redirects into the app, so both paths land on the same flow. */}
         {navItem(false, t("nav.new_brain", "New brain"), "upload", () => onBrainChange("__upload__"), "/upload")}
         {navItem(view === "brains", t("nav.brains", "Brains"), "brains", () => onViewChange("brains"), `/brains`)}
         {navItem(view === "graph", t("nav.graph", "Graph"), "graph", () => onViewChange("graph"), `/graph${brainQS ? "?" + brainQS : ""}`)}

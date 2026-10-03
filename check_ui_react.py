@@ -319,6 +319,20 @@ def section_composer_menus_keyboard(suite: Suite, base: str) -> None:
     suite.check("Enter sends", page.locator(".turn").count() > turns_before)
     suite.console_clean("menus")
 
+def target_brain_name(text: str) -> str:
+    """The brain a files-sheet is pointed at, read off its label.
+
+    FilesSheet renders `into <brain>` (FilesSheet.tsx:151), or "into the demo
+    brain (read-only)" when no brain is selected. The `into ` prefix is label
+    text, not part of the name — comparing the whole label against a row could
+    never match, because no row contains the word "into".
+    """
+    t = (text or "").strip()
+    if t.startswith("into "):
+        t = t[len("into "):].strip()
+    return "" if not t or t.startswith("the demo brain") else t
+
+
 def section_settings(suite: Suite, base: str) -> None:
     """The settings surface, in the auth mode this suite runs in.
 
@@ -429,6 +443,27 @@ def section_brains_page(suite: Suite, base: str) -> None:
     suite.check("brain rows listed", rows.count() >= 1, f"{rows.count()} rows")
     if rows.count():
         suite.check("live graph stats shown", "nodes" in (rows.first.text_content() or ""))
+    # The brains page's own actions are in-app after the legacy /upload page was
+    # retired (it now redirects here): "Add documents" must open the files sheet
+    # for that brain, not navigate away.
+    add_btn = page.locator('ul[aria-label="Brain list"] li button', has_text="Add documents").first
+    if add_btn.count():
+        # Capture the row this button belongs to BEFORE opening the sheet, so the
+        # assertion is "this row's brain", not "some brain in the list".
+        row_text = add_btn.locator("xpath=ancestor::li[1]").text_content() or ""
+        add_btn.click()
+        page.wait_for_timeout(900)
+        sheet = page.locator("#files-sheet")
+        suite.check("brains row 'Add documents' opens the sheet in-app", sheet.is_visible())
+        target = page.locator("#files-target").text_content() or ""
+        name = target_brain_name(target)
+        suite.check("sheet targets the row's brain",
+                    bool(name) and name in row_text,
+                    "target=" + target[:40] + " row=" + row_text[:40])
+        suite.check("no navigation away from the app", "/upload" not in page.url)
+        page.click("#files-close")
+        page.wait_for_timeout(300)
+
     del_btn = page.locator("button", has_text="Delete").first
     if del_btn.count():
         del_btn.click()

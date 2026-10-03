@@ -51,7 +51,8 @@ except ImportError:  # dotenv is optional; env vars still work
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
-from fastapi.responses import FileResponse, StreamingResponse  # noqa: E402
+from fastapi.responses import FileResponse, RedirectResponse  # noqa: E402
+from fastapi.responses import StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 import auth  # noqa: E402
@@ -646,7 +647,7 @@ async def chats_upsert(request: Request):
 
 
 @app.get("/api/chats")
-def chats_list(request: Request, brain: str | None = None):
+def chats_list(request: Request, brain: str | None = None, limit: int = 200):
     identity = require_tenant(request)
     if not storage.available():
         return {"ok": False, "chats": [], "storage": _public_storage()}
@@ -656,7 +657,10 @@ def chats_list(request: Request, brain: str | None = None):
         require_dataset_access(request, brain)
     org = identity.get("org_id") if isinstance(identity, dict) else None
     uid = identity.get("user_id") if isinstance(identity, dict) else None
-    return {"ok": True, "chats": storage.list_chats(brain, org=org, user_id=uid)}
+    chats = storage.list_chats(brain, org=org, user_id=uid, limit=limit)
+    # `total` so the UI can say "showing N of M" instead of silently hiding
+    # history behind a cap nobody mentioned.
+    return {"ok": True, "chats": chats, "returned": len(chats), "limit": min(max(limit, 1), 500)}
 
 
 def _public_storage() -> dict:
@@ -676,8 +680,16 @@ def chats_get(request: Request, chat_id: str):
     uid = identity.get("user_id") if isinstance(identity, dict) else None
     chat = storage.get_chat(chat_id, org=org, user_id=uid) if auth.active() \
         else storage.get_chat(chat_id)
-    # a miss is a normal sync probe (stale local ids), not an error — the UI
-    # falls back to localStorage; 404 here would spam the browser console
+    if chat is None:
+        # 404, not 200-with-null: the client could not tell "this chat does not
+        # exist" from "this chat is empty", so clicking a stale sidebar row (a
+        # deleted chat, one deleted in another tab, or someone else's) did
+        # nothing at all — no navigation, no error. DELETE already treats a
+        # foreign/missing id as 404 ("indistinguishable from missing"); the read
+        # now matches it. The legacy shell's restore treats !ok and a null chat
+        # identically (it falls through to localStorage), so this is safe for it
+        # too.
+        raise HTTPException(status_code=404, detail="No such chat.")
     return {"chat": chat}
 
 
@@ -1931,14 +1943,21 @@ def graph_page():
     return _page("graph.html")
 
 
+# The brains and upload pages have React equivalents (BrainsPage, and the
+# create-brain dialog + files sheet), so those two legacy pages are retired:
+# the HTML files are gone and the URLs redirect into the app. Nothing links to
+# them any more except old bookmarks and the legacy shell's own nav, which the
+# redirect keeps working. /graph stays until the in-app graph is equivalent —
+# it is a genuinely richer surface (force layout, expansion, inspector) and the
+# React view labels it as the full version.
 @app.get("/brains")
 def brains_page():
-    return _page("brains.html")
+    return RedirectResponse("/?view=brains", status_code=307)
 
 
 @app.get("/upload")
 def upload_page():
-    return _page("upload.html")
+    return RedirectResponse("/?view=brains&new=1", status_code=307)
 
 
 if __name__ == "__main__":

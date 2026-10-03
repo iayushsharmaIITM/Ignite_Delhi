@@ -188,6 +188,23 @@ body.locked .app-main, body.locked form#f {
   border: 3px solid transparent; background-clip: content-box;
 }
 
+/* Sidebar folder count + "show all" control (React-only additions; deck.css
+   owns everything else in the sidebar). The count exists so a capped list never
+   looks like the whole history, and the control so the rest is reachable. */
+.nav .brain-count {
+  flex: none; margin-left: 2px; padding: 1px 7px;
+  font-size: 10px; font-family: var(--mono); color: var(--muted-2);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
+}
+.nav .view-more {
+  display: block; width: calc(100% - 20px); margin: 4px 10px 2px;
+  padding: 5px 9px; text-align: left; cursor: pointer;
+  font-size: 11.5px; color: var(--muted); background: transparent;
+  border: 1px dashed var(--line-2); border-radius: var(--radius-xs);
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.nav .view-more:hover { color: var(--fg); border-color: var(--line-3); background: var(--wash); }
+
 /* Graph affordances — SVG geometry (r) transitions on hover */
 svg .node-dot { transition: r 150ms ease-out, fill 150ms ease-out, stroke-width 150ms ease-out; }
 svg .node-dot:hover { r: 9; stroke-width: 2.5; }
