@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import { Sidebar, type SidebarUser } from "@/components/Sidebar"
 import { Connectors } from "@/components/Connectors"
 import { SourceModal } from "@/components/SourceModal"
+import { FilesSheet } from "@/components/FilesSheet"
 import { CreateBrainDialog } from "@/components/CreateBrainDialog"
 import { GraphView } from "@/components/GraphView"
 import { LegacyMount } from "@/components/LegacyMount"
@@ -182,6 +183,7 @@ export default function App() {
   const [input, setInput] = useState("")
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [sourcesPanel, setSourcesPanel] = useState<{ title: string; excerpt?: string } | null>(null)
+  const [filesOpen, setFilesOpen] = useState(false)
   const chatIdRef = useRef<string | null>(null)
   const botIdxRef = useRef(-1)
   const turnsRef = useRef<Turn[]>([])
@@ -1027,15 +1029,15 @@ export default function App() {
 
               <div className="pop" id="menu2" hidden={!menu2Open}>
                 <div className="count">{questionCount} question(s)</div>
-                <button type="button" onClick={handleCopyTranscript}>{t("menu.copy_transcript", "Copy transcript")}</button>
-                <button type="button" onClick={() => { setMenu2Open(false); openView("legacy-upload") }}>{t("menu.add_docs", "Add documents to this brain…")}</button>
+                <button type="button" id="copy-transcript" onClick={handleCopyTranscript}>{t("menu.copy_transcript", "Copy transcript")}</button>
+                <button type="button" id="menu-addbrain" onClick={() => { setMenu2Open(false); setFilesOpen(true) }}>{t("menu.add_docs", "Add documents to this brain…")}</button>
                 <div className="pop-sep" />
-                <button type="button" onClick={() => { handleExportMd(); setMenu2Open(false) }}>{t("menu.export_md", "Export Markdown")}</button>
-                <button type="button" onClick={() => { handleExportTxt(); setMenu2Open(false) }}>{t("menu.export_txt", "Export plain text")}</button>
-                <button type="button" onClick={() => { handleExportDocx(); setMenu2Open(false) }}>{t("menu.export_docx", "Export Word document")}</button>
-                <button type="button" onClick={() => { handleExportPdf(); setMenu2Open(false) }}>{t("menu.export_pdf", "Export PDF")}</button>
+                <button type="button" id="export-md" onClick={() => { handleExportMd(); setMenu2Open(false) }}>{t("menu.export_md", "Export Markdown")}</button>
+                <button type="button" id="export-txt" onClick={() => { handleExportTxt(); setMenu2Open(false) }}>{t("menu.export_txt", "Export plain text")}</button>
+                <button type="button" id="export-docx" onClick={() => { handleExportDocx(); setMenu2Open(false) }}>{t("menu.export_docx", "Export Word document")}</button>
+                <button type="button" id="export-pdf" onClick={() => { handleExportPdf(); setMenu2Open(false) }}>{t("menu.export_pdf", "Export PDF")}</button>
                 <div className="pop-sep" />
-                <button type="button" className={clearArmed ? "armed" : ""} onClick={handleClearChat}>
+                <button type="button" id="clear-chat" className={clearArmed ? "armed" : ""} onClick={handleClearChat}>
                   {clearArmed ? "Click again to clear" : t("menu.clear_chat", "Clear conversation")}
                 </button>
               </div>
@@ -1131,6 +1133,14 @@ export default function App() {
           onClose={() => setSourcesPanel(null)}
         />
       )}
+
+      {/* Legacy files sheet: add documents to the current brain */}
+      <FilesSheet
+        open={filesOpen}
+        brain={brain && brain !== "demo" && brain !== DEFAULT_BRAIN ? brain : ""}
+        onClose={() => setFilesOpen(false)}
+        onAdded={refreshBrains}
+      />
 
       {/* Legacy overlays: switch spinner + restore cover */}
       <div id="switch-fx" aria-hidden="true"><span className="spin big" /></div>
