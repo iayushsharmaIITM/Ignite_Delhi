@@ -616,7 +616,12 @@ let SOURCES = [];
 
 let CHATS_KEY = 'kestrel.chats.' + (BRAIN || 'demo');
 const CHAT_MAX = 30;
-const TURNS_MAX = 60;
+// CH-1: the server's per-chat turn cap. It used to be 60, which was not a
+// limit but silent data loss — the server rewrites the whole turn set, so the
+// 61st turn deleted turns 1..60 with no error anywhere. Trimming to this number
+// is still allowed, but only declared (`trim: true`), which is what tells the
+// server a deliberate trim apart from a stale window.
+const TURN_CAP = 500;
 
 let CHAT_SESSION_KEY = 'kestrel.currentChat.' + (BRAIN || 'demo');
 let CHAT_ID = (() => {
@@ -665,7 +670,11 @@ function saveHistory() {
       title: (firstUser?.text || 'Untitled').slice(0, 60),
       at: Date.now(),
       created: previous?.created || Date.now(),   // preserved across saves: the Created sort
-      turns: TURNS.slice(-TURNS_MAX),
+      // CH-1: the whole conversation, unless it exceeds the server's cap — and
+      // then the trim is declared, which is what separates it from a stale
+      // window that would delete history.
+      turns: TURNS.length > TURN_CAP ? TURNS.slice(-TURN_CAP) : TURNS,
+      trim: TURNS.length > TURN_CAP,
     });
     localStorage.setItem(CHATS_KEY, JSON.stringify(chats.slice(0, CHAT_MAX)));
     rememberChat();
@@ -676,7 +685,14 @@ function saveHistory() {
     if (me) authHeaders().then(h => fetch('/api/chats', { method: 'POST',
       headers: { 'Content-Type': 'application/json', ...h },
       body: JSON.stringify({ id: CHAT_ID, brain: BRAIN || 'demo', ...me })
-    })).catch(() => {});
+    // CH-3: sync still never blocks an answer, but a refusal is no longer
+    // invisible. 410 means the chat was deleted elsewhere (the local copy will
+    // not re-create it); 409 means another tab wrote a longer version first.
+    })).then(r => {
+      if (!r || r.ok) return;
+      if (r.status === 410) console.warn('kestrel: this chat was deleted elsewhere — the local copy will not re-create it');
+      else console.warn('kestrel: the server refused to save this chat (HTTP ' + r.status + ')');
+    }).catch(() => {});
   } catch (e) { /* private mode or quota - history is a convenience, not state */ }
 }
 

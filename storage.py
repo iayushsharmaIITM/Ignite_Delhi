@@ -41,9 +41,57 @@ _status = {"storage": "unavailable", "detail": "not initialised"}
 _last_init_try = 0.0
 _INIT_RETRY_SECONDS = 30.0
 
+# The most turns one chat may hold. Defined once here so the route that rejects
+# a bigger save and the client that trims to fit cannot drift apart.
+MAX_TURNS = 500
+
 
 class OwnershipError(Exception):
     """Raised when a write targets a chat owned by someone else (S1)."""
+
+
+class TruncationError(Exception):
+    """CH-1: a save that would delete stored turns.
+
+    The rewrite is delete-and-reinsert, and the React client used to send only
+    its last 60 turns — so the 61st message silently destroyed the first ones,
+    permanently, with no error anywhere. A save that carries FEWER turns than
+    the database holds is now refused unless the client says it trimmed on
+    purpose (which it only does past the server's own cap).
+    """
+
+    def __init__(self, chat_id: str, stored: int, incoming: int):
+        super().__init__(f"{chat_id}: {incoming} incoming turns vs {stored} stored")
+        self.chat_id, self.stored, self.incoming = chat_id, stored, incoming
+
+
+class ResurrectError(Exception):
+    """CH-2: a save re-creating a chat that was deleted.
+
+    Without a tombstone, POST with a previously-deleted id inserted a fresh
+    `chats` row and the client's own turn window — so a chat the user deleted
+    came back, which is exactly what "it always stays" looked like from the UI.
+    """
+
+    def __init__(self, chat_id: str):
+        super().__init__(chat_id)
+        self.chat_id = chat_id
+
+
+# CH-8: routes map this to a 503 instead of letting a raw driver error become
+# a 500. `available()` alone cannot catch a mid-life outage — once Postgres is
+# healthy it reports True for the life of the process.
+db_error = psycopg.Error
+
+
+def mark_down(reason: str = "query failed") -> None:
+    """CH-8: a failed query means stop trusting the cached verdict, so the
+    next `available()` re-probes (throttled) instead of promising postgres."""
+    global _status
+    if _status.get("storage") == "postgres":
+        _status = {"storage": "unavailable", "detail": reason[:160]}
+        global _last_init_try
+        _last_init_try = 0.0
 
 
 def status() -> dict:
@@ -135,6 +183,23 @@ def init() -> bool:
             cur.execute("ALTER TABLE brain_access ADD COLUMN IF NOT EXISTS created_by text")
             cur.execute("ALTER TABLE brain_access ADD COLUMN IF NOT EXISTS org_id text")
             cur.execute("ALTER TABLE brain_access ADD COLUMN IF NOT EXISTS is_shared boolean NOT NULL DEFAULT false")
+            # CH-2: the deletion tombstone. `chats`/`turns` cannot remember what
+            # was removed, so a POST with a deleted id re-created the chat.
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS deleted_chats (
+                     id text PRIMARY KEY,
+                     deleted_at timestamptz NOT NULL DEFAULT now(),
+                     deleted_by_org text,
+                     deleted_by_user text
+                   )""")
+            # Retention: long enough that a stale tab or another device cannot
+            # resurrect a chat the user deleted, short enough that a year of
+            # deletions does not grow a permanent table.
+            cur.execute("DELETE FROM deleted_chats WHERE deleted_at < now() - interval '90 days'")
+            # CH-10: `brain_id` arrives from migration 0002 but nothing in
+            # init() created it, so a bootstrapped (non-migrated) database had
+            # no such column and ops/backfill.py failed there.
+            cur.execute("ALTER TABLE chats ADD COLUMN IF NOT EXISTS brain_id text")
             cur.execute(
                 """CREATE TABLE IF NOT EXISTS llm_calls (
                      ts timestamptz NOT NULL DEFAULT now(),
@@ -230,6 +295,21 @@ def upsert_chat(record: dict, org: str | None = None,
                 if not ((org and prior["org_id"] == org)
                         or (created_by and prior["created_by"] == created_by)):
                     raise OwnershipError(chat_id)
+            # CH-2: a deleted id stays deleted. The client still holding it gets
+            # a 409 and starts a new conversation instead of resurrecting the
+            # chat the user threw away (another tab, or this tab's own stale
+            # save tick, used to bring the whole thread back).
+            cur.execute("SELECT 1 FROM deleted_chats WHERE id = %s", (chat_id,))
+            if cur.fetchone():
+                raise ResurrectError(chat_id)
+            # CH-1: a save carrying FEWER turns than the database holds would
+            # delete history in the rewrite below. Refuse unless the client says
+            # it trimmed deliberately (it only does past MAX_TURNS).
+            cur.execute("SELECT count(*) AS n FROM turns WHERE chat_id = %s",
+                        (chat_id,))
+            stored = (cur.fetchone() or {}).get("n") or 0
+            if stored and len(turns) < stored and not record.get("trim"):
+                raise TruncationError(chat_id, stored, len(turns))
             cur.execute(
                 """INSERT INTO chats (id, brain, org_id, created_by, title, created, updated)
                    VALUES (%s, %s, %s, %s, %s,
@@ -258,7 +338,7 @@ def upsert_chat(record: dict, org: str | None = None,
                         json.dumps(t.get("attachments") or []),
                         _ts(t.get("at")),
                         json.dumps(t.get("steps") or []),
-                        int(t["workedMs"]) if t.get("workedMs") is not None else None,
+                        _ms(t.get("workedMs")),
                         bool(t.get("stopped")),
                         bool(t.get("error")),
                     ),
@@ -284,7 +364,7 @@ def list_chats(brain: str | None, org: str | None = None,
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(
             f"""SELECT id, brain, title, created, updated FROM chats {where}
-                ORDER BY updated DESC LIMIT %s""", (*args, limit))
+                ORDER BY updated DESC, id LIMIT %s""", (*args, limit))
         return cur.fetchall()
 
 
@@ -306,24 +386,35 @@ def _owner_clause(org: str | None, user_id: str | None) -> tuple:
 
 def get_chat(chat_id: str, org: str | None = None,
              user_id: str | None = None) -> dict | None:
-    with _conn() as conn, conn.cursor() as cur:
-        pred, args = _owner_clause(org, user_id)
-        cur.execute(
-            "SELECT id, brain, title, created, updated FROM chats WHERE id = %s"
-            + (" AND " + pred if pred else ""),
-            (chat_id, *args),
-        )
-        chat = cur.fetchone()
-        if not chat:
-            return None
-        cur.execute(
-            """SELECT role, text, sources, attachments, at, steps,
-                      worked_ms AS "workedMs", stopped, error
-               FROM turns WHERE chat_id = %s ORDER BY idx""",
-            (chat_id,),
-        )
-        chat["turns"] = cur.fetchall()
+    """Read one chat with its turns.
+
+    CH-8: this used to run as two statements on an AUTOCOMMIT connection, so a
+    concurrent delete could land between them — the row read as existing with
+    an empty (or gone) turn set. One connection, one transaction: the chat and
+    its turns are now a single snapshot.
+    """
+    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    try:
+        with conn, conn.cursor() as cur:
+            pred, args = _owner_clause(org, user_id)
+            cur.execute(
+                "SELECT id, brain, title, created, updated FROM chats WHERE id = %s"
+                + (" AND " + pred if pred else ""),
+                (chat_id, *args),
+            )
+            chat = cur.fetchone()
+            if not chat:
+                return None
+            cur.execute(
+                """SELECT role, text, sources, attachments, at, steps,
+                          worked_ms AS "workedMs", stopped, error
+                   FROM turns WHERE chat_id = %s ORDER BY idx""",
+                (chat_id,),
+            )
+            chat["turns"] = cur.fetchall()
         return chat
+    finally:
+        conn.close()
 
 
 def delete_chat(chat_id: str, org: str | None = None,
@@ -331,18 +422,53 @@ def delete_chat(chat_id: str, org: str | None = None,
     """Delete a chat. Stamped rows require an org or creator match (item 3:
     tightened to org-match-only semantics — legacy double-NULL rows stay
     deletable until the backfill stamps them, since undeletable-by-anyone
-    would be worse)."""
-    with _conn() as conn, conn.cursor() as cur:
-        if org is None and user_id is None:
-            cur.execute("DELETE FROM chats WHERE id = %s", (chat_id,))
-        else:
+    would be worse).
+
+    CH-2: the deletion is remembered in `deleted_chats` inside the same
+    transaction, so a later POST with the same id cannot re-create the chat.
+    """
+    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    try:
+        with conn, conn.cursor() as cur:
+            if org is None and user_id is None:
+                cur.execute("DELETE FROM chats WHERE id = %s", (chat_id,))
+            else:
+                cur.execute(
+                    """DELETE FROM chats WHERE id = %s
+                       AND (org_id = %s OR created_by = %s
+                            OR (org_id IS NULL AND created_by IS NULL))""",
+                    (chat_id, org, user_id),
+                )
+            if not cur.rowcount:
+                return False
             cur.execute(
-                """DELETE FROM chats WHERE id = %s
-                   AND (org_id = %s OR created_by = %s
-                        OR (org_id IS NULL AND created_by IS NULL))""",
+                """INSERT INTO deleted_chats (id, deleted_by_org, deleted_by_user)
+                   VALUES (%s, %s, %s)
+                   ON CONFLICT (id) DO UPDATE SET deleted_at = now(),
+                     deleted_by_org = EXCLUDED.deleted_by_org,
+                     deleted_by_user = EXCLUDED.deleted_by_user""",
                 (chat_id, org, user_id),
             )
-        return cur.rowcount > 0
+        return True
+    finally:
+        conn.close()
+
+
+def count_chats(brain: str | None = None, org: str | None = None,
+               user_id: str | None = None) -> int:
+    """CH-7: the un-capped count, so the API can say "showing N of M" instead
+    of a cap nobody mentioned. Separate from list_chats rather than a window
+    function, which would change that function's row shape for every caller."""
+    clauses, args = [], []
+    if brain:
+        clauses.append("brain = %s"); args.append(brain)
+    pred, pargs = _owner_clause(org, user_id)
+    if pred:
+        clauses.append(pred); args.extend(pargs)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT count(*) AS n FROM chats {where}", args)
+        return (cur.fetchone() or {}).get("n", 0)
 
 
 def save_llm_call(brain: str, feature: str, model: str,
@@ -429,11 +555,35 @@ def usage_summary(days: int = 30, org: str | None = None,
 
 
 def _ts(value):
+    """Parse a client timestamp. Two shapes arrive (CH-5): a live turn sends a
+    millisecond epoch, a RESTORED turn sends back the ISO string the server
+    gave it. Only the numeric shape was understood, so ISO fell through to
+    None — and `at` is COALESCEd with now() — which meant re-saving a restored
+    chat silently restamped every old turn with the current time. The damage
+    was invisible (the client parses ISO fine for display) until the sidebar
+    order changed.
+
+    SEC-10: out-of-range values drop the field rather than 500ing the save
+    (fromtimestamp raises OSError/OverflowError, not ValueError).
+    """
     if not value:
         return None
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass  # an epoch carried as a string falls through to the numeric path
     try:
-        return datetime.fromtimestamp(value / 1000, timezone.utc)
+        return datetime.fromtimestamp(float(value) / 1000, timezone.utc)
     except (TypeError, ValueError, OSError, OverflowError):
-        # SEC-10: out-of-range client timestamps must drop the field, not 500
-        # the save (fromtimestamp raises OSError/OverflowError, not ValueError).
+        return None
+
+
+def _ms(value):
+    """CH-9: `workedMs` is client-supplied. int("abc") used to escape upsert
+    and 500 the whole save; a bad duration is worth nothing, so drop it."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
         return None

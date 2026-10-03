@@ -612,6 +612,10 @@ def config():
     return {
         "authMode": auth.mode(),
         "publishableKey": os.getenv("CLERK_PUBLISHABLE_KEY", "") if auth.active() else "",
+        # CH-1: the turn cap the client must respect. Published from here so the
+        # number the server rejects and the number the client trims to cannot
+        # drift into two different literals.
+        "maxTurns": storage.MAX_TURNS,
     }
 
 
@@ -623,6 +627,8 @@ async def chats_upsert(request: Request):
         record = await request.json()
     except Exception:  # noqa: BLE001
         raise HTTPException(status_code=400, detail="Request body must be JSON.")
+    if not isinstance(record, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
     if not record.get("id"):
         raise HTTPException(status_code=422, detail="chat id required")
     if not storage.available():
@@ -632,18 +638,57 @@ async def chats_upsert(request: Request):
     org = identity.get("org_id") if isinstance(identity, dict) else None
     uid = identity.get("user_id") if isinstance(identity, dict) else None
     brain = safe_dataset(request.query_params.get("brain") or record.get("brain"))
+    # CH-6: filing a chat under a brain IS a brain access. Every other write
+    # route gates on the dataset; this one only stamped it, so a tenant could
+    # park its conversations inside another tenant's brain (they would not be
+    # listed there, but the ownership record would be wrong from then on).
+    require_dataset_access(request, brain)
     # O6: bound the write — an unbounded turns array holds one transaction
     # inserting thousands of rows and every restore re-reads it all.
     turns = record.get("turns") or []
-    if len(turns) > 500:
-        raise HTTPException(status_code=413, detail="Too many turns in one chat.")
-    if any(len(t.get("text") or "") > 100_000 for t in turns if isinstance(t, dict)):
+    if not isinstance(turns, list):
+        raise HTTPException(status_code=422, detail="turns must be a list")
+    if len(turns) > storage.MAX_TURNS:
+        raise HTTPException(status_code=413,
+                            detail=f"Too many turns in one chat ({storage.MAX_TURNS} max).")
+    for t in turns:
+        if not isinstance(t, dict):
+            raise HTTPException(status_code=422, detail="each turn must be an object")
+    # CH-9: only `text` used to be capped, and the storage layer crashed on a
+    # non-numeric workedMs — an unbounded `steps` array or a string field turned
+    # a save into a 500. Bound the rest of the payload the same way.
+    if any(len(t.get("text") or "") > 100_000 for t in turns):
         raise HTTPException(status_code=413, detail="Turn text too large.")
+    if any(len(json.dumps(t.get(k) or [])) > 500_000
+           for t in turns for k in ("sources", "attachments", "steps")):
+        raise HTTPException(status_code=413, detail="Turn metadata too large.")
     try:
         return storage.upsert_chat(record, org=org, brain=brain, created_by=uid)
     except storage.OwnershipError:
         # S1: somebody else's chat id — indistinguishable from missing.
         raise HTTPException(status_code=404, detail="Chat not found.")
+    except storage.TruncationError as exc:
+        # CH-1: the client sent fewer turns than we hold. Say so loudly instead
+        # of deleting history in silence; the client retries with trim=true if
+        # it really means it.
+        raise HTTPException(
+            status_code=409,
+            detail=(f"This save carries {exc.incoming} turns but {exc.stored} are "
+                    "stored — refusing to delete history. Send trim=true to "
+                    "overwrite deliberately."),
+        )
+    except storage.ResurrectError:
+        # CH-2: 410 Gone, not 409 — this resource is permanently gone, and the
+        # client must not fight it. A stale tab (or another device) holding a
+        # deleted id used to re-create the chat the user threw away; now it is
+        # told to move on, and the React client re-saves under a fresh id so the
+        # conversation the user is still reading is not lost either.
+        raise HTTPException(status_code=410,
+                            detail="This chat was deleted. Start a new chat.")
+    except storage.db_error as exc:
+        # CH-8: a mid-life storage failure is a 503, not a stack-traced 500.
+        storage.mark_down(f"chats_upsert: {exc}")
+        raise HTTPException(status_code=503, detail="storage unavailable")
 
 
 @app.get("/api/chats")
@@ -657,10 +702,17 @@ def chats_list(request: Request, brain: str | None = None, limit: int = 200):
         require_dataset_access(request, brain)
     org = identity.get("org_id") if isinstance(identity, dict) else None
     uid = identity.get("user_id") if isinstance(identity, dict) else None
-    chats = storage.list_chats(brain, org=org, user_id=uid, limit=limit)
-    # `total` so the UI can say "showing N of M" instead of silently hiding
-    # history behind a cap nobody mentioned.
-    return {"ok": True, "chats": chats, "returned": len(chats), "limit": min(max(limit, 1), 500)}
+    limit = min(max(int(limit or 200), 1), 500)
+    try:
+        chats = storage.list_chats(brain, org=org, user_id=uid, limit=limit)
+        # CH-7: `total` was promised by the comment below and never delivered,
+        # so a capped page was indistinguishable from the whole history.
+        total = storage.count_chats(brain, org=org, user_id=uid)
+    except storage.db_error as exc:
+        storage.mark_down(f"chats_list: {exc}")
+        raise HTTPException(status_code=503, detail="storage unavailable")
+    return {"ok": True, "chats": chats, "returned": len(chats),
+            "total": total, "truncated": total > len(chats), "limit": limit}
 
 
 def _public_storage() -> dict:
@@ -678,8 +730,12 @@ def chats_get(request: Request, chat_id: str):
     # foreign id is indistinguishable from a missing one.
     org = identity.get("org_id") if isinstance(identity, dict) else None
     uid = identity.get("user_id") if isinstance(identity, dict) else None
-    chat = storage.get_chat(chat_id, org=org, user_id=uid) if auth.active() \
-        else storage.get_chat(chat_id)
+    try:
+        chat = storage.get_chat(chat_id, org=org, user_id=uid) if auth.active() \
+            else storage.get_chat(chat_id)
+    except storage.db_error as exc:
+        storage.mark_down(f"chats_get: {exc}")
+        raise HTTPException(status_code=503, detail="storage unavailable")
     if chat is None:
         # 404, not 200-with-null: the client could not tell "this chat does not
         # exist" from "this chat is empty", so clicking a stale sidebar row (a
@@ -700,11 +756,21 @@ def chats_delete(request: Request, chat_id: str):
         raise HTTPException(status_code=503, detail="storage unavailable")
     # SEC-4: identity is not ownership — stamped rows need an org match.
     # 404 either way: foreign ids are indistinguishable from missing ones.
-    if auth.active():
-        org = identity.get("org_id") if isinstance(identity, dict) else None
-        uid = identity.get("user_id") if isinstance(identity, dict) else None
-        return {"ok": storage.delete_chat(chat_id, org=org, user_id=uid)}
-    return {"ok": storage.delete_chat(chat_id)}
+    org = identity.get("org_id") if isinstance(identity, dict) else None
+    uid = identity.get("user_id") if isinstance(identity, dict) else None
+    try:
+        deleted = storage.delete_chat(chat_id, org=org, user_id=uid) \
+            if auth.active() else storage.delete_chat(chat_id)
+    except storage.db_error as exc:
+        storage.mark_down(f"chats_delete: {exc}")
+        raise HTTPException(status_code=503, detail="storage unavailable")
+    if not deleted:
+        # CH-3: this used to answer 200 {"ok": false} while the comment above
+        # promised a 404. A UI that only checks the status line toasted
+        # "Chat deleted" for a delete that removed nothing — and the chat came
+        # back on the next list. Zero rows is now the 404 the route claimed.
+        raise HTTPException(status_code=404, detail="No such chat for this account.")
+    return {"ok": True, "id": chat_id}
 
 
 @app.get("/api/usage")

@@ -34,7 +34,7 @@ export type Turn = {
  * because the ask path and the persist path are not components.
  * ========================================================================== */
 
-export type ApiConfig = { authMode?: string; publishableKey?: string }
+export type ApiConfig = { authMode?: string; publishableKey?: string; maxTurns?: number }
 
 let configPromise: Promise<ApiConfig> | null = null
 
@@ -46,6 +46,18 @@ export function apiConfig(): Promise<ApiConfig> {
       .catch(() => ({}) as ApiConfig)
   }
   return configPromise
+}
+
+/**
+ * How many turns one chat may hold, as the SERVER says (CH-1).
+ *
+ * The client used to hardcode a 60-turn window that no server rule matched, so
+ * it trimmed history on its own initiative. The cap now comes from the same
+ * endpoint that enforces it; 500 is only the fallback for a config that cannot
+ * be read.
+ */
+export function turnCap(): Promise<number> {
+  return apiConfig().then((c) => Number(c.maxTurns) || 500)
 }
 
 /** Authorization for the configured auth mode — {} when auth is off. */
@@ -100,10 +112,14 @@ export async function serverError(res: Response): Promise<string> {
  * Reads
  * ========================================================================== */
 
-export function useBrains() {
+export function useBrains(enabled = true) {
   const [brains, setBrains] = useState<Brain[]>([])
   const [brainsError, setBrainsError] = useState<string | null>(null)
   const refresh = () => {
+    // CH-12: in clerk mode a signed-out visitor has no right to ask, and
+    // prefetching anyway produced two console errors on every load — the API
+    // was correct to 401, the client was wrong to call.
+    if (!enabled) { setBrains([]); setBrainsError(null); return }
     apiFetch("/api/brains")
       .then(async (r) => {
         if (!r.ok) throw new Error(await serverError(r))
@@ -125,7 +141,7 @@ export function useBrains() {
         setBrainsError((e as Error).message)
       })
   }
-  useEffect(refresh, [])
+  useEffect(refresh, [enabled])
   return { brains, refreshBrains: refresh, brainsError }
 }
 
@@ -138,10 +154,15 @@ export function useBrains() {
  * asked for one brain and only while the chat view was open, so every other
  * view claimed "No saved chats yet".
  */
-export function useChats() {
+export function useChats(enabled = true) {
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [chatsError, setChatsError] = useState<string | null>(null)
+  // CH-7: the server now reports the UN-CAPPED count. Without it a page that
+  // stopped at the limit looked exactly like a complete history.
+  const [total, setTotal] = useState(0)
   const refresh = () => {
+    // CH-12: no session, no call — see useBrains.
+    if (!enabled) { setChats([]); setChatsError(null); setTotal(0); return }
     // The sidebar caps what it RENDERS; it must not also cap what it KNOWS, or
     // a folder with 23 chats shows 5 with no sign the rest exist (and a delete
     // looks like a no-op because the next one slides in).
@@ -165,6 +186,7 @@ export function useChats() {
             }),
           ),
         )
+        setTotal(Number(d.total ?? (d.chats || []).length))
         setChatsError(null)
       })
       // A 401 used to read as "No saved chats yet" — the single most misleading
@@ -174,8 +196,9 @@ export function useChats() {
         setChatsError((e as Error).message)
       })
   }
-  useEffect(refresh, [])
-  return { chats, refreshChats: refresh, chatsError }
+  useEffect(refresh, [enabled])
+  return { chats, refreshChats: refresh, chatsError, total,
+           truncated: total > chats.length }
 }
 
 export async function fetchChat(id: string): Promise<Turn[]> {
@@ -197,13 +220,20 @@ export async function fetchChat(id: string): Promise<Turn[]> {
   }))
 }
 
-export async function saveChat(id: string, title: string, brain: string, turns: Turn[]) {
+export async function saveChat(
+  id: string, title: string, brain: string, turns: Turn[], trim = false,
+): Promise<{ ok: boolean; status: number }> {
   const r = await apiFetch(`/api/chats?brain=${encodeURIComponent(brain)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, title: title.slice(0, 120), turns }),
+    // `trim` tells the server this save is SHORTER than what it holds on
+    // purpose. Without it a shorter window is refused (CH-1), because the
+    // rewrite deletes before it re-inserts.
+    body: JSON.stringify({ id, title: title.slice(0, 120), turns, trim }),
   })
-  return r.ok
+  // The status, not just a boolean: the caller must tell "deleted elsewhere"
+  // (410) from "another tab got there first" (409) from a plain failure.
+  return { ok: r.ok, status: r.status }
 }
 
 /* Phase 9: durable brain creation (v2 job path). */

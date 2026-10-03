@@ -239,16 +239,27 @@ body.sb-slide-on .nav .brain-row:hover { background: transparent; }
 .head-btn svg { width:14px; height:14px; }
 .chats-head:hover .nav-label { color:var(--muted); }
 
-.nav-item.chat-item { padding-left: 34px; }
-.chat-link { display:flex; flex:1; min-width:0; overflow:hidden;
+/* CH-4: the 34px used to sit on the ROW, outside the link — so the left third
+   of every chat row swallowed the click (the cursor said pointer, nothing
+   happened) while the invisible delete button at the right edge was still
+   hit-testable, and a mobile tap there armed DELETE instead of opening the
+   chat. The padding now belongs to the link, and an invisible button is not
+   clickable on a device that has no hover. */
+.nav-item.chat-item { padding-left: 0; }
+.chat-link { display:flex; flex:1; min-width:0; overflow:hidden; padding-left:34px;
   text-overflow:ellipsis; white-space:nowrap; color:inherit; border:0; }
 .chat-link:hover { color:inherit; border:0; }
 .row-del { display:inline-flex; align-items:center; justify-content:center; flex:none;
   width:22px; height:22px; border-radius:6px; border:0; background:transparent;
   color:var(--muted-2); cursor:pointer; opacity:0; transition:all .15s ease;
-  font-size:11px; }
+  font-size:11px; pointer-events:none; }
 .nav-item.chat-item:hover .row-del, .row-del:focus-visible,
-.row-del.armed { opacity:1; }
+.row-del.armed { opacity:1; pointer-events:auto; }
+@media (hover: none) {
+  /* Touch has no hover to reveal with: keep the control visible and tappable,
+     rather than invisible-but-clickable. */
+  .row-del { opacity:.45; pointer-events:auto; }
+}
 .row-del:hover { color:var(--bad); background:rgba(240,112,112,.1); }
 .row-del.armed { color:var(--bad); font-weight:700; width:auto; padding:0 7px; }
 .row-del.armed svg { display:none; }
@@ -265,7 +276,7 @@ body.sb-slide-on .nav .brain-row:hover { background: transparent; }
   color:var(--fg-2); flex:1; overflow:hidden; text-overflow:ellipsis;
   white-space:nowrap; }
 .brain-row .group-del.armed { font-size:11px; }
-.brain-row:hover .group-del { opacity:1; }
+.brain-row:hover .group-del { opacity:1; pointer-events:auto; }
   .view-note { padding:10px 12px 2px; font-size:10.5px; color:var(--muted-2); }
 
   /* jump-to-latest pill: visible only while scrolled away during a chat */
@@ -285,6 +296,8 @@ body.sb-slide-on .nav .brain-row:hover { background: transparent; }
 .nav-item.chat-item::before {
   content: ""; position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
   width: 4px; height: 4px; border-radius: 50%; background: var(--muted-2);
+  /* decoration: it sat on top of the link and swallowed clicks in its 4px band */
+  pointer-events: none;
 }
 .nav-item.chat-item.active::before { background: var(--accent); }
 .nav-item.chat-item .chat-title {

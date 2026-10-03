@@ -492,6 +492,30 @@ def section_deep_links_history(suite: Suite, base: str) -> None:
     suite.check("restored turn keeps its working log", page.locator(".turn.bot .w-step").count() >= 1)
     suite.check("restored attachment rendered", page.locator(".turn.user .atts .att").count() >= 1)
     suite.check("restored bot turn has its citation", page.locator(".turn .srcs button").count() >= 1)
+
+    # CH-4 / the owner's report: opening a chat from ANOTHER view must land on
+    # the chat and stay there. `openChat` used to write ?chat= without clearing
+    # ?view=, so the conversation loaded while the screen stayed on Brains, and
+    # a reload proved it. Two checks, both new: the click zone (the row's left
+    # strip used to be padding outside the link) and the URL agreeing with the
+    # view after the jump and after a reload.
+    page.goto(base + "/?view=brains", wait_until="networkidle")
+    page.wait_for_timeout(1200)
+    row = page.locator(".nav-item.chat-item").first
+    if row.count():
+        box = row.bounding_box()
+        page.mouse.click(box["x"] + 8, box["y"] + box["height"] / 2)
+        page.wait_for_timeout(1500)
+        suite.check("clicking a chat row's LEFT strip opens it", "chat=" in page.url, page.url)
+        suite.check("the stale view param is cleared", "view=" not in page.url, page.url)
+        suite.check("the conversation is on screen", page.locator(".turn").count() >= 2,
+                    f"{page.locator('.turn').count()} turns")
+        page.reload(wait_until="networkidle")
+        page.wait_for_timeout(1500)
+        suite.check("the jump survives a reload", page.locator(".turn").count() >= 2,
+                    page.url)
+    else:
+        suite.check("chat rows exist to click", False, "none in the sidebar")
     suite.console_clean("deep links")
 
 SECTIONS = [

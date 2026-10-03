@@ -23,6 +23,10 @@ type Props = {
   chats: ChatSummary[]
   /** The server's own words when the chat list could not be read (401/403/5xx). */
   chatsError?: string | null
+  /** CH-7: the un-capped count from the server, so a page that hit the limit
+   *  can say "showing N of M" instead of looking like the whole history. */
+  chatsTotal?: number
+  chatsTruncated?: boolean
   onRefreshChats?: () => void
   onDeleteChat?: (chatId: string, brain?: string) => void
   onDeleteBrainChats?: (brain: string) => void
@@ -108,6 +112,8 @@ export function Sidebar({
   onOpenChat,
   chats,
   chatsError,
+  chatsTotal,
+  chatsTruncated,
   onDeleteChat,
   onDeleteBrainChats,
   onOpenSettings,
@@ -248,6 +254,9 @@ export function Sidebar({
           </button>
         )}
         <div className="view-note">{t("view.timeline", "Timeline")} · {t("view.sorted", "sorted by")} {chatView.sort === "created" ? t("view.created", "Created") : t("view.updated", "Updated")}</div>
+        {chatsTruncated && (
+          <div className="view-note">{`Showing ${chats.length} of ${chatsTotal ?? chats.length} — the rest are older.`}</div>
+        )}
       </>
     ) : (
       <>
@@ -308,6 +317,7 @@ export function Sidebar({
           {t("view.grouped", "Grouped by brain")} · {t("view.sorted", "sorted by")}{" "}
           {chatView.sort === "created" ? t("view.created", "Created") : t("view.updated", "Updated")}
           {chats.length > 0 ? ` · ${chats.length}` : ""}
+          {chatsTruncated ? ` · ${chatsTotal ?? chats.length} total` : ""}
         </div>
       </>
     )

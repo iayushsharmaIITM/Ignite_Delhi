@@ -120,6 +120,25 @@ else
   FAILS=$((FAILS + 1))
 fi
 
+# --- 6b. chat integrity (Round 2: CH-1..CH-9) ---------------------------------
+# The rules that keep a conversation from being silently rewritten: a save with
+# fewer turns than the server holds is refused unless it declares a trim; a
+# deleted chat stays deleted (410); DELETE tells the truth (404, not 200
+# ok:false); filing a chat under a brain is a brain access; and a bad client
+# field cannot turn a save into a 500. It WRITES rows, so it only runs against
+# the lab database — the same reason the Clerk gate below is opt-in. Every row
+# it creates is `itest-*` and its own finally removes them.
+if [[ "${DATABASE_URL:-}" == *5434* ]]; then
+  if python3 tests/test_chat_integrity.py > /tmp/kestrel_verify_integrity.log 2>&1; then
+    note chat-integrity "PASS"
+  else
+    note chat-integrity "FAIL — see /tmp/kestrel_verify_integrity.log"
+    FAILS=$((FAILS + 1))
+  fi
+else
+  note chat-integrity "SKIP  (needs DATABASE_URL=<lab 5434> — it writes rows)"
+fi
+
 # --- 7. React UI acceptance suite (browser) -----------------------------------
 # Drives the SERVED bundle: ask/stream/citations/source modal/files sheet/draft/
 # menus/keyboard/deep links/history, with the model calls intercepted. This is

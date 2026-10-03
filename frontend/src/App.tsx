@@ -15,6 +15,7 @@ import {
   apiConfig,
   apiFetch,
   serverError,
+  turnCap,
   useBrains,
   useChats,
   fetchChat,
@@ -577,8 +578,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brain])
 
-  const { chats, refreshChats, chatsError } = useChats()
-  const { brains, refreshBrains, brainsError } = useBrains()
+  // CH-12: in clerk mode there is nothing to read before there is a session.
+  // Firing anyway put two 401s in the console on every signed-out load — the
+  // server was right to refuse, the client was wrong to ask.
+  const canRead = authMode !== "clerk" || signedIn
+  const { chats, refreshChats, chatsError, total: chatsTotal,
+          truncated: chatsTruncated } = useChats(canRead)
+  const { brains, refreshBrains, brainsError } = useBrains(canRead)
 
   // Landing pad for the OAuth round-trip
   useEffect(() => {
@@ -691,9 +697,60 @@ export default function App() {
       history.replaceState(null, "", u)
       setChatId(id)
     }
-    return saveChat(id, firstUser ? firstUser.text.slice(0, 60) : "Untitled", brain, turnsRef.current.slice(-60))
-      .then((ok) => ok && refreshChats())
-      .catch(() => {})
+    const title = firstUser ? firstUser.text.slice(0, 60) : "Untitled"
+    // CH-1: the WHOLE conversation is sent. `slice(-60)` was silent, permanent
+    // data loss — the server rewrites the turn set, so the 61st message deleted
+    // turns 1..N with no error and no trace anywhere. Trimming is now the
+    // exception (only past the cap the SERVER publishes) and it is declared, so
+    // a deliberate trim can be told apart from a stale window.
+    return turnCap().then((cap) => {
+      const all = turnsRef.current
+      const trimmed = all.length > cap
+      const keep = trimmed ? all.slice(all.length - cap) : all
+      const send = (chatId: string) =>
+        saveChat(chatId, title, brain, keep, trimmed).then((r) => ({ chatId, r }))
+      return send(id).then(({ r }) => {
+        if (r.ok) {
+          if (trimmed) toast.warning(`Only the newest ${cap} turns of a chat are kept.`)
+          refreshChats()
+          return true
+        }
+        if (r.status === 410) {
+          // CH-2: this chat was deleted — here, in another tab, on another
+          // device. Never re-create it. But the reader is still looking at a
+          // real conversation, so it moves to a fresh id instead of vanishing.
+          const fresh = newChatId()
+          chatIdRef.current = fresh
+          setChatId(fresh)
+          const u = new URL(location.href)
+          u.searchParams.set("chat", fresh)
+          u.searchParams.delete("new")
+          history.replaceState(null, "", u)
+          try { sessionStorage.setItem("kestrel.currentChat." + (brain || "demo"), fresh) } catch { /* private mode */ }
+          toast.warning("That chat had been deleted — saved as a new chat.")
+          return send(fresh).then(({ r: r2 }) => {
+            if (!r2.ok) toast.error(`Could not save this chat (HTTP ${r2.status}).`)
+            else refreshChats()
+            return r2.ok
+          })
+        }
+        if (r.status === 409) {
+          // Another tab saved a longer version of this chat first. Overwriting
+          // it with this window would delete its turns, so this one stops and
+          // re-reads the list instead.
+          toast.error("Another tab changed this chat first — not overwriting it.")
+          refreshChats()
+          return false
+        }
+        toast.error(`Could not save this chat (HTTP ${r.status}).`)
+        return false
+      })
+    }).catch((e) => {
+      // The old handler was `.catch(() => {})`: a failed save was invisible, and
+      // the chat simply was not there on the next load.
+      toast.error("Could not save this chat: " + (e as Error).message)
+      return false
+    })
   }, [brain, refreshChats])
 
   const finalizedRef = useRef(false)
@@ -933,6 +990,12 @@ export default function App() {
     u.searchParams.set("chat", id)
     u.searchParams.set("brain", target)
     u.searchParams.delete("new")
+    // The URL must agree with the state: `view` is only present for a NON-chat
+    // view (see openView). Leaving `?view=brains` behind made a reload land on
+    // the Brains page with the conversation loaded but invisible — the audit's
+    // "clicking a chat from another section does nothing you can see", and it
+    // only showed up after a reload, which is why it survived the port.
+    u.searchParams.delete("view")
     history.pushState(null, "", u)
 
     setSwitching(true)
@@ -1134,7 +1197,18 @@ export default function App() {
     setMenu2Open(false)
     const id = chatId
     if (id) {
-      try { await apiFetch(`/api/chats/${encodeURIComponent(id)}`, { method: "DELETE" }) } catch {}
+      // CH-3: "clear chat" IS a delete, and this call used to discard the
+      // response entirely — a delete that removed nothing still looked like
+      // success, and the chat was waiting in the sidebar on the next list.
+      // A 404 is tolerated here: the chat is already gone, which is the goal.
+      try {
+        const r = await apiFetch(`/api/chats/${encodeURIComponent(id)}`, { method: "DELETE" })
+        if (!r.ok && r.status !== 404) {
+          toast.error("Could not delete this chat: " + await serverError(r))
+        }
+      } catch (e) {
+        toast.error("Could not delete this chat: " + (e as Error).message)
+      }
     }
     newChat()
     refreshChats()
@@ -1437,6 +1511,8 @@ export default function App() {
         onOpenChat={(id, b) => void openChat(id, b ?? brain)}
         chats={chats}
         chatsError={chatsError}
+        chatsTotal={chatsTotal}
+        chatsTruncated={chatsTruncated}
         onRefreshChats={refreshChats}
         onDeleteChat={(id) => void handleDeleteChat(id)}
         onDeleteBrainChats={handleDeleteBrainChats}

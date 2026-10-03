@@ -134,15 +134,21 @@ def test_brain_access_rules():
 
 def test_chat_isolation():
     storage.init()
+    # CH-2 made deletions durable, so a FIXED fixture id would collide with its
+    # own tombstone on a second run of this file. Each run uses a fresh id, and
+    # the tombstone rule is asserted rather than stumbled into.
+    cid = f"iso-a-{int(time.time() * 1000)}"
+    record = {"id": cid, "brain": "acme_isolated",
+              "org_id": "org_EVIL",
+              "title": "A chat",
+              "turns": [{"role": "user", "text": "q"}]}
     # SEC-5: ownership is server-stamped (org=...), never taken from the
     # record — a client-supplied org_id is ignored by contract.
-    storage.upsert_chat({"id": "iso-a", "brain": "acme_isolated",
-                         "org_id": "org_EVIL",
-                         "title": "A chat",
-                         "turns": [{"role": "user", "text": "q"}]},
-                        org="org_A", brain="acme_isolated")
+    storage.upsert_chat(record, org="org_A", brain="acme_isolated")
     chats = storage.list_chats("acme_isolated", org="org_B")
-    assert all(c["id"] != "iso-a" for c in chats)
+    assert all(c["id"] != cid for c in chats)
     chats = storage.list_chats("acme_isolated", org="org_A")
-    assert any(c["id"] == "iso-a" for c in chats)
-    storage.delete_chat("iso-a")
+    assert any(c["id"] == cid for c in chats)
+    assert storage.delete_chat(cid) is True
+    with pytest.raises(storage.ResurrectError):
+        storage.upsert_chat(record, org="org_A", brain="acme_isolated")
