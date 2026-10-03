@@ -41,3 +41,6 @@ cognee_oss_state/
 # bulky baseline logs (sanitized copies live in docs/baseline/)
 var/
 .freebuff/
+
+# stale playwright-cli session dumps
+.playwright-cli/
