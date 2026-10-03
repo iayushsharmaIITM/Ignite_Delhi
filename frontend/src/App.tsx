@@ -580,8 +580,10 @@ export default function App() {
 
   // CH-12: in clerk mode there is nothing to read before there is a session.
   // Firing anyway put two 401s in the console on every signed-out load — the
-  // server was right to refuse, the client was wrong to ask.
-  const canRead = authMode !== "clerk" || signedIn
+  // server was right to refuse, the client was wrong to ask. "unknown" must NOT
+  // count as "not clerk": the mode is decided by /api/config a tick later, and
+  // treating not-yet-known as off is what made the first attempt fetch anyway.
+  const canRead = authMode !== "unknown" && (authMode !== "clerk" || signedIn)
   const { chats, refreshChats, chatsError, total: chatsTotal,
           truncated: chatsTruncated } = useChats(canRead)
   const { brains, refreshBrains, brainsError } = useBrains(canRead)
