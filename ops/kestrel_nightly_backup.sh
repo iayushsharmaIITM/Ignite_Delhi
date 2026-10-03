@@ -62,15 +62,22 @@ TS=$(date -u +%Y%m%dT%H%M%SZ)
 OUT="$DEST_ROOT/$TS"
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-run() {   # run <step> <cmd...> — one failure marks the whole run FAIL, loudly
+run() {   # run <step> <cmd...> — the first failure ENDS the run
   # Status goes to STDERR on purpose: callers redirect stdout into the dump file,
   # and an "ok" note printed into db.sql corrupts the backup. It happened; the
   # terminator check below is what catches it if it ever can again.
+  #
+  # `exit`, not `return`: this script runs under `set -uo pipefail` with no -e,
+  # so a returning run() kept going and line 104 overwrote the FAIL receipt with
+  # OK. The backup had genuinely failed while --status reported success — which is
+  # worse than no backup job at all, because it looks like one.
+  # A run killed before writing anything is caught separately: --status goes STALE
+  # once the last OK is older than 36h.
   local label="$1"; shift
   if ! "$@"; then
     echo "FAIL $NOW step=$label" > "$STATUS"
     echo "backup FAILED at: $label" >&2
-    return 1
+    exit 1
   fi
   echo "  ok: $label" >&2
 }
@@ -92,13 +99,24 @@ run "state-volume" docker run --rm -v "$STATE_VOLUME:/src:ro" -v "$OUT":/out alp
 run "data-volume" docker run --rm -v "$DATA_VOLUME:/src:ro" -v "$OUT":/out alpine \
   tar cf /out/cognee-data.tar -C /src .
 # The dump and tars are worthless if they cannot be read back, so the last steps
-# inspect the artefacts instead of trusting that a command exited 0: the archive
-# must list, and the dump must END with pg_dump's own terminator — a truncated or
-# polluted dump "succeeds" at write time and only fails on the day it is needed.
-run "verify-archives" tar tf "$OUT/cognee-state.tar" >/dev/null 2>&1
-run "verify-dump" sh -c "tail -3 '$OUT/db.sql' | grep -q 'PostgreSQL database dump complete'"
-
-( cd "$OUT" && shasum -a 256 * | sort > SHA256SUMS )
+# inspect the artefacts instead of trusting that a command exited 0: EVERY archive
+# must exist on the host, be non-empty, and list — plus the dump must END with
+# pg_dump's own terminator. A truncated or polluted dump "succeeds" at write time
+# and only fails on the day it is needed. Checking only the state tar was its own
+# bug: a `docker run -v` whose host path Docker cannot see (a directory outside the
+# file-sharing set) exits 0 having written nothing, and the data tar sailed through.
+#
+# db.sql specifics: pg_dump 17 writes `\unrestrict <token>` AFTER its terminator
+# comment, so checking only the last lines misses a good dump — hence `tail -8`. And
+# the dump must not contain the runner's own status lines: an older installed copy
+# echoed "  ok: pg_dump" to stdout into the redirect, and both backups on disk hold
+# it, which is a syntax error on the day the restore is attempted.
+for artefact in cognee-state.tar cognee-data.tar; do
+  run "verify-$artefact" sh -c \
+    "test -s '$OUT/$artefact' && tar tf '$OUT/$artefact' >/dev/null 2>&1"
+done
+run "verify-dump" sh -c "test -s '$OUT/db.sql' && tail -8 '$OUT/db.sql' | grep -q 'PostgreSQL database dump complete' && ! grep -q '^  ok: ' '$OUT/db.sql'"
+run "checksums" sh -c "cd '$OUT' && shasum -a 256 * | sort > SHA256SUMS"
 
 SIZE=$(du -sh "$OUT" | cut -f1)
 echo "OK $NOW size=$SIZE path=$OUT" > "$STATUS"

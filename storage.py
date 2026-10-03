@@ -204,7 +204,14 @@ def init() -> bool:
             # CH-10: `brain_id` arrives from migration 0002 but nothing in
             # init() created it, so a bootstrapped (non-migrated) database had
             # no such column and ops/backfill.py failed there.
-            cur.execute("ALTER TABLE chats ADD COLUMN IF NOT EXISTS brain_id text")
+            #
+            # uuid, matching migration 0002: this line said `text` while 0002 said
+            # UUID, so the type of chats.brain_id depended on whether a database
+            # was migrated or bootstrapped. IF NOT EXISTS will not retype an
+            # existing column, so databases created under the old line keep text —
+            # harmless, because nothing compares brain_id as a uuid, and no
+            # conversion is run here. New databases from either path now agree.
+            cur.execute("ALTER TABLE chats ADD COLUMN IF NOT EXISTS brain_id uuid")
             cur.execute(
                 """CREATE TABLE IF NOT EXISTS llm_calls (
                      ts timestamptz NOT NULL DEFAULT now(),
@@ -293,7 +300,17 @@ def upsert_chat(record: dict, org: str | None = None,
             # S1: an existing chat owned by someone else cannot be overwritten
             # or re-stamped — knowing the id is not ownership. Legacy
             # double-NULL rows are first-stamp-wins (public until stamped).
-            cur.execute("SELECT org_id, created_by FROM chats WHERE id = %s",
+            #
+            # FOR UPDATE is what makes the two guards below real. They are
+            # SELECT-then-write under READ COMMITTED, so without a lock a
+            # concurrent delete or save could commit between the check and the
+            # rewrite: the tombstone check would pass on a row about to be
+            # deleted, and the turn count would be stale by the time the DELETE
+            # below ran — which is the exact history loss CH-1 exists to refuse.
+            # Locking the parent first serialises every writer on this chat
+            # (delete_chat and the cascade both need the same row).
+            cur.execute("SELECT org_id, created_by FROM chats WHERE id = %s "
+                        "FOR UPDATE",
                         (chat_id,))
             prior = cur.fetchone()
             if prior and (prior["org_id"] or prior["created_by"]):
@@ -394,9 +411,14 @@ def get_chat(chat_id: str, org: str | None = None,
     """Read one chat with its turns.
 
     CH-8: this used to run as two statements on an AUTOCOMMIT connection, so a
-    concurrent delete could land between them — the row read as existing with
-    an empty (or gone) turn set. One connection, one transaction: the chat and
-    its turns are now a single snapshot.
+    concurrent delete could land between them — the row read as existing with an
+    empty (or gone) turn set. One connection and one transaction is NOT enough:
+    Postgres' default READ COMMITTED takes a fresh snapshot per STATEMENT, so the
+    second read would still see a turns table the first read never saw. The chat
+    row is therefore locked FOR SHARE for the whole read: `delete_chat` (and
+    `save_chat`'s rewrite) must lock the same row to run, so neither can commit
+    mid-read. Share locks still allow two readers at once, and the turns SELECT
+    needs no lock of its own because the cascade cannot get past the parent.
     """
     conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     try:
@@ -404,7 +426,8 @@ def get_chat(chat_id: str, org: str | None = None,
             pred, args = _owner_clause(org, user_id)
             cur.execute(
                 "SELECT id, brain, title, created, updated FROM chats WHERE id = %s"
-                + (" AND " + pred if pred else ""),
+                + (" AND " + pred if pred else "")
+                + " FOR SHARE",
                 (chat_id, *args),
             )
             chat = cur.fetchone()
@@ -604,12 +627,19 @@ def release_brain_claim(brain: str, org_id: str | None,
 
 
 def mark_brain_ready(brain: str) -> None:
-    """A confirmed dataset: flip the claim to 'ready' and stop timing it."""
+    """A confirmed dataset: flip the claim to 'ready' and stop timing it.
+
+    The `status = 'creating'` predicate is what keeps this one-way. Without it a
+    late call (a retry, or a create that lost its race and reached the success
+    path anyway) could flip a row that another org had claimed in the meantime, or
+    reset `claimed_at` on a brain that has been ready for weeks — which hands the
+    name to whoever holds the stale timestamp.
+    """
     try:
         with _conn() as conn, conn.cursor() as cur:
             cur.execute(
                 "UPDATE brain_access SET status = 'ready', claimed_at = NULL "
-                "WHERE brain = %s",
+                "WHERE brain = %s AND status = 'creating'",
                 (brain,),
             )
     except Exception:  # noqa: BLE001

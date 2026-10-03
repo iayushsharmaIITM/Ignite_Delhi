@@ -33,7 +33,14 @@ FAIL=0
 # Fail closed: a detector that silently errors would report "clean", which is
 # worse than no detector at all. If the pattern cannot match its own example, or
 # grep rejects it, stop rather than green-lighting the commit.
-if ! printf 'sk-abcdefghijklmnopqrstuvwxyz1234' | grep -qE "$PATTERNS" 2>/dev/null; then
+#
+# The probe is BUILT at runtime, never written literally: `--all` scans every
+# tracked file including this one, so a literal example here matches the pattern
+# it exists to prove and the detector blocks its own repo — which is how every CI
+# push went red. Same grep flags as scan() below, so the self-test exercises the
+# command that actually does the work.
+PROBE="sk-$(printf 'a%.0s' $(seq 1 24))"
+if ! printf '%s\n' "$PROBE" | grep -nIE "$PATTERNS" 2>/dev/null | grep -q .; then
   echo "secret detector is broken (self-test failed) - refusing to judge anything"
   exit 2
 fi

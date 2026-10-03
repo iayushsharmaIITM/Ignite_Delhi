@@ -27,6 +27,12 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # if_not_exists because storage.init() creates this same table with
+    # CREATE TABLE IF NOT EXISTS. Two authorities own this schema, so every
+    # migration has to survive running on a database the app already bootstrapped;
+    # without this, `alembic upgrade head` died on `relation "deleted_chats"
+    # already exists` — which is the Heroku release-phase order (boot, then
+    # migrate), so it would have failed the first deploy.
     op.create_table(
         "deleted_chats",
         sa.Column("id", sa.Text, primary_key=True),
@@ -34,12 +40,14 @@ def upgrade() -> None:
                   server_default=sa.text("now()"), nullable=False),
         sa.Column("deleted_by_org", sa.Text, nullable=True),
         sa.Column("deleted_by_user", sa.Text, nullable=True),
+        if_not_exists=True,
     )
     # CH-10 parity: brain_id arrives from 0002 on a migrated database, but
     # storage.init() never created it, so a bootstrapped database had no such
     # column and ops/backfill.py broke there. IF NOT EXISTS keeps both paths
-    # converging on one shape.
-    op.execute("ALTER TABLE chats ADD COLUMN IF NOT EXISTS brain_id text")
+    # converging on one shape, and the type matches 0002 (uuid) rather than the
+    # `text` this line used to declare.
+    op.execute("ALTER TABLE chats ADD COLUMN IF NOT EXISTS brain_id uuid")
 
 
 def downgrade() -> None:

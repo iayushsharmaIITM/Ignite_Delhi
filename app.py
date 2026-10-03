@@ -616,6 +616,11 @@ def config():
         # number the server rejects and the number the client trims to cannot
         # drift into two different literals.
         "maxTurns": storage.MAX_TURNS,
+        # Which create path this server actually answers. `/api/brains/v2` is
+        # flag-gated and 404s with the flag off, so a client that assumed it
+        # existed shipped a dead "Create a brain" button on every deployment
+        # without it. Ask the server instead of guessing.
+        "brainCreateV2": _jobs_v2_enabled(),
     }
 
 
@@ -695,7 +700,12 @@ async def chats_upsert(request: Request):
 def chats_list(request: Request, brain: str | None = None, limit: int = 200):
     identity = require_tenant(request)
     if not storage.available():
-        return {"ok": False, "chats": [], "storage": _public_storage()}
+        # An outage is not an empty history. Answering 200 with `chats: []` made
+        # Postgres being down indistinguishable from the user having no chats,
+        # and the client only reports a failure when the status says so. The rest
+        # of this file already says 503 (save/read/delete) — this was the one
+        # route that told a comfortable lie.
+        raise HTTPException(status_code=503, detail="storage unavailable")
     # NEW-3: a client-supplied brain filter is a brain access — gate it.
     if brain:
         brain = safe_dataset(brain)
@@ -713,12 +723,6 @@ def chats_list(request: Request, brain: str | None = None, limit: int = 200):
         raise HTTPException(status_code=503, detail="storage unavailable")
     return {"ok": True, "chats": chats, "returned": len(chats),
             "total": total, "truncated": total > len(chats), "limit": limit}
-
-
-def _public_storage() -> dict:
-    """S6: storage.status() carries the DB host + driver errors — fine for
-    logs, not for API responses. Callers get the status boolean only."""
-    return {"storage": storage.status().get("storage")}
 
 
 @app.get("/api/chats/{chat_id}")
@@ -1622,6 +1626,11 @@ async def create_brain(
     # oracle for unauthenticated callers.
     identity = require_tenant(request)
 
+    # S5: uploads cost embedding + LLM — bound per caller like asks. Checked HERE,
+    # before any name is reserved: a request that is about to be refused for rate
+    # must not leave a 'creating' claim squatting that name for 15 minutes.
+    _check_rate(request, "upload")
+
     # Refuse to merge into an existing brain UNLESS the caller explicitly asked
     # to. Silently appending to a brain the user thinks is new would produce
     # answers from documents they never saw — so the 409 is the default, and
@@ -1697,8 +1706,7 @@ async def create_brain(
             storage.release_brain_claim(safe, claim_org, claim_uid)
 
     # Cap the count before reading anything, then cap each file WHILE reading it.
-    # S5: uploads cost embedding + LLM — bound per caller like asks.
-    _check_rate(request, "upload")
+    # (The rate check moved above the claim, so a refused request reserves nothing.)
     if len(files) > documents.MAX_FILES:
         drop_claim()
         raise HTTPException(
@@ -1706,10 +1714,16 @@ async def create_brain(
             detail=f"Too many files: {len(files)}. The limit is {documents.MAX_FILES}.",
         )
 
-    payload = [
-        (upload.filename or "untitled", await _read_capped(upload, documents.MAX_FILE_BYTES))
-        for upload in files
-    ]
+    payload = []
+    for upload in files:
+        try:
+            payload.append((upload.filename or "untitled",
+                            await _read_capped(upload, documents.MAX_FILE_BYTES)))
+        except HTTPException:
+            # _read_capped refuses mid-read (413). Without this the name stays
+            # claimed by a create that will never finish.
+            drop_claim()
+            raise
     if not payload:
         drop_claim()
         raise HTTPException(status_code=400, detail="No files were uploaded.")

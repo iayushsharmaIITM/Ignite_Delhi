@@ -1248,3 +1248,169 @@ that the winner's brain is unreadable to the loser. Migration
 `0006_brain_claim` (default `'ready'`, so every pre-existing row keeps its
 meaning) is applied to lab and live, each after a `pg_dump`.
 
+
+---
+
+## Round 3 — independent review of the Round-2 work (2026-10-04)
+
+Two reviewer subagents read `60f87a1..0c33739` (37 files, +2761) cold, read-only,
+with no session history. Both came back with **"not ready as-is"**, and several of
+their findings refuted claims this file made in Round 2. Every item below was
+re-measured by hand before being accepted, and each fix states the measurement that
+proved it rather than the intention behind it.
+
+| ID | Sev | Finding (all confirmed, none rejected) | Status |
+|----|-----|----------------------------------------|--------|
+| R3-1 | CRIT | `ops/check_secrets.sh --all` flagged its own self-test literal → `ci.yml:17` fails **every push** | CLOSED |
+| R3-2 | CRIT | Nightly backup overwrote its own FAIL receipt with OK | CLOSED |
+| R3-3 | CRIT | CH-8's "single snapshot" was false; its only checks were `hasattr`/`callable` | CLOSED |
+| R3-4 | CRIT | "Create a brain" posts to a route that 404s by default — dead on live | CLOSED |
+| R3-5 | IMP | Migrations 0002/0005 collide with `storage.init()`; `brain_id` typed two ways | CLOSED |
+| R3-6 | IMP | A 429/413 after the name is claimed leaves the claim squatting | CLOSED |
+| R3-7 | IMP | `mark_brain_ready()` could flip any row by name, no `status` predicate | CLOSED |
+| R3-8 | IMP | `chats_list` answered a storage outage as an empty history (200) | CLOSED |
+| R3-9 | IMP | CH-1/CH-2 guards were SELECT-then-write with no lock (TOCTOU) | CLOSED |
+| R3-10 | IMP | `verify.sh` tested whatever held `:8000` — the live app's port | CLOSED |
+| R3-11 | IMP | Legacy rollback client ignored the DELETE response entirely | CLOSED |
+| R3-12 | LOW | Battery labels asserted denominators nobody counted ("25/25", "90/90") | CLOSED |
+
+### R3-1 · the secret detector blocked its own repo
+`bash ops/check_secrets.sh --all` exited **1** with one hit: line 36, the literal
+`sk-` followed by thirty lowercase alphanumerics that exists to prove the pattern
+works. `--all` scans every tracked file, including that script. So the Round-2 claim
+that "the tracked repo scans clean today" was **false**, and CI was red on every
+push — which is the worst possible state for a guard, because a permanently failing
+check teaches everyone to ignore it. (This paragraph deliberately does not quote the
+literal: it would trip the detector it describes, which is exactly how the failure
+was reproduced — a doc that breaks its own CI is still a doc that breaks its own CI.)
+
+**Fix** the probe is built at runtime (`sk-` plus 24 generated characters), so no
+literal in the file matches the pattern while the self-test still exercises the same
+`grep -nIE` command `scan()` uses. **Measured** three ways: `--all` → exit 0 over
+314 tracked files; a planted key → exit 1 with `SECRET-LIKE`; the pattern sabotaged
+→ exit 2 (fail closed), so the guard was not simply disabled.
+
+### R3-2 · the backup receipt was not evidence of a backup
+`run()` wrote `FAIL` then `return 1`; nothing exited (the script has no `set -e`),
+so execution reached line 104 and wrote `OK` over its own failure. Now the first
+failing step is terminal. **Measured**: forced a bad container into a scratch dir →
+receipt reads `FAIL 2026-10-03T22:28:27Z step=pg_dump`, `--status` exits 1.
+
+Chasing that one defect surfaced four more, all confirmed on disk:
+
+1. `verify-archives` listed **only the state tar** — a missing or empty data tar
+   earned an OK. Now every artefact is checked for existence, non-emptiness and
+   listability. (`/tmp` reproduced it: `docker run -v` into a path outside Docker's
+   file-sharing set exits 0 having written nothing.)
+2. `verify-dump`'s `tail -3 | grep 'dump complete'` **can never pass on pg_dump 17**,
+   which writes `\unrestrict <token>` after its terminator. So the check failed
+   nightly, wrote FAIL, and had it overwritten with OK.
+3. The copy launchd actually runs (`~/Library/Application Support/Kestrel`) was a
+   **stale version that echoed `  ok: pg_dump` to stdout**, straight into the
+   redirected dump. Both nightly dumps on disk end with that line, i.e. a syntax
+   error on the day a restore is attempted. The dump verifier now rejects runner
+   chatter, proven against one of those actual files: good dump → accepted, polluted
+   production dump → rejected, 90%-truncated dump → rejected.
+4. `install_agents.sh:16` promised "`--verify` says whether the installed copy
+   matches" and did no such thing. It now hashes both copies and exits 1 on drift
+   (measured: reported DRIFT before reinstall, "matches" after).
+
+After reinstalling, the job was triggered **through launchd** (`kickstart`), not a
+terminal, and produced a clean 12 MB artefact set with SHA256SUMS verifying.
+`ops/restore_lab.sh` then restored that nightly artefact into the isolated lab —
+the first time a nightly backup has ever been fed to the drill; it previously
+understood only `ops/backup.sh`'s `.tgz` names and repo-relative paths.
+
+### R3-3 · CH-8 read a torn chat and the test could not see it
+One connection and one transaction is not one snapshot: Postgres' default
+READ COMMITTED takes a fresh snapshot **per statement**, so the `turns` SELECT could
+still return zero rows for a chat the first SELECT found. Fixed by locking the parent
+row `FOR SHARE` for the duration of the read — the delete cascades through that row,
+so it queues instead of interleaving.
+
+`psycopg` 3.2.3 has no `transaction(isolation_level=...)`, so the repeatable-read
+route this file implied was never available.
+
+The test now opens the window on purpose and carries a **control**: an unlocked
+two-statement read of the same chat, which must tear (`found=True turns=0`) or the
+suite prints that the real assertion proves nothing. Measured: control tears;
+`get_chat` returns the chat with both turns; the blocked delete still lands after
+the read releases the lock.
+
+### R3-4 · "Create a brain" was a dead button
+`CreateBrainDialog` posted to `/api/brains/v2`, which raises 404 unless
+`KESTREL_JOBS_V2=1` — set nowhere except `tests/test_v2_authz.py`. Confirmed against
+the running live process (`POST /api/brains/v2` → `404 {"detail":"Not found."}`),
+reachable from five UI affordances. The suite missed it because the local rule is
+single-brain mode, so nobody ever pressed the button.
+
+Now the server publishes the capability (`/api/config → brainCreateV2`) and the
+client asks at submit time, falling back to the create path that answers. Two gates
+lock it: `smoke.py` compares the config claim with what the route actually does, and
+`check_ui_react.py` drives the dialog and fails if it posts to v2 while the flag is
+off. The copy that promised "durably, with per-file status" is now neutral.
+
+### R3-5 · the two schema authorities could not both be right
+`0005` used `op.create_table("deleted_chats")` while `storage.init()` creates it
+`IF NOT EXISTS` → boot-then-migrate died on `relation already exists`. Removing that
+revealed the next collision: `0002`'s `ALTER TABLE chats ADD COLUMN brain_id` on a
+database init() had already stamped, **and** the two authorities disagreed on the
+type (`text` in init(), `UUID` in the migration), so `chats.brain_id` meant different
+things depending on how a database was born. Live is uuid; ops/backfill.py writes it.
+
+Both paths are now idempotent and typed uuid, and `migrations/env.py` bootstraps the
+app-tier schema before migrating, because the Heroku release phase migrates *before*
+the app has booted once — on an empty database the chain used to die on
+`relation "chats" does not exist`. **Measured** both orders from empty: migrate-first
+and boot-first each reach `0006_brain_claim (head)` with 18 tables and
+`chats.brain_id = uuid`. Scratch databases dropped afterwards.
+
+### R3-6/7/8/9 · claim leaks, one-way flip, outage-as-empty, TOCTOU
+- `_check_rate` moved **before** the reservation, and the per-file 413 from
+  `_read_capped` now drops the claim; a crash still self-heals via the 15-minute
+  stale handover, which is what that is for.
+- `mark_brain_ready()` gained `AND status = 'creating'`, making creating→ready
+  one-way: a late call can no longer re-ready or re-time a row another identity owns.
+- `GET /api/chats` returns **503** on a storage outage instead of 200 with an empty
+  list. The React sidebar only reports a failure when the status says so, so an
+  outage was indistinguishable from "you have no conversations". `{"ok": false}` and
+  its now-unused `_public_storage()` helper are gone. **Still open:** `/api/usage`
+  keeps the 200-and-empty shape, because the legacy shell renders `[]` for any
+  non-OK and would need its own change to tell the two apart.
+- `save_chat`'s ownership/tombstone/truncation guards now run behind
+  `SELECT … FOR UPDATE` on the parent row, so they cannot be overtaken between the
+  read and the rewrite. Lock order is chats→turns in every writer, so no new cycle.
+
+### R3-10 · the battery could be grading the live app
+`verify.sh` hardcoded `BASE=http://127.0.0.1:8000` and started `python3 app.py`,
+which reads `PORT` from `.env` — also 8000. Its guard against exactly that was to
+**abort if anything held :8000**, which is why nobody ran the battery with the demo
+up. The app tier now runs on `:8020` (override with `KESTREL_VERIFY_PORT`), refuses
+to start on an occupied port, and after startup asserts `provider: mock` from
+`/health` before any suite trusts it. `smoke.py` gets `--base`, and
+`test_react_clerk.py`'s own 8031 was already independent.
+
+### R3-11 · the rollback client's delete was a guess
+`static/index.html` cleared localStorage and fired the DELETE with
+`.catch(() => {})` — no status inspection at all, so it "deleted" against a 404, a
+503, or nothing. It now warns on 404 (already gone elsewhere) and on any other
+non-OK or unreachable case (a stored copy survives this click), matching the React
+client's honesty.
+
+### R3-12 · counts that were typed, not measured
+Five battery labels asserted denominators as literals (`25/25`, `13/13`, `90/90`,
+`10/10`, `4/4`). They are derived from each suite's own PASS/FAIL lines now, and
+fall back to a bare PASS for suites that don't use that format. Round 2's
+"19 checks"/"20 checks" claims were themselves wrong by one in each direction.
+
+### What this round does NOT claim
+- Live **answering** is still unmeasured from here: `/api/ask` is Clerk-gated, so a
+  CLI probe gets 401 and cannot reach the brain. The lab's LLM credential is out of
+  free allowance until **2026-10-06 07:29 UTC** and live uses a *different* credential
+  against the same provider family, so only the owner's browser settles it.
+- The two older nightly dumps on disk are known-corrupt (runner chatter inside
+  `db.sql`) and were left in place rather than deleted; the 22:32:58Z artefact
+  replaced them and is the one proven restorable.
+- CI has still never run this battery end to end on a machine that is not this
+  laptop. `verify.sh --quick` is what CI executes; the browser and lab-DB suites are
+  local-only, and `frontend/dist` sync is the one artefact check CI does own.

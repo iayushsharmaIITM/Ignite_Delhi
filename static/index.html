@@ -1874,7 +1874,17 @@ CLEAR_BTN?.addEventListener('click', async () => {
     const rest = allChats().filter(c => c.id !== CHAT_ID);
     localStorage.setItem(CHATS_KEY, JSON.stringify(rest));
     fetch('/api/chats/' + encodeURIComponent(CHAT_ID),
-          { method: 'DELETE', headers: await authHeaders() }).catch(() => {});
+          { method: 'DELETE', headers: await authHeaders() })
+      .then((r) => {
+        // CH-3 parity with the React client: the server's answer is the truth
+        // about the STORED copy, and this only clears the local pointer. A 404
+        // means it was already gone elsewhere; anything else that is not ok means
+        // a stored chat survives this click. Silent before, so the rollback UI
+        // reported a delete that had not happened.
+        if (r.status === 404) console.warn('kestrel: that chat was already deleted on the server');
+        else if (!r.ok) console.warn('kestrel: the server did not delete this chat (HTTP ' + r.status + ') — a stored copy may still exist');
+      })
+      .catch(() => console.warn('kestrel: could not reach the server to delete this chat — a stored copy may still exist'));
   } catch (e) {}
   threadEl.innerHTML = '<div class="placeholder" id="empty"></div>';
   buildRail();

@@ -5,7 +5,28 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 BK="${1:-$(ls -1d var/backups/*/ | sort | tail -1)}"
 BK="${BK%/}"
-echo "restoring from: $BK"
+# Resolve once, absolutely. The nightly job writes to ~/Kestrel_backups, outside
+# the repo; the mount lines below used to interpolate `$PWD/$BK`, which silently
+# produced a wrong path for any absolute argument — so the drill could only ever
+# consume ops/backup.sh output. Restoring the artefacts the SCHEDULED job actually
+# produces is the whole point of a drill.
+BK_ABS="$(cd "$BK" 2>/dev/null && pwd || true)"
+[ -n "$BK_ABS" ] || { echo "no such backup directory: $BK"; exit 1; }
+echo "restoring from: $BK_ABS"
+
+# Both archive nametypes, because the two producers disagree: backup.sh writes
+# gzip .tgz, kestrel_nightly_backup.sh writes plain .tar. A drill that only
+# accepts one of them tests one backup scheme and proves nothing about the other.
+archive_for() {   # archive_for <stem> -> absolute path of <stem>.tgz or <stem>.tar
+  local f
+  for f in "$BK_ABS/$1.tgz" "$BK_ABS/$1.tar"; do
+    [ -f "$f" ] && { printf '%s\n' "$f"; return 0; }
+  done
+  echo "missing $1.tgz / $1.tar in $BK_ABS" >&2
+  return 1
+}
+STATE_ARCHIVE=$(archive_for cognee-state)
+DATA_ARCHIVE=$(archive_for cognee-data)
 
 LAB_PG_PASSWORD=$(grep '^GRAPH_DATABASE_PASSWORD=' .env.oss | cut -d= -f2-)
 export LAB_PG_PASSWORD
@@ -30,8 +51,12 @@ docker exec -i kestrel-lab-db psql -U kestrel -d kestrel -v ON_ERROR_STOP=1 -q <
 echo "      restored; rows: brain_access=$(docker exec kestrel-lab-db psql -U kestrel -d kestrel -tAc 'select count(*) from brain_access') chats=$(docker exec kestrel-lab-db psql -U kestrel -d kestrel -tAc 'select count(*) from chats') graph_node=$(docker exec kestrel-lab-db psql -U kestrel -d kestrel -tAc 'select count(*) from graph_node')"
 
 echo "[3/5] restore cognee volumes (both)"
-docker run --rm -v kestrel_lab_kestrel_lab_state:/tgt -v "$PWD/$BK":/src:ro alpine sh -c "cd /tgt && tar xzf /src/cognee-state.tgz"
-docker run --rm -v kestrel_lab_kestrel_lab_data:/tgt -v "$PWD/$BK":/src:ro alpine sh -c "cd /tgt && tar xzf /src/cognee-data.tgz"
+# -z only for the gzip nametype; busybox tar will not forgive a wrong flag.
+extract_flag() { case "$1" in *.tgz|*.gz) printf -- '-xzf' ;; *) printf -- '-xf' ;; esac; }
+docker run --rm -v kestrel_lab_kestrel_lab_state:/tgt -v "$BK_ABS":/src:ro alpine \
+  sh -c "cd /tgt && tar $(extract_flag "$STATE_ARCHIVE") /src/$(basename "$STATE_ARCHIVE")"
+docker run --rm -v kestrel_lab_kestrel_lab_data:/tgt -v "$BK_ABS":/src:ro alpine \
+  sh -c "cd /tgt && tar $(extract_flag "$DATA_ARCHIVE") /src/$(basename "$DATA_ARCHIVE")"
 
 echo "[4/5] lab cognee (${LAB_COGNEE_IMAGE:-cognee/cognee:1.6.1}) up"
 docker compose -p kestrel_lab -f compose.lab.yml up -d cognee

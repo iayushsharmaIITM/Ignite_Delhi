@@ -306,9 +306,14 @@ def upgrade() -> None:
     op.create_index("ix_source_refs_docver", "source_references", ["document_version_id"])
 
     # --- chats: additive brain_id (backfilled in PR-6; FK added there) --------
-    op.add_column("chats", sa.Column("brain_id",
-                  sa.dialects.postgresql.UUID(as_uuid=False), nullable=True))
-    op.create_index("ix_chats_brain_id", "chats", ["brain_id"])
+    # IF NOT EXISTS, because storage.init() also adds this column: a database the
+    # app bootstrapped before it was ever migrated already has it, and this
+    # statement used to abort `alembic upgrade head` with DuplicateColumn. The type
+    # is uuid on purpose and init() now says uuid too — the two authorities used to
+    # disagree (text vs uuid), so the same column meant two different things
+    # depending on how the database was first created.
+    op.execute("ALTER TABLE chats ADD COLUMN IF NOT EXISTS brain_id uuid")
+    op.create_index("ix_chats_brain_id", "chats", ["brain_id"], if_not_exists=True)
 
 
 def downgrade() -> None:

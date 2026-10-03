@@ -436,6 +436,12 @@ def section_brains_page(suite: Suite, base: str) -> None:
     page = suite.page
     # ---------------------------------------------------------------- brains page
     suite.section("brains page")
+    # section_settings leaves the UI in German — that is its own check — and a text
+    # locator written in English then matches nothing at all. Every
+    # `if locator.count():` gate below inherited that and passed by never running,
+    # which is how the delete-arming check stayed invisible. Pin the locale rather
+    # than trusting whatever the previous section left behind.
+    page.evaluate("() => localStorage.setItem('kestrel.lang', 'en')")
     page.goto(base + "/?view=brains", wait_until="networkidle")
     page.wait_for_timeout(1500)
     suite.check("brains page renders", page.locator("h1", has_text="Brains").count() == 1)
@@ -463,6 +469,48 @@ def section_brains_page(suite: Suite, base: str) -> None:
         suite.check("no navigation away from the app", "/upload" not in page.url)
         page.click("#files-close")
         page.wait_for_timeout(300)
+
+    # Back to the brains view: opening the files sheet from a row navigates to
+    # ?view=chat&brain=<name> and closing it leaves you there, so the two gates
+    # below were reading a page that had neither button — which is why the
+    # delete-arming check had been silently skipping for as long as it has existed.
+    page.goto(base + "/?view=brains", wait_until="networkidle")
+    page.wait_for_timeout(1200)
+
+    # Create a brain. `/api/brains/v2` is flag-gated and answers 404 without
+    # KESTREL_JOBS_V2, which is off everywhere except its own test — so posting
+    # there unconditionally made every "Create a brain" click fail with a 404 on
+    # every deployment. Nothing caught it because the local rule is single-brain
+    # mode, so nobody pressed the button. The client must ask the server which
+    # path exists (/api/config -> brainCreateV2) and use the one that answers.
+    posts_before = len(suite.requests)
+    page.route("**/api/brains", lambda route: (
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"ok": True, "name": "uitest_brain",
+                                       "partial": False, "documents": 1}))
+        if route.request.method == "POST" else route.continue_()))
+    new_btn = page.locator("button", has_text="New brain").first
+    # Not a bare `if`: a gate that skips when its trigger is missing reports
+    # nothing and earns a pass. The affordance disappearing IS the regression, so
+    # it is recorded as a check and only the body below is conditional.
+    if suite.check("new-brain affordance exists", new_btn.count() > 0):
+        new_btn.click()
+        page.wait_for_timeout(400)
+        suite.check("create dialog opens", page.locator("#brain-name").is_visible())
+        page.fill("#brain-name", "uitest_brain")
+        page.set_input_files("#brain-file-input", {"name": "a.txt",
+                                                   "mimeType": "text/plain",
+                                                   "buffer": b"one document"})
+        page.locator("button", has_text="Create brain").first.click()
+        page.wait_for_timeout(1500)
+        posts = [r for r in suite.requests[posts_before:] if r.startswith("POST ")]
+        suite.check("create posts the route the server answers, not the 404-by-default v2",
+                    any(r.rstrip("/").endswith("/api/brains") for r in posts)
+                    and not any("/api/brains/v2" in r for r in posts),
+                    "posts=" + " | ".join(posts[:3]))
+        suite.check("create dialog closes on success",
+                    page.locator("#brain-name").count() == 0)
+    page.unroute("**/api/brains")
 
     del_btn = page.locator("button", has_text="Delete").first
     if del_btn.count():

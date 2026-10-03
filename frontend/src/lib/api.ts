@@ -34,7 +34,12 @@ export type Turn = {
  * because the ask path and the persist path are not components.
  * ========================================================================== */
 
-export type ApiConfig = { authMode?: string; publishableKey?: string; maxTurns?: number }
+export type ApiConfig = {
+  authMode?: string
+  publishableKey?: string
+  maxTurns?: number
+  brainCreateV2?: boolean
+}
 
 let configPromise: Promise<ApiConfig> | null = null
 
@@ -249,6 +254,39 @@ export async function createBrainV2(
   const r = await apiFetch("/api/brains/v2", { method: "POST", body: fd })
   const d = await r.json().catch(() => ({}))
   return { ok: r.status === 202, job_id: d.job_id, brain_id: d.brain_id, detail: d.detail, status: r.status }
+}
+
+/**
+ * The default create path: `POST /api/brains`, synchronous, nothing to poll.
+ *
+ * This is what the dialog used to be pointed at before the v2 job path existed.
+ * `/api/brains/v2` is flag-gated (`KESTREL_JOBS_V2=1`) and answers 404 without it,
+ * so a client that assumed v2 was there shipped a "Create a brain" button that
+ * could only ever fail — on every deployment that had not turned the flag on,
+ * which is all of them. Use `createBrain`, which asks the server which path
+ * exists; this one is exported for the callers that already know.
+ */
+export async function createBrainLegacy(
+  name: string,
+  files: File[],
+): Promise<{ ok: boolean; partial: boolean; name?: string; detail: string; status: number }> {
+  const fd = new FormData()
+  fd.append("name", name)
+  files.forEach((f) => fd.append("files", f))
+  const r = await apiFetch("/api/brains", { method: "POST", body: fd })
+  const d = await r.json().catch(() => ({}))
+  return {
+    ok: r.ok && d.ok !== false,
+    partial: !!d.partial,
+    name: d.name,
+    detail: d.detail || d.error || "",
+    status: r.status,
+  }
+}
+
+/** Which create path this server actually answers. */
+export function brainCreateV2Enabled(): Promise<boolean> {
+  return apiConfig().then((c) => c.brainCreateV2 === true)
 }
 
 export type JobStatus = {

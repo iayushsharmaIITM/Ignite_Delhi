@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import { createBrainV2, getJob, type JobStatus } from "@/lib/api"
+import { brainCreateV2Enabled, createBrainLegacy, createBrainV2, getJob, type JobStatus } from "@/lib/api"
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
@@ -37,15 +37,32 @@ export function CreateBrainDialog({ open, onClose }: Props) {
       return
     }
     setBusy(true)
-    const key = newIdempotencyKey()
-    const r = await createBrainV2(name.trim(), files, key)
-    setBusy(false)
-    if (!r.ok || !r.job_id) {
-      setError(r.detail || `Creation refused (HTTP ${r.status}).`)
+    // Asked at submit, not at mount: `/api/brains/v2` is flag-gated and 404s
+    // without the flag, so posting there unconditionally made this button dead on
+    // every deployment that had not turned it on. The server says which path it
+    // answers; there is nothing for the client to assume.
+    const v2 = await brainCreateV2Enabled()
+    if (v2) {
+      const key = newIdempotencyKey()
+      const r = await createBrainV2(name.trim(), files, key)
+      setBusy(false)
+      if (!r.ok || !r.job_id) {
+        setError(r.detail || `Creation refused (HTTP ${r.status}).`)
+        return
+      }
+      setJobId(r.job_id)
+      poll(r.job_id)
       return
     }
-    setJobId(r.job_id)
-    poll(r.job_id)
+    // No durable job path on this server: use the create route that answers,
+    // which runs the ingestion inline and returns the outcome.
+    const r = await createBrainLegacy(name.trim(), files)
+    setBusy(false)
+    if (!r.ok) {
+      setError(r.detail || `Creation failed (HTTP ${r.status}).`)
+      return
+    }
+    onClose(r.name || name.trim())
   }
 
   const poll = (id: string) => {
@@ -67,8 +84,9 @@ export function CreateBrainDialog({ open, onClose }: Props) {
         <DialogHeader>
           <DialogTitle className="text-foreground">Create a brain</DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Name it, attach documents, and Kestrel builds it durably — with per-file
-            status and verified sources.
+            Name it, attach documents, and Kestrel builds the brain from them —
+            with verified sources. Ingestion takes a minute or two for a large
+            upload.
           </DialogDescription>
         </DialogHeader>
         <div>
@@ -92,7 +110,7 @@ export function CreateBrainDialog({ open, onClose }: Props) {
             {files.length ? `${files.length} file(s) attached` : "Attach documents…"}
           </Button>
         </div>
-        <input ref={fileRef} type="file" multiple hidden
+        <input ref={fileRef} id="brain-file-input" type="file" multiple hidden
                onChange={(e) => { setFiles(Array.from(e.target.files || [])); e.target.value = "" }} />
         {files.length > 0 && (
           <ul className="flex flex-wrap gap-1.5" aria-label="Attached files">
@@ -132,7 +150,7 @@ export function CreateBrainDialog({ open, onClose }: Props) {
           disabled={busy || !!jobId}
           onClick={submit}
         >
-          {busy ? "Reserving…" : jobId ? "Working…" : "Create brain"}
+          {busy ? "Creating…" : jobId ? "Working…" : "Create brain"}
         </Button>
       </DialogContent>
     </Dialog>

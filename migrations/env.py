@@ -38,12 +38,28 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _ensure_base_schema() -> None:
+    """Bootstrap the app-tier schema before migrating onto it.
+
+    Migrations 0002 onward ALTER tables (`chats`, `turns`, `brain_access`) that
+    only storage.init() creates, so on a database nobody has ever booted
+    `alembic upgrade head` died on `relation "chats" does not exist` — which is
+    the Heroku release phase, where migrations run before the app has started
+    once. init() is CREATE/ALTER ... IF NOT EXISTS throughout, so on an existing
+    database this is a no-op and on an empty one it makes both orders work.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import storage
+    storage.init()
+
+
 def run_migrations_online() -> None:
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    _ensure_base_schema()
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():

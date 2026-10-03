@@ -1,3 +1,67 @@
+## Two reviewers read the work cold, and both were right 2026-10-04
+
+The previous entry's evidence was largely real, but a fair amount of it was
+*asserted by the same process it was certifying* — receipts written by the script
+being tested, suite labels typed by hand, docstrings describing intent. So two
+reviewer subagents read `60f87a1..0c33739` (37 files, +2761) cold and read-only,
+with no session history. Both returned "not ready". Every finding below was then
+re-measured by hand before being accepted; none was rejected. Full detail is
+BUGS_AUDIT **Round 3**; the operational consequences are BLOCKERS **M-ops.1/2**.
+
+**What was actually broken, and how it was proven.**
+
+- The secret detector blocked its own repo, so CI was red on every push. Measured:
+  `--all` exit 1, one hit, on the line that exists to self-test the pattern.
+- The nightly backup overwrote its own FAIL receipt with OK — and chasing it found
+  three more: only one of two tars verified, a dump check pg_dump 17 can never
+  pass, and a **stale installed copy** writing runner chatter into every dump.
+  Verified by forcing failures, by kicking the job through launchd, by checksums,
+  and by restoring that artefact into the lab.
+- CH-8's "single snapshot" was false (READ COMMITTED snapshots per statement, and
+  `psycopg` 3.2.3 has no `transaction(isolation_level=...)`), while its test asserted
+  only `hasattr`. Now a FOR SHARE lock plus a race test that carries its own
+  control: the unlocked read must tear, or the suite prints that its own
+  assertion proves nothing.
+- **"Create a brain" was a dead button on live.** The dialog posted to
+  `/api/brains/v2`, which 404s unless `KESTREL_JOBS_V2=1` — set nowhere outside
+  its own test. Confirmed against the running process. The server now publishes the
+  capability (`/api/config → brainCreateV2`) and the client asks before choosing a
+  route; `smoke.py` compares the claim with the route's behaviour and
+  `check_ui_react.py` drives the dialog end to end.
+- Migrations 0002/0005 collided with `storage.init()` and disagreed on the type of
+  `chats.brain_id`, so a database's shape depended on how it was born; the release
+  phase (migrate before first boot) died on `relation "chats" does not exist`. Both
+  orders now run from empty to `0006 (head)` on scratch databases, which were then
+  dropped.
+- Rate-limited and oversize uploads leaked their brain-name claim; `mark_brain_ready`
+  could flip any row by name; a storage outage was served as an empty chat history;
+  and the CH-1/CH-2 guards were SELECT-then-write with no lock.
+- `verify.sh` started its mock tier on **port 8000 — the live app's port** — and its
+  guard was to abort if anything held it, so the battery could not run while the
+  demo was up. The app tier now runs on `:8020`, refuses an occupied port, and
+  asserts `provider: mock` from `/health` before trusting it.
+
+**One more, found while writing the gate for the gate.** The UI suite switches the
+interface to German in its settings section and never restores it, and every
+downstream locator written in English therefore matched nothing — inside
+`if locator.count():` guards, which "pass" by never running. The create-brain gate
+would have joined them. The brains section now pins the locale, re-navigates to the
+view it is testing (opening the files sheet from a row had been quietly taking it
+to the chat view), and reports a missing affordance as a FAIL instead of a skip.
+That revived a delete-arming check that has been skipping since it was written.
+
+**Battery, after all of it:** `./verify.sh` → 0 failing suites, exit 0, on the new
+port; smoke now 5/5 with the capability check; chat-integrity with the CH-8 race
+test and its control; ui-react with the create-brain flow actually executed.
+
+**Not claimed.** Live *answering* is still unmeasured from here — `/api/ask` is
+Clerk-gated, so a CLI probe gets 401 and never reaches the brain; one question in
+the browser settles it, and the lab's provider quota (exhausted until 2026-10-06
+07:29 UTC) makes it worth asking before a demo. The two older nightly dumps are
+known-corrupt and were left on disk rather than deleted. And CI has still never run
+this battery on a machine that is not this laptop: `--quick` is all CI executes,
+while the browser and lab-DB suites are local.
+
 ## Ops that have to be true without anyone checking 2026-10-04
 
 Three gaps that only matter on the day they matter, each closed with a check that
@@ -7,10 +71,17 @@ proves itself rather than a claim.
 ordinary "wip" commit. `ops/check_secrets.sh` scans the stage area before every
 commit and every tracked file in CI. It **self-tests**: if the pattern cannot match
 its own example the script exits 2 instead of reporting "clean", because a silently
-broken detector is the worst of the three outcomes. Proof both directions: the
-tracked repo scans clean today, and a planted key is caught in a normal source
-file *and* inside `.env.example` (templates are exempt from the filename rule on
-purpose, never from the content rule).
+broken detector is the worst of the three outcomes.
+
+*(Corrected the same day by the Round 3 review: that paragraph then claimed "the
+tracked repo scans clean today", and it was false. The self-test literal matched
+the very pattern it was proving, `--all` scans every tracked file including that
+script, so `ops/check_secrets.sh --all` exited 1 and CI failed on every push. The
+probe is built at runtime now, and the guard was re-measured in all three
+directions: repo-wide scan exit 0 over 314 tracked files, planted key exit 1,
+sabotaged pattern exit 2 — so the fix is not a disabled detector. A planted key is
+still caught in a normal source file *and* inside `.env.example`: templates are
+exempt from the filename rule on purpose, never from the content rule.)*
 
 **Backups.** They existed as a script and a hope. Installing a schedule exposed
 BLOCKERS **M-ops.1**: launchd cannot read `~/Desktop` at all (exit 126, `Operation
@@ -29,6 +100,30 @@ committed, because that installs a job guaranteed to fail. The stack watchdog ne
 the repo, so it is reported with three concrete remedies rather than rewritten
 silently.
 
+*(Corrected the same day by the Round 3 review, and this one was serious. Two of
+the claims above were produced by a script that could not tell the truth:*
+
+- *`run()` wrote `FAIL` and then `return`ed, with no `set -e`, so the script fell
+  through to the line that writes `OK`. Every failed nightly reported success.*
+- *"status goes to stderr so it cannot pollute a dump" was true of the **repo**
+  copy only. The copy launchd actually runs had been installed from an older
+  revision that echoed to **stdout** — into the `> db.sql` redirect. Both dumps on
+  disk end with a literal `  ok: pg_dump`, i.e. a syntax error waiting on the day a
+  restore is attempted. The launchd log proves it: the 03:17 run records
+  `ok: state-volume`, `ok: data-volume`, `ok: verify-dump` — and no `ok: pg_dump`,
+  because that line went into the dump instead of the log.*
+- *`verify-archives` listed only the state tar, and `verify-dump`'s `tail -3` can
+  never match pg_dump 17, which writes `\unrestrict <token>` after its terminator.
+  So the dump check failed every night and had its FAIL receipt overwritten.*
+
+*All four are fixed and re-measured: forced failure leaves `FAIL` and exit 1; each
+artefact is checked for existence, non-emptiness and listability; the dump verifier
+accepts a good dump and rejects both a truncated one and the actual polluted
+production file; `install_agents.sh --verify` hashes repo against installed and
+exits 1 on drift (it said DRIFT before the reinstall). The job was then run
+**through launchd** again and produced a clean, checksum-verified artefact, which is
+the one `ops/restore_lab.sh` has since restored successfully.)*
+
 **Restore.** The drill had two latent bugs and could not have told anyone: it
 restored onto an un-cleared schema (`relation "alembic_version" already exists`),
 and every failure after that died under `set -e` with no output — including one of
@@ -44,6 +139,16 @@ The final "ask the restored brain" gate **FAILS** (`0 chars, 0 refs`) because th
 lab cognee has no working LLM endpoint (`LiteLLM TimeoutError` in its logs) —
 recorded as BLOCKERS **M-ops.2**. So "we can restore" is proven for data and
 explicitly unproven for answering, and the drill now says so on its own.
+
+*(Corrected the same day, twice. The cause is not a timeout: the lab's credential
+is out of its provider's free allowance — `RateLimitError … next rolling 7-day
+period starts on 6 Oct 2026 at 07:29 UTC` — and cognee's retries burn the 240 s
+window. That is an upstream quota, not lab config, and it expires on its own. And
+"the data layer restores" now covers the artefacts the **schedule** produces:
+`restore_lab.sh` only understood `ops/backup.sh`'s `.tgz` names and repo-relative
+paths, so the nightly `.tar` sets in `~/Kestrel_backups` had never been fed to it.
+Both nametypes and absolute paths work now, and the first nightly artefact ever
+drilled restored schema, rows, both volumes and the dataset.)*
 
 ## M4 closed — a brain name is claimed, not probed 2026-10-04
 

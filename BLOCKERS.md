@@ -46,6 +46,16 @@ missing backup and a silently broken job are the same class of failure.
 3. keep recovery explicit: run `./ops_stack_up.sh` from a terminal (which already
    has the permission), and unload the job so nothing pretends to be watching.
 
+**Update, same day — the backup half of this is closed with evidence.**
+`com.kestrel.backup` was reinstalled with `ops/install_agents.sh` and triggered
+**through launchd** (`launchctl kickstart`), not from a terminal: it wrote
+`~/Kestrel_backups/20261003T223258Z` with a clean dump plus both volume tars, and
+`shasum -a 256 -c SHA256SUMS` verifies all three. `install_agents.sh --verify` now
+hashes the repo copy against the installed copy and exits 1 on drift — it reported
+DRIFT before the reinstall and "matches" after — because the stale installed copy
+was the thing writing `  ok: pg_dump` into every nightly dump. **The stack-up job
+remains open**: it has to read the repo, so it needs decision 1 or 2.
+
 `ops/install_agents.sh --verify` prints which of these is still true; it reports
 the 126 honestly rather than showing "loaded" as if that meant "working".
 
@@ -61,17 +71,41 @@ line of the restore (`relation "alembic_version" already exists`) and, after tha
 silently mid-gate under `set -e` — a failed drill that printed nothing looked like
 a passed one.
 
-**What is not proven.** The final gate (ask the restored brain) fails with
-`GATE demo-answer: FAIL (0 chars, 0 refs)`: the lab cognee container cannot reach
-its LLM endpoint — `LiteLLM TimeoutError`, retried, in its own logs — so the
-stream stalls after "hedging with vector retrieval agent" and never answers. The
-data recovery and the query path are therefore separately unresolved: nothing
-here says the backup's *brain* is unusable, and nothing here yet says it works.
+As of 2026-10-04 the drill also consumes **the nightly job's own artefacts**. It
+previously understood only `ops/backup.sh`'s `.tgz` names and repo-relative paths,
+so the schedule that actually runs at 03:17 had never been restored end to end; the
+first thing that did was the corrected dump (`20261003T223258Z`, taken through
+launchd, SHA256SUMS verified, no runner chatter inside `db.sql`).
 
-**What unblocks it.** Give the lab brain the same LLM/embedding configuration the
-live container has (`compose.lab.yml` env), re-run `./ops/restore_lab.sh`, and the
-gate should pass end to end. Until then, treat "we can restore" as proven for data
-and unproven for answering.
+**What is not proven.** The final gate (ask the restored brain) fails with
+`GATE demo-answer: FAIL (0 chars, 0 refs)`. The cause is now read from the lab
+cognee logs rather than guessed: **not** a `LiteLLM TimeoutError` and not lab
+network config —
+
+```
+RateLimitError: OpenAIException - You've used this period's free allowance.
+Your next rolling 7-day period starts on 6 Oct 2026 at 07:29 UTC.
+```
+
+The lab's credential (`.env.oss LLM_API_KEY`, via openrouter) is out of free
+quota, so cognee retries with backoff and the ask never completes inside 240s.
+This is an upstream quota window, so the gate is blocked until **2026-10-06
+07:29 UTC** unless the lab is pointed at a paid model/key — a configuration choice,
+not a code fix, and it needs the owner's call because it spends money.
+
+**What this does NOT say about live.** Live uses a *different* credential
+(`.env TOKENHARBOR_API_KEY`, base `https://tokenharbor.ai/v1`, model
+`deepseek-v4.1-flash:free` — same provider family, same `:free` tier), so live may
+or may not be inside the same allowance. It could not be measured from here:
+`/api/ask` on the live app answers `401 A valid Clerk session token is required`,
+so a CLI probe never reaches the brain. **One question in the browser settles it,
+and it should be asked before any demo.**
+
+**What unblocks it.** Point the lab brain at a working LLM/embedding endpoint (the
+live container's config in `compose.lab.yml` env) or wait for the quota window to
+roll at 2026-10-06 07:29 UTC, then re-run `./ops/restore_lab.sh
+~/Kestrel_backups/<latest>`. Until then: "we can restore" is proven for schema,
+rows, volumes and the dataset, and unproven for answering.
 
 ---
 

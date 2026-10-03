@@ -15,6 +15,7 @@ import base64
 import json
 import os
 import sys
+import threading
 import time
 import uuid
 
@@ -176,9 +177,115 @@ try:
     check("a JSON array body is a 400, not a 500", r.status_code == 400,
           f"{r.status_code} {r.text[:60]}")
 
-    print("[CH-8] storage failure degrades as declared")
+    print("[CH-8] a delete may not land between the chat read and its turns read")
+    # get_chat once ran two SELECTs on an autocommit connection, so a delete
+    # committing in between handed back a chat with NO turns — a "my whole
+    # conversation vanished" report with nothing in the logs. Wrapping both in one
+    # transaction is NOT the fix: Postgres' default READ COMMITTED snapshots per
+    # STATEMENT, so the second read still sees a turns table the first didn't. The
+    # fix is the FOR SHARE lock on the parent row, and the test proves it by
+    # attempting the delete inside the read's own window.
+    #
+    # The control (an unlocked read of the same two statements) runs first. If it
+    # does NOT tear, the window is unreachable here and the real assertion below
+    # would prove nothing — so that is reported as a failure, not a pass.
     check("db_error is exported for the routes", hasattr(storage, "db_error"))
     check("mark_down exists", callable(getattr(storage, "mark_down", None)))
+
+    def unlocked_read(chat_id):
+        """The pre-CH-8 shape: two statements, no lock, one connection."""
+        with psycopg.connect(URL) as c, c.cursor() as cur:
+            cur.execute("SELECT id FROM chats WHERE id = %s", (chat_id,))
+            found = cur.fetchone() is not None
+            time.sleep(0.8)                     # the window, open by construction
+            cur.execute("SELECT count(*) FROM turns WHERE chat_id = %s", (chat_id,))
+            return found, (cur.fetchone() or [0])[0]
+
+    cid_ctl = "itest-torn-a-" + uuid.uuid4().hex[:8]
+    made.append(cid_ctl)
+    save(cid_ctl, turns_of(2))
+    deleter = threading.Thread(target=lambda: (time.sleep(0.25),
+                                               storage.delete_chat(cid_ctl)))
+    deleter.start()
+    found, n = unlocked_read(cid_ctl)
+    deleter.join()
+    control_tore = found and n == 0
+    check("control: the UNLOCKED read tears (chat still found, turns gone)",
+          control_tore, f"found={found} turns={n}")
+
+    # Same race against storage.get_chat. The window has to open INSIDE the
+    # function, so only its cursor is wrapped: once the chats SELECT returns, a
+    # delete is attempted and the read held open for a second. With the FOR SHARE
+    # lock the delete can only queue; without it the delete commits and the turns
+    # SELECT comes back empty — which is what the control above just proved is
+    # reachable on this machine.
+    cid_torn = "itest-torn-b-" + uuid.uuid4().hex[:8]
+    made.append(cid_torn)
+    save(cid_torn, turns_of(2))
+
+    class _WindowCursor:
+        """Delegate a cursor; after the statement matching `marker`, try to delete
+        `chat_id` and hold the read open so it can only land mid-read."""
+
+        def __init__(self, cur, marker, chat_id):
+            self._c, self._marker, self._chat_id = cur, marker, chat_id
+            self._fired, self.thread = False, None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return self._c.__exit__(*exc)
+
+        def execute(self, sql, *args, **kw):
+            r = self._c.execute(sql, *args, **kw)
+            if self._marker in str(sql) and not self._fired:
+                self._fired = True
+                self.thread = threading.Thread(target=storage.delete_chat,
+                                               args=(self._chat_id,))
+                self.thread.start()
+                time.sleep(1.0)
+            return r
+
+        def __getattr__(self, name):
+            return getattr(self._c, name)
+
+    windows = []
+    real_connect = storage.psycopg.connect
+
+    def windowed_connect(*a, **kw):
+        conn = real_connect(*a, **kw)
+        make_cursor = conn.cursor
+
+        def cursor(*ca, **ckw):
+            w = _WindowCursor(make_cursor(*ca, **ckw),
+                              "SELECT id, brain, title", cid_torn)
+            windows.append(w)
+            return w
+
+        conn.cursor = cursor
+        return conn
+
+    storage.psycopg.connect = windowed_connect
+    try:
+        chat = storage.get_chat(cid_torn)
+    finally:
+        storage.psycopg.connect = real_connect
+    for w in windows:
+        if w.thread:
+            w.thread.join()
+
+    got = len((chat or {}).get("turns") or [])
+    check("get_chat keeps a chat and its turns together across that window",
+          bool(chat) and got == 2,
+          f"chat={'none' if not chat else 'found'} turns={got}")
+    # The delete was delayed by the lock, never lost — a reader that simply won
+    # every race would otherwise look like correctness from both sides.
+    check("the blocked delete still lands once the read releases the lock",
+          storage.get_chat(cid_torn) is None)
+    if not control_tore:
+        print("  NOTE: the control did not tear, so the two assertions above prove")
+        print("        nothing on this machine. Treat CH-8 as UNVERIFIED here.")
 finally:
     with psycopg.connect(URL) as conn, conn.cursor() as cur:
         for cid in made:

@@ -24,6 +24,7 @@ UID_N=$(id -u)
 mkdir -p "$SUPPORT" "$AGENTS"; chmod 700 "$SUPPORT"
 
 verify_only=0
+DRIFT=0
 [ "${1:-}" = "--verify" ] && verify_only=1
 
 report_agent() {
@@ -79,6 +80,26 @@ fi
 echo "state:"
 report_agent com.kestrel.backup
 
+# The header promises --verify says whether the installed copy matches. A stale
+# installed copy is not cosmetic: the version launchd actually ran echoed
+# "  ok: pg_dump" into every nightly dump, and the backups on disk still hold it.
+# So compare the bytes, and make --verify fail when they differ — a check that
+# cannot fail is not a check.
+if [ -f "$SUPPORT/kestrel_nightly_backup.sh" ]; then
+  repo_h=$(shasum -a 256 "$REPO/ops/kestrel_nightly_backup.sh" | cut -d' ' -f1)
+  inst_h=$(shasum -a 256 "$SUPPORT/kestrel_nightly_backup.sh" | cut -d' ' -f1)
+  if [ "$repo_h" = "$inst_h" ]; then
+    echo "  backup script: installed copy matches the repo"
+  else
+    echo "  backup script: DRIFT - the copy launchd runs is not the repo's."
+    echo "    Tonight's job will use the OLD script. Fix: ops/install_agents.sh"
+    if [ "$verify_only" = "1" ]; then DRIFT=1; fi
+  fi
+else
+  echo "  backup script: not installed"
+  if [ "$verify_only" = "1" ]; then DRIFT=1; fi
+fi
+
 # The stack-up job is the one this script cannot fix, and pretending otherwise is
 # how it stayed broken: report it plainly, with the two real remedies.
 if [ -f "$AGENTS/com.kestrel.stackup.plist" ]; then
@@ -99,4 +120,10 @@ fi
 echo
 if [ -x "$SUPPORT/kestrel_nightly_backup.sh" ]; then
   "$SUPPORT/kestrel_nightly_backup.sh" --status || true
+fi
+
+if [ "$DRIFT" = "1" ]; then
+  echo
+  echo "VERIFY FAILED: the installed backup script is not the one in the repo."
+  exit 1
 fi

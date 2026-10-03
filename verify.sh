@@ -28,11 +28,42 @@ QUICK=0
 
 export PROVIDER=mock
 export AUTH_MODE=off   # the battery tests the product unauthenticated
-BASE="http://127.0.0.1:8000"
+
+# The app tier runs on its OWN port. It used to be 8000 — the live demo's port —
+# so with the demo running this battery started a server that could not bind,
+# found $BASE/health answering anyway (the LIVE app), and marched on testing that:
+# PROVIDER=cloud, AUTH_MODE=clerk, and a green result that described somebody
+# else's process. Refuse to share the port, and after startup insist that the
+# thing answering is the mock tier we just launched.
+PORT="${KESTREL_VERIFY_PORT:-8020}"
+export PORT
+BASE="http://127.0.0.1:${PORT}"
+export BASE           # test_tenants.py reads BASE from the environment
+if (exec 3<>"/dev/tcp/127.0.0.1/${PORT}") 2>/dev/null; then
+  echo "ABORT: 127.0.0.1:${PORT} is already listening."
+  echo "       This battery must not test a server it did not start — the suites"
+  echo "       assume PROVIDER=mock and AUTH_MODE=off, which the live app is not."
+  echo "       Stop it, or pick another port: KESTREL_VERIFY_PORT=8021 ./verify.sh"
+  exit 2
+fi
 SERVER_PID=""
 FAILS=0
 
 note() { echo "[$1] $2"; }
+
+# Count what the suite actually reported instead of typing a denominator into this
+# file. The labels used to read "PASS  25/25" as a literal, so a suite could gain or
+# lose checks — or skip one — and the battery would still print a number nobody
+# measured. Empty output means the suite does not use the PASS/FAIL line format, and
+# the label falls back to a bare PASS rather than a guess.
+tally() {
+  local log="$1" p f
+  [ -f "$log" ] || return 0
+  p=$(grep -c '^  PASS' "$log" 2>/dev/null || true)
+  f=$(grep -c '^  FAIL' "$log" 2>/dev/null || true)
+  p=${p:-0}; f=${f:-0}
+  [ "$p" -gt 0 ] && printf '%s/%s' "$p" "$((p + f))"
+}
 
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -42,13 +73,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# The battery starts its own mock server, so it must own port 8000. A server
-# left running from a dev session would silently answer with the CLOUD
-# provider (its own env), which would make the battery lie about mock mode.
-if lsof -nP -iTCP:8000 -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "ABORT: something is already listening on port 8000 — stop it and rerun."
-  exit 2
-fi
+# The battery used to abort when anything held :8000, because a server left over
+# from a dev session would answer with the CLOUD provider (its own env) and make
+# the battery lie about mock mode. Right hazard, wrong remedy: it also meant the
+# battery could not run while the demo was up, which is when it matters most. The
+# app tier now starts on its own port and /health is checked for PROVIDER=mock
+# below, so a foreign server cannot be mistaken for ours at all.
 
 echo "== Kestrel verification battery (PROVIDER=mock) =="
 
@@ -78,7 +108,7 @@ fi
 
 # --- 1. document extraction (no server needed) ------------------------------
 if python3 test_documents.py > /tmp/kestrel_verify_docs.log 2>&1; then
-  note documents "PASS  25/25"
+  note documents "PASS  $(tally /tmp/kestrel_verify_docs.log)"
 else
   note documents "FAIL — see /tmp/kestrel_verify_docs.log"
   FAILS=$((FAILS + 1))
@@ -86,7 +116,7 @@ fi
 
 # --- 2. pipeline terminal states (unit test, no server needed) --------------
 if python3 test_pipeline_states.py > /tmp/kestrel_verify_pipe.log 2>&1; then
-  note pipe-states "PASS  13/13"
+  note pipe-states "PASS  $(tally /tmp/kestrel_verify_pipe.log)"
 else
   note pipe-states "FAIL — see /tmp/kestrel_verify_pipe.log"
   FAILS=$((FAILS + 1))
@@ -103,13 +133,20 @@ if [ -z "$up" ]; then
   note server "FAIL — mock server did not come up; see /tmp/kestrel_verify_server.log"
   exit 1
 fi
-note server "up (pid $SERVER_PID, mock fixtures)"
+# Answering is not the same as being ours. A foreign :8000 answers too.
+HEALTH=$(curl -sf "$BASE/health" 2>/dev/null || true)
+if ! printf '%s' "$HEALTH" | grep -qE '"provider": ?"mock"'; then
+  note server "FAIL — $BASE is not the mock tier this battery started: ${HEALTH:0:120}"
+  cleanup
+  exit 1
+fi
+note server "up (pid $SERVER_PID, mock fixtures, :$PORT)"
 
 # --- 3. connector vault + OAuth contract (in-process, no browser) ------------
 # Runs before the live-server suites: it drives app.py through TestClient, so
 # it must not race the mock server for the real port.
 if python3 connectors_test.py > /tmp/kestrel_verify_conn.log 2>&1; then
-  note connectors "PASS  90/90"
+  note connectors "PASS  $(tally /tmp/kestrel_verify_conn.log)"
 else
   note connectors "FAIL — see /tmp/kestrel_verify_conn.log"
   FAILS=$((FAILS + 1))
@@ -117,15 +154,15 @@ fi
 
 # --- 4. tenant isolation (live-server test; config written + restored) ------
 if python3 test_tenants.py --with-tenants > /tmp/kestrel_verify_tenants.log 2>&1; then
-  note tenants "PASS  10/10"
+  note tenants "PASS  $(tally /tmp/kestrel_verify_tenants.log)"
 else
   note tenants "FAIL — see /tmp/kestrel_verify_tenants.log"
   FAILS=$((FAILS + 1))
 fi
 
 # --- 5. web-tier smoke -------------------------------------------------------
-if python3 smoke.py > /tmp/kestrel_verify_smoke.log 2>&1; then
-  note smoke "PASS  4/4"
+if python3 smoke.py --base "$BASE" > /tmp/kestrel_verify_smoke.log 2>&1; then
+  note smoke "PASS  $(tally /tmp/kestrel_verify_smoke.log)"
 else
   note smoke "FAIL — see /tmp/kestrel_verify_smoke.log"
   FAILS=$((FAILS + 1))
