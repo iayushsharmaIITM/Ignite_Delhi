@@ -66,3 +66,37 @@ signed-out):
   stage. React-only surfaces that intentionally dropped out for parity:
   sidebar chat search, MessageActions email/steps row, PromptBox/
   SuggestionChips wrappers. Connectors moved to the gear menu (as on :8000).
+
+### Completion pass (2026-10-03, same session — post-shell work)
+
+- **LegacyMount retired from the nav**: Brains → `BrainsPage` in-app (the
+  two-step brain delete finally reachable; its DeleteButton also had
+  `useAuthHeaders()` called inside an async callback — an invalid hook call —
+  fixed). Graph → the in-app `GraphView` with its labeled legacy link (the
+  spec's deliberate delta), replacing the `confirm()` + hard navigation.
+  Legacy pages stay URL-reachable via `?view=legacy-*` as escape hatches.
+- **Chat save/resume fixed** (two real regressions vs :8000): `saveChat` only
+  ran on the error path — successful asks never persisted; and the legacy
+  `sessionStorage` per-brain chat resume was missing. The save runs in a
+  streaming-flip effect (a save inside `finally` posts the bot turn before
+  its last chunk commits — caught by the intercepted-stream test).
+- **Actions/draft surface completed**: the legacy shell styled `#draft` but
+  never rendered it and the P6 APIs were unwired. A hover-revealed mail
+  action on the last answer drafts via `POST /api/actions/draft` and opens
+  the `#draft` box (recipient head, editable body, Copy / Open in mail /
+  Send / Close). Send is the approval gate; 503/502 surface the server's own
+  words. Happy path needs generation routes (6 Oct) — fails honestly until.
+- **Light theme**: home parity holds at light (same noise floor). Fixed
+  index.css's light block re-deriving --good/--warn with values legacy never
+  uses (legacy light overrides only --bad; good/warn inherit Deck :root).
+- **i18n**: the ported shell strings wired to the legacy DICT keys (sidebar,
+  view/sort menu, files sheet, `fmt('menu.questions')`). German spot-check
+  matches :8010 exactly. The files-sheet notice and pipeline lines stay
+  hardcoded — :8000 hardcodes them too.
+- **Command palette**: VERIFIED NONEXISTENT — no palette code in auth.js or
+  ui.js (grep). The spec §8 "deferred" item is void; the spec's "palette"
+  is the settings pop, which is ported. Nothing to build.
+- **Open decision (not built)**: FilesSheet uses the legacy `/events`
+  pipeline stream; `UploadPage` uses the newer v2-jobs API (per-file
+  progress) that the spec says supersedes it. Unifying would be
+  frontend-only but deliberately diverges from :8000 — owner's call.
