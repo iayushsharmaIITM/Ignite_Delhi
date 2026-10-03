@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 
-export type Brain = { name: string; chat_count?: number }
+export type Brain = { name: string; chat_count?: number; is_demo?: boolean; is_system?: boolean }
 export type ChatSummary = { id: string; title: string; brain: string; at: number }
 export type Turn = {
   role: "user" | "bot"
@@ -36,7 +36,15 @@ export function useBrains() {
   const refresh = () => {
     fetch("/api/brains")
       .then((r) => r.json())
-      .then((d) => setBrains((d.brains || []).map((b: { name: string }) => ({ name: b.name }))))
+      .then((d) =>
+        setBrains(
+          (d.brains || []).map((b: { name: string; is_demo?: boolean; is_system?: boolean }) => ({
+            name: b.name,
+            is_demo: b.is_demo,
+            is_system: b.is_system,
+          })),
+        ),
+      )
       .catch(() => {})
   }
   useEffect(refresh, [])

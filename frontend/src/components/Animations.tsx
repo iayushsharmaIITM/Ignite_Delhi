@@ -428,6 +428,7 @@ export function SettingsMenu({
   onTheme,
   onUsage,
   onUpgrade,
+  onConnectors,
   onAccount,
   onSignOut,
   signedIn,
@@ -438,6 +439,7 @@ export function SettingsMenu({
   onTheme: () => void
   onUsage: () => void
   onUpgrade: () => void
+  onConnectors?: () => void
   onAccount: () => void
   onSignOut: () => void
   signedIn: boolean
@@ -464,6 +466,12 @@ export function SettingsMenu({
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5 15c-1.5 1.5-2 5-2 5s3.5-.5 5-2M14 4c3-2 7-1 7-1s1 4-1 7l-6 6-4-4 4-6z"/><circle cx="14.5" cy="9.5" r="1.4"/></svg>
         <span>Upgrade</span>
       </button>
+      {onConnectors && (
+        <button type="button" className="set-item" onClick={onConnectors} role="menuitem">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M9 7v10M15 7v10M6 4h12M6 20h12" /><circle cx="9" cy="12" r="2.6" /><circle cx="15" cy="12" r="2.6" /></svg>
+          <span>Connectors</span>
+        </button>
+      )}
       {signedIn && (
         <>
           <div className="set-sep" />

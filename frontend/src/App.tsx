@@ -1,31 +1,13 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react"
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { toast } from "sonner"
-import { PanelLeft } from "lucide-react"
-import { Sidebar } from "@/components/Sidebar"
-import { PromptBox } from "@/components/PromptBox"
+import { Sidebar, type SidebarUser } from "@/components/Sidebar"
 import { Connectors } from "@/components/Connectors"
 import { SourceDrawer } from "@/components/SourceDrawer"
-import { SuggestionChips } from "@/components/SuggestionChips"
 import { CreateBrainDialog } from "@/components/CreateBrainDialog"
 import { GraphView } from "@/components/GraphView"
 import { LegacyMount } from "@/components/LegacyMount"
 import { Toaster } from "@/components/ui/sonner"
-import { Button } from "@/components/ui/button"
-import {
-  TurnRise,
-  PopMenu,
-  JumpToLatest,
-  LeftRail,
-  RestoreOverlay,
-  SwitchFx,
-  Watermark,
-  AuthGate,
-  SettingsMenu,
-  ExportMenu,
-  MessageActions,
-  WorkingLog,
-  type WorkStep,
-} from "@/components/Animations"
+import { PopMenu, AuthGate, SettingsMenu } from "@/components/Animations"
 import {
   DEFAULT_BRAIN,
   greeting,
@@ -34,7 +16,6 @@ import {
   fetchChat,
   saveChat,
 } from "@/lib/api"
-import { cn } from "@/lib/utils"
 import { t, setLang, getLang, getLangs, type LangCode } from "@/lib/i18n"
 import { resolvedTheme, applyTheme, setTheme } from "@/theme"
 import { loadClerk } from "@/lib/clerk"
@@ -44,19 +25,74 @@ const Markdown = lazy(() => import("@/components/Markdown"))
 type Source = { source: string; excerpt?: string }
 type Turn = { role: "user" | "bot"; text: string; sources?: Source[] }
 
+// Same fields the legacy sidebar's userLabel() derives from the Clerk user
+// (static/shell.js renderUser): display name, email, avatar initials.
+function readClerkUser(): SidebarUser {
+  const w = window as unknown as {
+    Clerk?: {
+      user?: {
+        firstName?: string
+        lastName?: string
+        primaryEmailAddress?: string
+        emailAddresses?: { emailAddress?: string }[]
+        imageUrl?: string
+      } | null
+    }
+  }
+  const u = w.Clerk?.user
+  if (!u) return null
+  const nm = [u.firstName, u.lastName].filter(Boolean).join(" ")
+  const em = u.primaryEmailAddress || (u.emailAddresses && u.emailAddresses[0] && u.emailAddresses[0].emailAddress) || ""
+  const initials = ((u.firstName || "") + (u.lastName || "")).trim()
+    ? (u.firstName || " ")[0] + (u.lastName || u.firstName || " ")[0]
+    : (em || "K").slice(0, 2).toUpperCase()
+  return { nm: nm || em || "Kestrel user", em, initials: initials.toUpperCase(), imageUrl: u.imageUrl }
+}
+
+// Legacy starter chips carry icons (static/index.html CHIP_ICON); the label
+// sets below match STARTERS_DEMO / STARTERS_GENERIC.
 const DEMO_CHIPS = [
-  { label: t("chip.demo1", "Why is the Bluepeak renewal at risk?"), query: "Why is the Bluepeak renewal at risk, and what have we promised them?" },
-  { label: t("chip.demo2", "What credit do we owe, and who approved it?"), query: "What service credit do we owe Bluepeak, and who approved it?" },
-  { label: t("chip.demo3", "Who owns the renewal and the RCA?"), query: "Who owns the Bluepeak renewal, and who owns the root cause analysis?" },
-  { label: t("chip.demo4", "Is the renewal date consistent?"), query: "Is the Bluepeak renewal date consistent across our documents?" },
+  { icon: "doc", label: t("chip.demo1", "Why is the Bluepeak renewal at risk?"), query: "Why is the Bluepeak renewal at risk, and what have we promised them?" },
+  { icon: "scale", label: t("chip.demo2", "What credit do we owe, and who approved it?"), query: "What service credit do we owe Bluepeak, and who approved it?" },
+  { icon: "owner", label: t("chip.demo3", "Who owns the renewal and the RCA?"), query: "Who owns the Bluepeak renewal, and who owns the root cause analysis?" },
+  { icon: "check", label: t("chip.demo4", "Is the renewal date consistent?"), query: "Is the Bluepeak renewal date consistent across our documents?" },
+]
+const GENERIC_CHIPS = [
+  { icon: "doc", label: t("chip.gen1", "Summarise what is in this brain"), query: "Summarise what this brain knows — its main documents and topics." },
+  { icon: "steps", label: t("chip.gen2", "What are the next steps?"), query: "What are the next steps across my documents, and who owns each one?" },
+  { icon: "mail", label: t("chip.gen3", "Draft a mail from the latest answer"), query: "Draft a mail summarising the most recent answer." },
+  { icon: "check", label: t("chip.gen4", "Is everything consistent?"), query: "Is everything in this brain consistent with each other?" },
 ]
 
-const GENERIC_CHIPS = [
-  { label: t("chip.gen1", "Summarise what is in this brain"), query: "Summarise what this brain knows — its main documents and topics." },
-  { label: t("chip.gen2", "What are the next steps?"), query: "What are the next steps across my documents, and who owns each one?" },
-  { label: t("chip.gen3", "Draft a mail from the latest answer"), query: "Draft a mail summarising the most recent answer." },
-  { label: t("chip.gen4", "Is everything consistent?"), query: "Is everything in this brain consistent with each other?" },
-]
+// Legacy chip icon paths (static/index.html CHIP_ICON), verbatim.
+const CHIP_ICON: Record<string, string> = {
+  doc: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5",
+  scale: "M12 3v18M5 7l7-4 7 4M3 13l2-6 2 6a2 2 0 0 1-4 0zM17 13l2-6 2 6a2 2 0 0 1-4 0z",
+  owner: "M12 8m-3.5 0a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0M5 20a7 7 0 0 1 14 0",
+  check: "M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0-18 0M8.5 12l2.5 2.5 4.5-5",
+  steps: "M4 6h16M4 12h10M4 18h13",
+  mail: "M2.5 4.5h19v15h-19zM3 6l9 6.5L21 6",
+}
+
+function ChipSvg({ name }: { name: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d={CHIP_ICON[name] || CHIP_ICON.doc} />
+    </svg>
+  )
+}
+
+// Composer + message-action icon paths from static/index.html (BAR_ICON, ICON).
+const SEND_D = "M12 19V5m0 0-6 6m6-6 6 6"
+const STOP_D = "M6 6h12v12H6z" // filled rect in legacy; rendered with fill below
+const PLUS_D = "M12 5v14M5 12h14"
+const GRID_D = "M3 3h7.5v7.5H3zM13.5 3H21v7.5h-7.5zM3 13.5h7.5V21H3zM13.5 13.5H21V21h-7.5z"
+const CHEV_DOWN_D = "m6 9 6 6 6-6"
+const COPY_D = "M9 9h11v11H9zM5 15V5a2 2 0 0 1 2-2h10"
+const UP_D = "M7 11v9M7 11l4-7c1.2 0 2 .9 2 2v4h5.2a1.8 1.8 0 0 1 1.8 2.1l-1 5.5A2 2 0 0 1 17 19H7"
+const DOWN_D = "M17 13V4M17 13l-4 7c-1.2 0-2-.9-2-2v-4H5.8a1.8 1.8 0 0 1-1.8-2.1l1-5.5A2 2 0 0 1 7 5h10"
+const JUMP_D = "M12 5v14m0 0-6-6m6 6 6-6"
+const DOC_D = CHIP_ICON.doc
 
 // Mirrors the legacy shell's attachment contract: text-like files ride
 // client-side, binary documents extract server-side, everything ingestible
@@ -135,40 +171,68 @@ function downloadFile(name: string, body: string, mime: string) {
 
 export default function App() {
   const [collapsed, setCollapsed] = useState(
-    localStorage.getItem("kestrel.sidebar.collapsed") === "1" || window.innerWidth < 768,
+    localStorage.getItem("kestrel.sb.collapsed") === "1",
   )
+  const [mobileOpen, setMobileOpen] = useState(false)
   const [brain, setBrain] = useState(
     new URLSearchParams(location.search).get("brain") || DEFAULT_BRAIN,
   )
   const [turns, setTurns] = useState<Turn[]>([])
   const [streaming, setStreaming] = useState(false)
   const [input, setInput] = useState("")
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [sourcesPanel, setSourcesPanel] = useState<{ title: string; excerpt?: string } | null>(null)
-  const [stage, setStage] = useState<string | null>(null)
   const chatIdRef = useRef<string | null>(null)
+  const botIdxRef = useRef(-1)
   const turnsRef = useRef<Turn[]>([])
   useEffect(() => { turnsRef.current = turns }, [turns])
-  const threadRef = useRef<HTMLDivElement>(null)
   const [greet, setGreet] = useState(greeting())
   const [chatId, setChatId] = useState<string | null>(
     new URLSearchParams(location.search).get("chat"),
   )
   useEffect(() => { chatIdRef.current = chatId }, [chatId])
 
+  // Composer menus (legacy #menu2 / #brainmenu pops)
+  const [menu2Open, setMenu2Open] = useState(false)
+  const [brainMenuOpen, setBrainMenuOpen] = useState(false)
+  const [clearArmed, setClearArmed] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const barCardRef = useRef<HTMLDivElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+
   // Animation / UI state
   const [restoring, setRestoring] = useState(false)
   const [switching, setSwitching] = useState(false)
   const [jumpVisible, setJumpVisible] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [langMenuOpen, setLangMenuOpen] = useState(false)
   const [themeMenuOpen, setThemeMenuOpen] = useState(false)
-  const [workSteps, setWorkSteps] = useState<WorkStep[]>([])
+  const [workSteps, setWorkSteps] = useState<{ label: string; at: number; ms?: number }[]>([])
   const [workElapsed, setWorkElapsed] = useState(0)
+  const [workOpen, setWorkOpen] = useState(true)
   const workStartRef = useRef(0)
+  const workStoppedRef = useRef(0)
   const workTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [signedIn, setSignedIn] = useState(false)
   const [authMode, setAuthMode] = useState<string>("unknown")
+  const [clerkUser, setClerkUser] = useState<SidebarUser>(null)
+
+  // Message action feedback (legacy .msg-acts copied / fb-on marks)
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
+  const [feedback, setFeedback] = useState<Record<number, "up" | "down" | undefined>>({})
+
+  // Left rail (#rail): one tick per user turn; hover preview; scroll-linked
+  const turnEls = useRef<Record<number, HTMLElement | null>>({})
+  const [railHere, setRailHere] = useState<number | null>(null)
+  const [railTip, setRailTip] = useState<{ x: number; y: number; label: string; answer: string } | null>(null)
+
+  const [createOpen, setCreateOpen] = useState(false)
+  const [view, setView] = useState<"chat" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph">(
+    (() => {
+      const v = new URLSearchParams(location.search).get("view")
+      return v === "connectors" || v === "graph" || v === "legacy-brains" || v === "legacy-upload" ? v : "chat"
+    })(),
+  )
 
   // deep-link restore: ?chat=<id> loads the server-backed thread on mount
   useEffect(() => {
@@ -206,6 +270,7 @@ export default function App() {
               if (cancelled) return
               const sessions = w.Clerk?.client?.sessions || []
               setSignedIn(!!w.Clerk?.session || sessions.length > 0)
+              setClerkUser(readClerkUser())
             }
             checkSignedIn()
             w.Clerk?.addListener?.(checkSignedIn)
@@ -232,30 +297,66 @@ export default function App() {
     return () => window.removeEventListener("kestrel:lang", onLang)
   }, [])
 
-  // Scroll tracking for jump-to-latest
+  // The two-mode layout keys off BODY classes — the same classes the legacy
+  // shell.js toggles (chatting / sb-collapsed / switching / locked / detached).
+  const chatting = turns.length > 0 && view === "chat"
   useEffect(() => {
+    const b = document.body
+    b.classList.toggle("chatting", chatting)
+    b.classList.toggle("sb-collapsed", collapsed)
+    b.classList.toggle("switching", switching)
+    b.classList.toggle("locked", authMode === "clerk" && !signedIn)
+    b.classList.toggle("detached", chatting && jumpVisible)
+    return () => {
+      b.classList.remove("chatting", "sb-collapsed", "switching", "locked", "detached")
+    }
+  }, [chatting, collapsed, switching, authMode, signedIn, jumpVisible, view])
+
+  // Scroll tracking: stick-to-bottom detection (#jump-latest via .detached)
+  // and the #rail "you are here" tick (nearest user turn to the focus line).
+  useEffect(() => {
+    let raf = 0
     const onScroll = () => {
-      const stick = window.innerHeight + window.scrollY >= document.body.scrollHeight - 160
-      setJumpVisible(!stick && turns.length > 0)
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        const stick = window.innerHeight + window.scrollY >= document.body.scrollHeight - 160
+        setJumpVisible(!stick && turns.length > 0)
+        const focus = window.innerHeight * 0.35
+        let best: number | null = null
+        let bestDist = Infinity
+        for (const [idx, el] of Object.entries(turnEls.current)) {
+          if (!el || turns[Number(idx)]?.role !== "user") continue
+          const r = el.getBoundingClientRect()
+          const dist = Math.abs(r.top + r.height / 2 - focus)
+          if (dist < bestDist) { bestDist = dist; best = Number(idx) }
+        }
+        setRailHere(best)
+      })
     }
     window.addEventListener("scroll", onScroll, { passive: true })
-    return () => window.removeEventListener("scroll", onScroll)
-  }, [turns.length])
+    onScroll()
+    return () => { window.removeEventListener("scroll", onScroll); if (raf) cancelAnimationFrame(raf) }
+  }, [turns])
 
+  // Home must open at the top (legacy behaviour — focusing #q otherwise
+  // scrolls the watermark above the fold).
+  useEffect(() => { window.scrollTo(0, 0) }, [])
+
+  // Escape closes the composer pops; a click outside .bar-anchor closes them.
   useEffect(() => {
-    const onResize = () => {
-      if (window.innerWidth < 768) setCollapsed(true)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setMenu2Open(false); setBrainMenuOpen(false); setClearArmed(false) }
     }
-    window.addEventListener("resize", onResize)
-    return () => window.removeEventListener("resize", onResize)
+    const onClick = (e: MouseEvent) => {
+      const inBar = (e.target as HTMLElement | null)?.closest?.(".bar-anchor")
+      if (!inBar) { setMenu2Open(false); setBrainMenuOpen(false); setClearArmed(false) }
+    }
+    document.addEventListener("keydown", onKey)
+    document.addEventListener("click", onClick)
+    return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("click", onClick) }
   }, [])
-  const [createOpen, setCreateOpen] = useState(false)
-  const [view, setView] = useState<"chat" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph">(
-    (() => {
-      const v = new URLSearchParams(location.search).get("view")
-      return v === "connectors" || v === "graph" || v === "legacy-brains" || v === "legacy-upload" ? v : "chat"
-    })(),
-  )
+
   const { chats, refreshChats } = useChats(view === "chat" ? brain : null)
   const { brains, refreshBrains } = useBrains()
 
@@ -279,28 +380,31 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const t = setInterval(() => setGreet(greeting()), 60000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => setGreet(greeting()), 60000)
+    return () => clearInterval(timer)
   }, [])
 
   const scrollBottom = () => {
-    requestAnimationFrame(() =>
-      threadRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }),
-    )
+    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" })
   }
 
   const startWork = () => {
     workStartRef.current = Date.now()
+    workStoppedRef.current = 0
     setWorkElapsed(0)
     setWorkSteps([])
+    setWorkOpen(true)
     if (workTimerRef.current) clearInterval(workTimerRef.current)
     workTimerRef.current = setInterval(() => {
       setWorkElapsed((Date.now() - workStartRef.current) / 1000)
     }, 100)
   }
 
+  // Steps carry their start time so each done row can show its measured
+  // duration ("✓ label · 0.5s"), exactly like the legacy workStart() log.
+  // ms is the server-measured duration when the stream provides one.
   const addWorkStep = (label: string, ms?: number) => {
-    setWorkSteps((prev) => [...prev, { label, ms }])
+    setWorkSteps((prev) => [...prev, { label, at: Date.now(), ms }])
   }
 
   const stopWork = (stopped?: boolean) => {
@@ -308,16 +412,23 @@ export default function App() {
       clearInterval(workTimerRef.current)
       workTimerRef.current = null
     }
+    workStoppedRef.current = Date.now()
     if (stopped) {
-      setWorkSteps((prev) => [...prev, { label: "stopped" }])
+      setWorkSteps((prev) => [...prev, { label: "stopped", at: Date.now() }])
     }
   }
 
   const ask = useCallback(async (q: string, files: File[] = []) => {
-    setTurns((t) => [...t, { role: "user", text: q }])
+    // The bot turn opens immediately with the working log and the streaming
+    // cursor (legacy addTurn('bot','') + workStart) — never only after the
+    // first chunk arrives.
+    setTurns((t) => {
+      const botIdxLocal = t.length + 1
+      botIdxRef.current = botIdxLocal
+      return [...t, { role: "user", text: q }, { role: "bot", text: "" }]
+    })
     setStreaming(true)
     startWork()
-    addWorkStep(t("stage.smalltalk", "Direct chat — no retrieval needed"))
     const controller = new AbortController()
     ;(window as unknown as { CONTROLLER?: AbortController }).CONTROLLER = controller
     let text = ""
@@ -329,13 +440,11 @@ export default function App() {
       params.set("local_time", new Date().toISOString())
       if (files.length) {
         addWorkStep("Reading attached files…")
-        setStage("Reading attached files…")
         const context = await buildContext(files, controller.signal)
         if (context) params.set("context", context)
         const ingestible = files.filter((f) => !(f.type || "").startsWith("image/"))
         if (brain && brain !== "demo" && ingestible.length) {
           addWorkStep(`Adding ${ingestible.length} file(s) to ${brain}…`)
-          setStage(`Adding ${ingestible.length} file(s) to ${brain}…`)
           const fd = new FormData()
           fd.append("name", brain)
           fd.append("append", "true")
@@ -349,13 +458,10 @@ export default function App() {
             .catch(() => toast.warning("Upload failed: no response from server"))
         }
       }
-      addWorkStep(t("stage.plan", "Planning retrieval agents"))
-      setStage("Thinking…")
       const res = await fetch(`/api/ask?${params}`, { signal: controller.signal })
       const reader = res.body!.getReader()
       const dec = new TextDecoder()
       let buf = ""
-      let botIdx = -1
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -367,18 +473,12 @@ export default function App() {
           const ev = JSON.parse(line)
           if (ev.type === "chunk") {
             text += ev.text || ""
-            if (botIdx < 0) {
-              setTurns((t) => {
-                botIdx = t.length
-                return [...t, { role: "bot", text }]
-              })
-            } else {
-              setTurns((t) => {
-                const copy = [...t]
-                if (copy[botIdx]) copy[botIdx] = { role: "bot", text }
-                return copy
-              })
-            }
+            const idx = botIdxRef.current
+            setTurns((t) => {
+              const copy = [...t]
+              if (copy[idx]) copy[idx] = { role: "bot", text }
+              return copy
+            })
             scrollBottom()
           } else if (ev.type === "references") {
             const items: Source[] = (ev.items || []).map((s: { source?: string; excerpt?: string }) => ({
@@ -387,38 +487,46 @@ export default function App() {
             }))
             setTurns((t) => {
               const copy = [...t]
-              const idx = botIdx >= 0 ? botIdx : copy.length - 1
+              const idx = botIdxRef.current >= 0 ? botIdxRef.current : copy.length - 1
               if (copy[idx]?.role === "bot") copy[idx] = { ...copy[idx], sources: items }
               return copy
             })
           } else if (ev.stage === "error") {
             text += (text ? "\n\n" : "") + "⚠️ " + (ev.message || "The request failed.")
-            if (botIdx < 0) {
-              setTurns((t) => {
-                botIdx = t.length
-                return [...t, { role: "bot", text }]
-              })
-            } else {
-              setTurns((t) => {
-                const copy = [...t]
-                if (copy[botIdx]) copy[botIdx] = { role: "bot", text }
-                return copy
-              })
-            }
+            const idx = botIdxRef.current
+            setTurns((t) => {
+              const copy = [...t]
+              if (copy[idx]) copy[idx] = { role: "bot", text }
+              return copy
+            })
           } else if (ev.stage && ev.stage !== "done" && !ev.message) {
+            const raw: string = ev.label || ev.stage
+            // Same label mapping as legacy stageLabel(): the engine's raw
+            // step names render as their friendly forms.
             const stageLabel =
               ev.stage === "start" ? t("stage.router_chat", "Searching the brain…") :
               ev.stage === "ready" ? t("stage.delegating", "Composing the answer…") :
-              ev.label || ev.stage
-            addWorkStep(stageLabel)
-            setStage(stageLabel)
+              /^Smalltalk:/.test(raw) ? t("stage.smalltalk", raw) :
+              /^Orchestrator: planning/.test(raw) ? t("stage.plan", raw) :
+              /^Router: general chat/.test(raw) ? t("stage.router_chat", raw) :
+              /^Delegating to/.test(raw) ? t("stage.delegating", raw) :
+              raw
+            addWorkStep(stageLabel, typeof ev.ms === "number" ? ev.ms : undefined)
           }
         }
       }
     } catch (e) {
       const err = e as Error
       if (err.name !== "AbortError") {
-        setTurns((t) => [...t, { role: "bot", text: "Could not reach the server: " + err.message }])
+        const idx = botIdxRef.current
+        setTurns((t) => {
+          const copy = [...t]
+          if (idx >= 0 && copy[idx]?.role === "bot" && !copy[idx].text) {
+            copy[idx] = { role: "bot", text: "Could not reach the server: " + err.message }
+            return copy
+          }
+          return [...t, { role: "bot", text: "Could not reach the server: " + err.message }]
+        })
       }
       const id = chatIdRef.current || (chatIdRef.current = crypto.randomUUID())
       const firstUser = turnsRef.current.find((t) => t.role === "user")
@@ -426,15 +534,13 @@ export default function App() {
         .then((ok) => ok && refreshChats())
     } finally {
       setStreaming(false)
-      setStage(null)
       stopWork()
       scrollBottom()
     }
   }, [brain])
 
   const handleSend = (q: string, files: File[] = []) => {
-    if (!q.trim()) return
-    setInput(q)
+    if (!q.trim() && files.length === 0) return
     ask(q, files)
   }
   const handleStop = () => {
@@ -475,7 +581,7 @@ export default function App() {
     if (serverTurns.length) setTurns(serverTurns)
     else setTurns([])
     setSwitching(false)
-    if (window.innerWidth < 768) setCollapsed(true)
+    setMobileOpen(false)
   }
   const newChat = () => {
     const u = new URL(location.href)
@@ -485,8 +591,43 @@ export default function App() {
     setChatId(null)
     setTurns([])
   }
+  const toggleSidebar = () => {
+    setCollapsed((c) => {
+      localStorage.setItem("kestrel.sb.collapsed", c ? "0" : "1")
+      return !c
+    })
+  }
 
-  const hasInput = input.trim().length > 0
+  // Composer submit (form#f): send -> stop while streaming, same as legacy.
+  const handleFormSubmit = (e?: FormEvent) => {
+    e?.preventDefault()
+    setMenu2Open(false)
+    setBrainMenuOpen(false)
+    if (streaming) {
+      handleStop()
+      return
+    }
+    const q = input.trim()
+    if (q || pendingFiles.length) {
+      handleSend(q, pendingFiles)
+      setInput("")
+      setPendingFiles([])
+    }
+  }
+
+  const addFiles = (list: FileList | null) => {
+    if (!list?.length) return
+    setPendingFiles((cur) => [...cur, ...Array.from(list)].slice(0, 6))
+  }
+
+  // Composer textarea auto-grow (legacy: height auto -> min(scrollHeight,140))
+  const qRef = useRef<HTMLTextAreaElement>(null)
+  const growQ = () => {
+    const el = qRef.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = Math.min(el.scrollHeight, 140) + "px"
+  }
 
   // Clerk helpers
   const clerkSignOut = () => {
@@ -509,20 +650,13 @@ export default function App() {
     setSettingsOpen(false)
   }
 
-  // Export handlers
-  const handleExportMd = () => {
-    downloadFile("kestrel-conversation.md", transcript(turns, "md"), "text/markdown")
-    setExportMenuOpen(false)
-  }
-  const handleExportTxt = () => {
-    downloadFile("kestrel-conversation.txt", transcript(turns, "txt"), "text/plain")
-    setExportMenuOpen(false)
-  }
+  // Export handlers (legacy #menu2 items)
+  const handleExportMd = () => downloadFile("kestrel-conversation.md", transcript(turns, "md"), "text/markdown")
+  const handleExportTxt = () => downloadFile("kestrel-conversation.txt", transcript(turns, "txt"), "text/plain")
   const handleExportDocx = () => {
     const md = transcript(turns, "md")
     const html = '<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>Kestrel conversation</title></head><body>' + md.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>") + "</body></html>"
     downloadFile("kestrel-conversation.doc", html, "application/msword")
-    setExportMenuOpen(false)
   }
   const handleExportPdf = () => {
     const md = transcript(turns, "md")
@@ -541,39 +675,32 @@ export default function App() {
       } catch {}
       setTimeout(() => frame.remove(), 2000)
     }, 400)
-    setExportMenuOpen(false)
   }
   const handleCopyTranscript = () => {
     navigator.clipboard.writeText(transcript(turns, "md")).catch(() => {})
-    setExportMenuOpen(false)
+    setMenu2Open(false)
   }
 
-  // Message action handlers
-  const handleEmailDraft = (turnText: string) => {
-    const subject = "Kestrel answer"
-    const body = cleanText(turnText)
-    window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, "_self")
-  }
-  const handleSteps = (turnText: string) => {
-    const steps = turnText.split("\n").filter((l) => /^\s*[-*•]\s+/.test(l)).map((l) => l.replace(/^\s*[-*•]\s+/, ""))
-    if (steps.length) {
-      alert("Next steps:\n\n" + steps.map((s) => "• " + s).join("\n"))
-    } else {
-      alert("No explicit next steps found in this answer.")
+  // Legacy clear-chat: two-step armed confirm, then this chat is deleted
+  // server-side and the thread resets to home.
+  const handleClearChat = async () => {
+    if (!clearArmed) { setClearArmed(true); return }
+    setClearArmed(false)
+    setMenu2Open(false)
+    const id = chatId
+    if (id) {
+      try { await fetch(`/api/chats/${encodeURIComponent(id)}`, { method: "DELETE" }) } catch {}
     }
-  }
-  const handleChatUpdate = (turnText: string) => {
-    const summary = cleanText(turnText).slice(0, 500)
-    navigator.clipboard.writeText(summary).then(() => {
-      toast.success(t("common.copied", "Copied!"))
-    }).catch(() => {})
+    newChat()
+    refreshChats()
   }
 
   // Delete handlers
-  const handleDeleteChat = async (chatId: string, _brain?: string) => {
+  const handleDeleteChat = async (targetId: string, _brain?: string) => {
     try {
-      await fetch(`/api/chats/${encodeURIComponent(chatId)}`, { method: "DELETE" })
+      await fetch(`/api/chats/${encodeURIComponent(targetId)}`, { method: "DELETE" })
     } catch {}
+    if (targetId === chatId) newChat()
     refreshChats()
   }
   const handleDeleteBrainChats = async (targetBrain: string) => {
@@ -584,47 +711,167 @@ export default function App() {
         await fetch(`/api/chats/${encodeURIComponent(c.id)}`, { method: "DELETE" }).catch(() => {})
       }
     } catch {}
+    if (targetBrain === brain) newChat()
     refreshChats()
   }
 
-  const chips = brain && brain !== "demo" ? GENERIC_CHIPS : DEMO_CHIPS
+  // Message actions (legacy .msg-acts: copy with sources, quiet feedback marks)
+  const copyAnswer = (i: number) => {
+    const turn = turns[i]
+    if (!turn) return
+    const names = (turn.sources || []).map((s) => s.source).filter(Boolean)
+    navigator.clipboard
+      .writeText(cleanText(turn.text) + (names.length ? "\n\nSources: " + names.join(", ") : ""))
+      .then(() => {
+        setCopiedIdx(i)
+        setTimeout(() => setCopiedIdx((cur) => (cur === i ? null : cur)), 1300)
+      })
+      .catch(() => {})
+  }
+  const markFeedback = (i: number, kind: "up" | "down") => {
+    setFeedback((prev) => ({ ...prev, [i]: prev[i] === kind ? undefined : kind }))
+  }
+
+  const brainLabel = !brain || brain === "demo" || brain === DEFAULT_BRAIN ? "Demo brain" : brain
+  // Legacy picks the generic starters only for a non-demo brain.
+  const chips = brain && brain !== "demo" && brain !== DEFAULT_BRAIN ? GENERIC_CHIPS : DEMO_CHIPS
+  const questionCount = turns.filter((turn) => turn.role === "user").length
+  const goClass = streaming ? "stop" : ""
+  const workDone = !streaming && workSteps.length > 0
+
+  const renderTurn = (turn: Turn, i: number) => {
+    if (turn.role === "user") {
+      return (
+        <div
+          className="turn user"
+          key={i}
+          data-uid={i}
+          ref={(el) => { turnEls.current[i] = el }}
+        >
+          <div className="bubble">{turn.text}</div>
+        </div>
+      )
+    }
+    const isLast = i === turns.length - 1
+    const streamingHere = streaming && isLast
+    const workingHere = isLast && workSteps.length > 0
+    return (
+      <div className="turn bot" key={i} data-uid={i} ref={(el) => { turnEls.current[i] = el }}>
+        {workingHere && (
+          <div className={"working" + (workDone && !workOpen ? " collapsed" : "")}>
+            <div
+              className={"working-head" + (workDone ? " toggle" : "")}
+              title={workDone ? (workOpen ? "Hide the steps" : "Show the steps") : undefined}
+              onClick={workDone ? () => setWorkOpen((o) => !o) : undefined}
+            >
+              {!workDone && <span className="spin" />}
+              <span className="w-elapsed">{(workDone ? "Worked · " : "Working · ") + workElapsed.toFixed(1) + "s"}</span>
+              {workSteps[workSteps.length - 1]?.label === "stopped" && <span className="w-stopped">· stopped</span>}
+            </div>
+            {workSteps.map((s, si) => {
+              if (s.label === "stopped") return null
+              const live = !workDone && si === workSteps.length - 1
+              const endAt = workSteps[si + 1]?.at ?? (workDone ? workStoppedRef.current : Date.now())
+              const dur = (s.ms != null ? (s.ms / 1000).toFixed(1) : ((endAt - s.at) / 1000).toFixed(1)) + "s"
+              return (
+                <div key={si} className={"w-step " + (live ? "live" : "done")}>
+                  {live ? s.label : "✓ " + s.label + " · " + dur}
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <div className={"bubble rendered" + (streamingHere ? " streaming" : "")}>
+          {turn.text ? (
+            <Suspense fallback={<span>{turn.text}</span>}>
+              <Markdown>{turn.text}</Markdown>
+            </Suspense>
+          ) : null}
+        </div>
+        {turn.sources && turn.sources.length > 0 && (
+          <div className="srcs">
+            {turn.sources.map((s, si) => (
+              <button
+                type="button"
+                key={si}
+                title={t("src.open", "Open this source document")}
+                onClick={() => setSourcesPanel({ title: s.source, excerpt: s.excerpt })}
+              >
+                {s.source}
+              </button>
+            ))}
+          </div>
+        )}
+        {!streamingHere && (
+          <div className="msg-acts">
+            <button
+              type="button"
+              title="Copy this answer"
+              aria-label="Copy this answer"
+              className={copiedIdx === i ? "copied" : ""}
+              onClick={() => copyAnswer(i)}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={COPY_D} /></svg>
+            </button>
+            <button
+              type="button"
+              title="Good answer"
+              aria-label="Good answer"
+              className={feedback[i] === "up" ? "fb-on" : ""}
+              onClick={() => markFeedback(i, "up")}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={UP_D} /></svg>
+            </button>
+            <button
+              type="button"
+              title="Needs work"
+              aria-label="Needs work"
+              className={feedback[i] === "down" ? "fb-on" : ""}
+              onClick={() => markFeedback(i, "down")}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={DOWN_D} /></svg>
+            </button>
+            <span className="time">{new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
-    <div className="flex h-full">
+    <>
       <a
         href="#kestrel-main"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-primary-foreground"
+        className="sr-only"
+        onFocus={(e) => e.currentTarget.classList.remove("sr-only")}
+        onBlur={(e) => e.currentTarget.classList.add("sr-only")}
       >
         Skip to chat
       </a>
-      {collapsed && !view.startsWith("legacy") && (
-        <Button
-          variant="secondary"
-          size="icon"
-          aria-label="Expand sidebar"
-          onClick={() => {
-            localStorage.setItem("kestrel.sidebar.collapsed", "0")
-            setCollapsed(false)
-          }}
-          className="fixed left-3 top-3 z-30 rounded-lg text-muted-foreground shadow"
-        >
-          <PanelLeft className="h-4 w-4" />
-        </Button>
-      )}
-      <Sidebar
-        collapsed={collapsed || view.startsWith("legacy")}
-        onToggle={() => {
-          setCollapsed((c) => {
-            localStorage.setItem("kestrel.sidebar.collapsed", c ? "0" : "1")
-            return !c
-          })
+
+      {/* Legacy .sb-toggle: re-opens a retracted bar; slides the off-canvas
+          bar in on narrow screens */}
+      <button
+        type="button"
+        className="sb-toggle"
+        aria-label="Toggle navigation"
+        onClick={() => {
+          if (collapsed) toggleSidebar()
+          else setMobileOpen((o) => !o)
         }}
+      >
+        ☰
+      </button>
+
+      <Sidebar
+        mobileOpen={mobileOpen}
+        onToggle={toggleSidebar}
         currentBrain={brain}
         currentChat={chatId}
         view={view}
         onViewChange={openView}
         onBrainChange={handleBrainChange}
-        onNewChat={newChat}
+        onNewChat={() => { newChat(); setMobileOpen(false) }}
         onOpenChat={(id, b) => void openChat(id, b ?? brain)}
         chats={chats}
         onRefreshChats={refreshChats}
@@ -635,16 +882,11 @@ export default function App() {
         onSignOut={clerkSignOut}
         signedIn={signedIn}
         authMode={authMode}
+        user={clerkUser}
       />
-      <CreateBrainDialog
-        open={createOpen}
-        onClose={(created) => {
-          setCreateOpen(false)
-          refreshBrains()
-          if (created) handleBrainChange(created)
-        }}
-      />
-      <main id="kestrel-main" className="flex min-w-0 flex-1 flex-col">
+
+      <div className="app-main" id="kestrel-main">
+        <h1 className="sr-only">Kestrel Company Brain</h1>
         {view === "connectors" ? (
           <Connectors />
         ) : view === "graph" ? (
@@ -655,146 +897,244 @@ export default function App() {
           <LegacyMount path="/upload" label="Add documents" />
         ) : view === "legacy-graph" ? (
           <LegacyMount path="/graph" label="Graph (full)" />
-        ) : turns.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center px-6 pb-10">
-            <Watermark />
-            <div className="relative mb-8" aria-hidden>
-              <div className="absolute inset-0 -m-6 rounded-full bg-accent-glow blur-2xl" />
-              <div className="relative h-28 w-28 rotate-45 rounded-2xl border border-accent/30 bg-wash-2 shadow-[0_0_40px_rgba(232,134,59,0.12)]" />
-            </div>
-            <h1 className="text-[30px] font-semibold tracking-tight text-foreground">{greet}</h1>
-            <div className="mt-10 w-full max-w-[820px]">
-              <PromptBox
-                brain={brain}
-                brains={brains.map((b) => b.name)}
-                onBrainChange={handleBrainChange}
-                streaming={streaming}
-                hasInput={hasInput}
-                stage={stage}
-                onSend={handleSend}
-                onStop={handleStop}
-              />
-            </div>
-            <div className="mt-6 w-full max-w-[820px]">
-              <SuggestionChips
-                suggestions={chips.map((c) => c.label)}
-                onSelect={(q) => handleSend(q)}
-              />
-            </div>
-          </div>
         ) : (
-          <div className="flex-1 overflow-y-auto" aria-live="polite">
-            <div ref={threadRef} className="mx-auto max-w-[780px] px-6 py-10">
-              {turns.map((turn, i) => (
-                <TurnRise key={i} className={cn("group/turn mb-7", turn.role === "user" && "flex justify-end")}>
-                  <div
-                    className={cn(
-                      turn.role === "user"
-                        ? "max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-wash-2 px-4 py-2.5 text-[14px] leading-relaxed text-ink-2"
-                        : "text-foreground/90",
-                    )}
-                  >
-                    {turn.role === "bot" ? (
-                      <div className="max-w-none [&_a]:text-accent [&_a]:underline-offset-2 hover:[&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-accent/40 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-panel-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12.5px] [&_h2]:mb-2 [&_h2]:mt-5 [&_h2]:text-[15px] [&_h2]:font-semibold [&_h3]:mt-4 [&_h3]:text-[14px] [&_h3]:font-semibold [&_hr]:border-line [&_li]:my-1 [&_li]:marker:text-accent/70 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-3 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-line [&_pre]:bg-panel-2 [&_pre]:p-3.5 [&_pre]:text-[12.5px] [&_pre]:leading-relaxed [&_strong]:text-ink [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border-b [&_td]:border-line [&_td]:px-2 [&_td]:py-1.5 [&_td]:text-[13px] [&_th]:border-b-2 [&_th]:border-line-2 [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:text-[10.5px] [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground">
-                        <Suspense fallback={<span className="whitespace-pre-wrap">{turn.text}</span>}><Markdown>{turn.text}</Markdown></Suspense>
+          <>
+            <div id="home">
+              <div className="watermark">◆</div>
+              <div className="greeting" id="greeting">{greet}</div>
+            </div>
+            <div id="thread-wrap">
+              <div className="wrap">
+                <div id="thread" aria-live="polite">
+                  {turns.length === 0 && <div className="placeholder" id="empty" />}
+                  {turns.map((turn, i) => renderTurn(turn, i))}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {view === "chat" && (
+        <form id="f" ref={formRef} onSubmit={handleFormSubmit}>
+          <div className="field">
+            <div className="bar-card bar-anchor" ref={barCardRef}>
+              <div className="bar-top">
+                <button
+                  type="button"
+                  className="bar-btn"
+                  id="brainswitch"
+                  title={t("composer.switch_brain", "Switch brain")}
+                  aria-label="Switch brain"
+                  onClick={(e) => { e.stopPropagation(); setMenu2Open(false); setBrainMenuOpen((o) => !o) }}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d={GRID_D} /></svg>
+                  <span className="bname" id="brainname">{brainLabel}</span>
+                  <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d={CHEV_DOWN_D} /></svg>
+                </button>
+                <span className="spacer" />
+                <button
+                  type="button"
+                  className="bar-btn"
+                  id="menu2-toggle"
+                  title={t("composer.actions", "Conversation actions")}
+                  aria-label="Conversation actions"
+                  onClick={(e) => { e.stopPropagation(); setBrainMenuOpen(false); setMenu2Open((o) => !o) }}
+                >
+                  ⋯
+                </button>
+              </div>
+
+              {pendingFiles.length > 0 && (
+                <div className="atts" id="pending">
+                  {pendingFiles.map((f, i) => {
+                    const imagey = (f.type || "").startsWith("image/")
+                    return (
+                      <div className="att" key={`${f.name}-${i}`}>
+                        {imagey ? (
+                          <img src={URL.createObjectURL(f)} alt={f.name} />
+                        ) : (
+                          <div className="att-file">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d={DOC_D} /></svg>
+                            <span>{f.name}</span>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          className="x"
+                          title="Remove attachment"
+                          aria-label={`Remove ${f.name}`}
+                          onClick={(e) => { e.stopPropagation(); setPendingFiles((cur) => cur.filter((_, j) => j !== i)) }}
+                        >
+                          ×
+                        </button>
                       </div>
-                    ) : (
-                      turn.text
-                    )}
-                    {streaming && i === turns.length - 1 && turn.role === "bot" && (
-                      <span className="ml-0.5 inline-block h-3.5 w-[7px] translate-y-0.5 animate-pulse rounded-[2px] bg-accent/80" aria-hidden />
-                    )}
-                  </div>
-                  {turn.role === "bot" && i === turns.length - 1 && workSteps.length > 0 && (
-                    <WorkingLog steps={workSteps} elapsed={workElapsed} streaming={streaming} />
-                  )}
-                  {turn.role === "bot" && turn.sources && turn.sources.length > 0 && (
-                    <div className="mt-3">
-                      <div className="mb-1.5 text-[10.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                        Grounded in {turn.sources.length} source{turn.sources.length > 1 ? "s" : ""}
-                      </div>
-                      <div className="flex flex-wrap gap-1.5" aria-label="Cited sources">
-                        {turn.sources.map((s, si) => (
-                          <button
-                            key={si}
-                            type="button"
-                            onClick={() => setSourcesPanel({ title: s.source, excerpt: s.excerpt })}
-                            className="rounded-full border border-border bg-panel px-2.5 py-1 font-mono text-[11px] text-muted-foreground transition-colors duration-150 ease-out hover:border-accent/60 hover:bg-accent-dim hover:text-accent"
-                          >
-                            {si + 1}. {s.source}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {turn.role === "bot" && (
-                    <MessageActions
-                      onCopy={() => navigator.clipboard.writeText(turn.text)}
-                      onEmail={() => handleEmailDraft(turn.text)}
-                      onSteps={() => handleSteps(turn.text)}
-                      onChatUpdate={() => handleChatUpdate(turn.text)}
-                      onThumbsUp={() => toast.success(t("action.thumbs_up", "Helpful"))}
-                      onThumbsDown={() => toast.info(t("action.thumbs_down", "Not helpful"))}
-                      time={new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                    />
-                  )}
-                </TurnRise>
-              ))}
-              {streaming && (
-                <div className="mb-6 text-muted-foreground" aria-live="polite">
-                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary" />
+                    )
+                  })}
                 </div>
               )}
+
+              <textarea
+                id="q"
+                ref={qRef}
+                rows={1}
+                value={input}
+                onChange={(e) => { setInput(e.target.value); growQ() }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    formRef.current?.requestSubmit()
+                  }
+                }}
+                placeholder={brain && brain !== "demo" && brain !== DEFAULT_BRAIN
+                  ? t("composer.placeholder_brain", "Ask across the documents you uploaded…")
+                  : t("composer.placeholder", "Ask across every document the company has written…")}
+                autoComplete="off"
+                autoFocus
+              />
+
+              <div className="bar-row">
+                <button
+                  type="button"
+                  className="bar-btn"
+                  id="attach"
+                  title={t("composer.attach", "Attach files to this message")}
+                  aria-label="Attach files to this message"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d={PLUS_D} /></svg>
+                </button>
+                <span className="spacer" style={{ flex: 1 }} />
+                <button id="go" type="submit" className={goClass} aria-label={streaming ? "Stop generating" : "Send"}>
+                  {streaming ? (
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d={STOP_D} /></svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={SEND_D} /></svg>
+                  )}
+                </button>
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                id="chat-file"
+                multiple
+                hidden
+                onChange={(e) => { addFiles(e.target.files); e.target.value = "" }}
+              />
+
+              <div className="pop" id="menu2" hidden={!menu2Open}>
+                <div className="count">{questionCount} question(s)</div>
+                <button type="button" onClick={handleCopyTranscript}>{t("menu.copy_transcript", "Copy transcript")}</button>
+                <button type="button" onClick={() => { setMenu2Open(false); openView("legacy-upload") }}>{t("menu.add_docs", "Add documents to this brain…")}</button>
+                <div className="pop-sep" />
+                <button type="button" onClick={() => { handleExportMd(); setMenu2Open(false) }}>{t("menu.export_md", "Export Markdown")}</button>
+                <button type="button" onClick={() => { handleExportTxt(); setMenu2Open(false) }}>{t("menu.export_txt", "Export plain text")}</button>
+                <button type="button" onClick={() => { handleExportDocx(); setMenu2Open(false) }}>{t("menu.export_docx", "Export Word document")}</button>
+                <button type="button" onClick={() => { handleExportPdf(); setMenu2Open(false) }}>{t("menu.export_pdf", "Export PDF")}</button>
+                <div className="pop-sep" />
+                <button type="button" className={clearArmed ? "armed" : ""} onClick={handleClearChat}>
+                  {clearArmed ? "Click again to clear" : t("menu.clear_chat", "Clear conversation")}
+                </button>
+              </div>
+
+              <div className="pop" id="brainmenu" hidden={!brainMenuOpen}>
+                <div className="pop-note">Ask in</div>
+                {brains.map((b) => {
+                  const isCurrent = b.name === brain
+                  return (
+                    <button
+                      type="button"
+                      key={b.name}
+                      onClick={(e) => { e.stopPropagation(); if (!isCurrent) handleBrainChange(b.name); setBrainMenuOpen(false) }}
+                    >
+                      <span>{b.name}{b.is_demo ? " · demo" : ""}</span>
+                      {isCurrent && <span className="tick">✓</span>}
+                    </button>
+                  )
+                })}
+                <div className="pop-sep" />
+                <a
+                  className="pop-item"
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setBrainMenuOpen(false); setCreateOpen(true) }}
+                >
+                  ＋ New brain…
+                </a>
+              </div>
             </div>
           </div>
-        )}
-        {sourcesPanel && (
-          <SourceDrawer
-            title={sourcesPanel.title}
-            excerpt={sourcesPanel.excerpt}
-            brain={brain}
-            onClose={() => setSourcesPanel(null)}
-          />
-        )}
-        {turns.length > 0 && view === "chat" && (
-          <div className="sticky bottom-0 z-10 bg-gradient-to-t from-bg via-bg/95 to-transparent px-6 pb-4 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]" style={{ backgroundColor: "transparent" }}>
-            <div className="pointer-events-none absolute inset-x-0 -top-8 h-8 bg-gradient-to-t from-bg to-transparent" aria-hidden />
-            <PromptBox
-              brain={brain}
-              brains={brains.map((b) => b.name)}
-              onBrainChange={handleBrainChange}
-              streaming={streaming}
-              hasInput={hasInput}
-              stage={stage}
-              onSend={handleSend}
-              onStop={handleStop}
-            />
-          </div>
-        )}
-      </main>
+        </form>
+      )}
 
-      {/* Left rail — message scrubber */}
-      {view === "chat" && turns.length > 0 && (
-        <LeftRail
-          turns={turns}
-          onJump={(idx) => {
-            const el = threadRef.current?.children[idx] as HTMLElement | undefined
-            el?.scrollIntoView({ behavior: "smooth", block: "center" })
-          }}
+      {view === "chat" && (
+        <div className="chips" id="chips">
+          {chips.map((c) => (
+            <button type="button" className="chip" key={c.label} onClick={() => handleSend(c.query)}>
+              <ChipSvg name={c.icon} />
+              <span>{c.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <button
+        type="button"
+        id="jump-latest"
+        title="Jump to latest"
+        aria-label="Jump to latest"
+        onClick={() => {
+          scrollBottom()
+          qRef.current?.focus()
+        }}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d={JUMP_D} /></svg>
+      </button>
+
+      {/* Left rail — one tick per user turn; hover previews, click jumps */}
+      <div id="rail">
+        {turns.map((turn, i) =>
+          turn.role !== "user" ? null : (
+            <button
+              type="button"
+              key={i}
+              className={"tick" + (railHere === i ? " here" : "")}
+              style={{ animation: `railIn .3s ease ${i * 40}ms backwards` }}
+              aria-label={`Jump to: ${(turn.text || "message").slice(0, 40)}`}
+              onClick={() => turnEls.current[i]?.scrollIntoView({ behavior: "smooth", block: "center" })}
+              onMouseEnter={(e) => {
+                const answer = turns[i + 1] && turns[i + 1].role === "bot" ? cleanText(turns[i + 1].text).slice(0, 110) : ""
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                setRailTip({ x: r.right + 12, y: Math.max(12, r.top - 14), label: (turn.text || "message").slice(0, 64), answer })
+              }}
+              onMouseLeave={() => setRailTip(null)}
+            />
+          ),
+        )}
+      </div>
+      <div id="rail-tip" style={railTip ? { display: "block", left: railTip.x, top: railTip.y } : undefined}>
+        {railTip && (
+          <>
+            <b>{railTip.label}</b>
+            {railTip.answer ? railTip.answer + "…" : ""}
+          </>
+        )}
+      </div>
+
+      {sourcesPanel && (
+        <SourceDrawer
+          title={sourcesPanel.title}
+          excerpt={sourcesPanel.excerpt}
+          brain={brain}
+          onClose={() => setSourcesPanel(null)}
         />
       )}
 
-      {/* Jump to latest */}
-      <JumpToLatest
-        visible={jumpVisible && view === "chat"}
-        onClick={scrollBottom}
-      />
-
-      {/* Restore overlay */}
-      <RestoreOverlay visible={restoring} />
-
-      {/* Switch fx */}
-      <SwitchFx visible={switching} />
+      {/* Legacy overlays: switch spinner + restore cover */}
+      <div id="switch-fx" aria-hidden="true"><span className="spin big" /></div>
+      <div id="restore" hidden={!restoring}>
+        <div className="restore-card"><span className="spin" /> Restoring chat…</div>
+      </div>
 
       {/* Auth gate */}
       <AuthGate visible={authMode === "clerk" && !signedIn} />
@@ -807,6 +1147,7 @@ export default function App() {
         onTheme={() => { setSettingsOpen(false); setThemeMenuOpen(true) }}
         onUsage={() => { setSettingsOpen(false); toast.info(t("usage.empty", "No model calls recorded yet.")) }}
         onUpgrade={() => { setSettingsOpen(false); toast.info(t("up.soon", "Coming soon")) }}
+        onConnectors={() => { setSettingsOpen(false); openView("connectors") }}
         onAccount={clerkOpenProfile}
         onSignOut={clerkSignOut}
         signedIn={signedIn}
@@ -852,17 +1193,16 @@ export default function App() {
         </PopMenu>
       )}
 
-      {/* Export menu */}
-      <ExportMenu
-        open={exportMenuOpen}
-        onExportMd={handleExportMd}
-        onExportTxt={handleExportTxt}
-        onExportDocx={handleExportDocx}
-        onExportPdf={handleExportPdf}
-        onCopyTranscript={handleCopyTranscript}
+      <CreateBrainDialog
+        open={createOpen}
+        onClose={(created) => {
+          setCreateOpen(false)
+          refreshBrains()
+          if (created) handleBrainChange(created)
+        }}
       />
 
       <Toaster position="bottom-right" />
-    </div>
+    </>
   )
 }

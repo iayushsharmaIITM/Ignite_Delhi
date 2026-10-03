@@ -1,31 +1,15 @@
-import { useMemo, useRef, useState } from "react"
-import {
-  ChevronLeft,
-  MessageSquare,
-  MoreHorizontal,
-  Pencil,
-  Pin,
-  Plug,
-  Plus,
-  Search,
-  Trash2,
-  Upload,
-  Waypoints,
-} from "lucide-react"
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { useMemo, useState } from "react"
+
+// The sidebar is the legacy shell's `aside.shell` DOM (static/shell.js
+// buildLinks/chatGroup/renderUser), styled by legacy/deck.css. React only
+// replaces the state layer: the same classes mean the same styles, and every
+// handler is the pre-port React one. Nav matches legacy exactly (Connectors
+// lives in the gear menu, as on :8000).
 
 type ChatSummary = { id: string; title: string; brain: string; at: number }
+export type SidebarUser = { nm: string; em: string; initials: string; imageUrl?: string } | null
 type Props = {
-  collapsed: boolean
+  mobileOpen?: boolean
   onToggle: () => void
   currentBrain: string
   currentChat: string | null
@@ -43,12 +27,70 @@ type Props = {
   onSignOut?: () => void
   signedIn?: boolean
   authMode?: string
+  user?: SidebarUser
 }
 
+// Same icons as shell.js buildLinks — paths copied verbatim.
+const NAV_ICONS: Record<string, string> = {
+  ask: "M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.9-.9L3 21l1.9-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z",
+  upload: "M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15",
+  brains: "",
+  graph: "",
+}
+const FOLDER_D = "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+const TRASH_D = "M4 7h16M9 7V5h6v2m-8 0 1 13h8l1-13"
+const FILTER_D = "M4 6h16M7 12h10M10 18h4"
+const CARET_D = "m9 6 6 6-6 6"
+
+function NavIcon({ name }: { name: string }) {
+  const d = NAV_ICONS[name]
+  if (name === "brains") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="7.5" height="7.5" rx="2" /><rect x="13.5" y="3" width="7.5" height="7.5" rx="2" />
+        <rect x="3" y="13.5" width="7.5" height="7.5" rx="2" /><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2" />
+      </svg>
+    )
+  }
+  if (name === "graph") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="5" r="2.4" /><circle cx="5" cy="18" r="2.4" /><circle cx="19" cy="18" r="2.4" />
+        <path d="M10.4 6.8 6.6 15.7M13.6 6.8l3.8 8.9M7.4 18h9.2" />
+      </svg>
+    )
+  }
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d={d} />
+    </svg>
+  )
+}
+
+const VIEW_KEY = "kestrel.sidebar.view"
+const FOLD_KEY = "kestrel.sidebar.collapsed" // legacy: JSON list of folded brains
 const CHAT_CAP = 16
+const PER_BRAIN = 5
+
+function readView(): { mode: "brain" | "timeline"; sort: "updated" | "created" } {
+  try {
+    const v = JSON.parse(localStorage.getItem(VIEW_KEY) || "")
+    if (v?.mode === "timeline" || v?.mode === "brain") return { mode: v.mode, sort: v.sort === "created" ? "created" : "updated" }
+  } catch { /* first run or quota — legacy defaults */ }
+  return { mode: "brain", sort: "updated" }
+}
+
+function relTime(ts: number): string {
+  if (!ts) return ""
+  const s = Math.max(0, (Date.now() - ts) / 1000)
+  if (s < 60) return "now"
+  if (s < 3600) return Math.round(s / 60) + "m"
+  if (s < 86400) return Math.round(s / 3600) + "h"
+  return Math.round(s / 86400) + "d"
+}
 
 export function Sidebar({
-  collapsed,
+  mobileOpen,
   onToggle,
   currentBrain,
   currentChat,
@@ -62,260 +104,217 @@ export function Sidebar({
   onDeleteBrainChats,
   onOpenSettings,
   onOpenAccount,
-  onSignOut,
   signedIn,
   authMode,
+  user,
 }: Props) {
-  // Parity hooks — rendered in the user area below; kept referenced for TS.
-  void onDeleteChat
-  void onDeleteBrainChats
-  const [search, setSearch] = useState("")
-  const [foldersOpen] = useState<Record<string, boolean>>({})
-  const armedRef = useRef<string | null>(null)
-  const [, force] = useState(0)
+  const [chatView, setChatView] = useState(readView)
+  const [viewMenuOpen, setViewMenuOpen] = useState(false)
+  const [folded, setFolded] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(FOLD_KEY) || "[]") } catch { return [] }
+  })
+  const [armed, setArmed] = useState<string | null>(null) // chat id or "brain:<name>"
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return chats.filter((c) => !q || c.title.toLowerCase().includes(q) || (c.brain || "").toLowerCase().includes(q))
-  }, [chats, search])
+  const sorted = useMemo(() => {
+    const keyOf = (c: ChatSummary) => (chatView.sort === "created" ? (c as ChatSummary & { created?: number }).created || c.at : c.at)
+    return [...chats].sort((a, b) => keyOf(b) - keyOf(a))
+  }, [chats, chatView.sort])
 
   const groups = useMemo(() => {
-    const m = new Map<string, typeof filtered>()
-    filtered.forEach((c) => {
+    const m = new Map<string, ChatSummary[]>()
+    sorted.forEach((c) => {
       const k = c.brain || currentBrain
       if (!m.has(k)) m.set(k, [])
       m.get(k)!.push(c)
     })
     return [...m.entries()]
-  }, [filtered, currentBrain])
+  }, [sorted, currentBrain])
 
-  const qs = (brain: string) => (brain && brain !== "demo" ? `?brain=${encodeURIComponent(brain)}` : "")
+  const persistView = (v: { mode: "brain" | "timeline"; sort: "updated" | "created" }) => {
+    setChatView(v)
+    try { localStorage.setItem(VIEW_KEY, JSON.stringify(v)) } catch { /* quota */ }
+  }
+  const toggleFold = (brain: string) => {
+    setFolded((prev) => {
+      const next = prev.includes(brain) ? prev.filter((b) => b !== brain) : [...prev, brain]
+      try { localStorage.setItem(FOLD_KEY, JSON.stringify(next)) } catch { /* quota */ }
+      return next
+    })
+  }
+  // Two-step armed destructive confirm, same anatomy as shell.js chat-del.
+  const armOr = (key: string, run: () => void) => {
+    if (armed === key) { setArmed(null); run(); return }
+    setArmed(key)
+  }
 
-  return (
-    <aside
-      aria-label="Kestrel navigation"
-      className={cn(
-        "flex h-full flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out",
-        "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:shadow-2xl",
-        collapsed ? "w-0 overflow-hidden opacity-0" : "w-[268px] opacity-100",
-      )}
+  const navItem = (active: boolean, label: string, icon: string, onClick: () => void) => (
+    <a
+      className={"nav-item" + (active ? " active" : "")}
+      href="#"
+      onClick={(e) => { e.preventDefault(); onClick() }}
     >
-      <div className="flex items-center gap-3 border-b border-sidebar-border px-4 py-4">
-        <div className="grid h-9 w-9 flex-none place-items-center rounded-lg bg-primary text-lg text-primary-foreground shadow">
-          ◆
-        </div>
-        <div className="min-w-0">
-          <div className="truncate text-[15px] font-semibold tracking-tight text-foreground">Kestrel</div>
-          <div className="text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-            Company Brain
-          </div>
-        </div>
-        <TooltipProvider delayDuration={200}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Collapse sidebar"
-                onClick={onToggle}
-                className="ml-auto h-7 w-7 text-muted-foreground"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">Collapse</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
+      <NavIcon name={icon} /><span>{label}</span>
+    </a>
+  )
 
-      <nav aria-label="Workspace" className="px-3 pt-3">
-        <div className="px-2 pb-1 text-[9.5px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70">
-          Workspace
-        </div>
-        <Button variant="ghost" className="w-full justify-start gap-2.5 text-[13.5px] text-muted-foreground" onClick={onNewChat}>
-          <MessageSquare className="h-4 w-4 opacity-75" /> New chat
-        </Button>
-        <Button variant="ghost" className="w-full justify-start gap-2.5 text-[13.5px] text-muted-foreground" onClick={() => onBrainChange("__upload__")}>
-          <Upload className="h-4 w-4 opacity-75" /> New brain
-        </Button>
-        <Button
-          variant="ghost"
-          aria-pressed={view === "graph"}
-          className={cn(
-            "w-full justify-start gap-2.5 text-[13.5px]",
-            view === "graph" ? "bg-sidebar-accent text-foreground" : "text-muted-foreground",
-          )}
-          onClick={() => onBrainChange("__graph__")}
+  const chatRow = (brain: string, c: ChatSummary, timeLabel?: string) => {
+    const active = c.id === currentChat && brain === (currentBrain || "demo")
+    const title = c.title || "Untitled"
+    const armedNow = armed === c.id
+    return (
+      <div key={brain + "/" + c.id} className={"nav-item chat-item" + (active ? " active" : "")}>
+        <a
+          className="chat-link"
+          href="#"
+          title={title}
+          onClick={(e) => { e.preventDefault(); onOpenChat(c.id, brain) }}
         >
-          <Waypoints className="h-4 w-4 opacity-75" /> Graph
-        </Button>
-        <Button
-          variant="ghost"
-          aria-pressed={view === "connectors"}
-          className={cn(
-            "w-full justify-start gap-2.5 text-[13.5px]",
-            view === "connectors"
-              ? "bg-sidebar-accent text-foreground"
-              : "text-muted-foreground",
-          )}
-          onClick={() => onViewChange("connectors")}
+          <span className="chat-title">{title.slice(0, 30)}</span>
+        </a>
+        {timeLabel ? <span className="chat-time">{timeLabel}</span> : null}
+        <button
+          type="button"
+          className={"row-del" + (armedNow ? " armed" : "")}
+          title={armedNow ? "Click again to delete" : "Delete chat"}
+          aria-label="Delete chat"
+          onClick={(e) => { e.stopPropagation(); armOr(c.id, () => onDeleteChat?.(c.id, brain)) }}
         >
-          <Plug className="h-4 w-4 opacity-75" /> Connectors
-        </Button>
-      </nav>
-
-      <div className="px-3 pt-4">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search chats…"
-            aria-label="Search chats"
-            className="h-8 border-none bg-wash-3 pl-8 text-[13px] focus-visible:ring-1"
-          />
-        </div>
+          {armedNow
+            ? <span>×</span>
+            : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d={TRASH_D} /></svg>}
+        </button>
       </div>
+    )
+  }
 
-      <div className="px-3 pt-3">
-        <div className="flex items-center justify-between px-2 pb-1">
-          <span className="text-[9.5px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70">Chats</span>
-          <Button variant="ghost" size="icon" aria-label="New chat" onClick={onNewChat} className="h-6 w-6">
-            <Plus className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-3 pb-4">
-        {groups.length === 0 && (
-          <div className="rounded-lg border border-line px-3 py-2.5 text-xs text-muted-foreground">
-            {search ? "No chats match your search." : "No saved chats yet — start one and it's saved here, per brain."}
-          </div>
-        )}
-        <div role="list">
+  let shown = 0
+  const listHtml =
+    groups.length === 0 ? (
+      <div className="chat-empty">No saved chats yet</div>
+    ) : chatView.mode === "timeline" ? (
+      <>
+        {sorted.slice(0, 14).map((c) => {
+          const key = (c as ChatSummary & { created?: number }).created || c.at
+          return chatRow(c.brain || currentBrain, c, relTime(key))
+        })}
+        <div className="view-note">Timeline · sorted by {chatView.sort === "created" ? "Created" : "Updated"}</div>
+      </>
+    ) : (
+      <>
         {groups.map(([brain, list]) => {
-          const open = foldersOpen[brain] !== false
+          if (shown >= CHAT_CAP) return null
+          const isFolded = folded.includes(brain)
+          const groupKey = "brain:" + brain
+          const groupArmed = armed === groupKey
+          const rows = isFolded ? null : list.slice(0, PER_BRAIN).map((c) => {
+            if (shown >= CHAT_CAP) return null
+            shown += 1
+            return chatRow(brain, c)
+          })
           return (
-            <div key={brain} role="listitem">
-              <button
-                type="button"
-                aria-expanded={open}
-                onClick={() => {
-                  foldersOpen[brain] = !open
-                  force((n) => n + 1)
-                }}
-                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[12.5px] font-semibold text-foreground/90 hover:bg-sidebar-accent"
+            <div key={brain}>
+              <div
+                className={"brain-row" + (isFolded ? " folded" : "")}
+                title="Expand or collapse"
+                onClick={() => toggleFold(brain)}
               >
-                <span className={cn("text-[9px] text-muted-foreground transition-transform", open && "rotate-90")}>▶</span>
-                <span className="truncate">{brain === "demo" ? "Demo brain" : brain}</span>
-                <span className="ml-auto text-[10px] text-muted-foreground">{list.length}</span>
-              </button>
-              {open &&
-                list.slice(0, CHAT_CAP).map((c) => {
-                  const active = c.id === currentChat && brain === (currentBrain || "demo")
-                  return (
-                    <TooltipProvider key={c.id} delayDuration={300}>
-                      <div
-                        className={cn(
-                          "group flex items-center rounded-lg pl-6 pr-1",
-                          active ? "bg-sidebar-accent" : "hover:bg-wash",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => onOpenChat(c.id, brain)}
-                          className={cn(
-                            "group/item flex min-w-0 flex-1 items-center gap-2 py-2 text-left text-[13px] transition-colors duration-150 ease-out",
-                            active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-                          )}
-                        >
-                          <span className={cn(
-                            "h-1 w-1 flex-none rounded-full transition-colors duration-150 ease-out",
-                            active ? "bg-accent" : "bg-muted-foreground/50 group-hover/item:bg-accent/60",
-                          )} />
-                          <span className="truncate">{c.title}</span>
-                        </button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              aria-label={`Actions for ${c.title}`}
-                              className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                            >
-                              <MoreHorizontal className="h-3.5 w-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => alert("Rename: " + c.title)}>
-                              <Pencil className="h-3.5 w-3.5" /> Rename
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => alert("Pinned: " + c.title)}>
-                              <Pin className="h-3.5 w-3.5" /> Pin
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => {
-                                if (armedRef.current === c.id) {
-                                  localStorage.setItem(
-                                    "kestrel.chats." + brain,
-                                    JSON.stringify(
-                                      JSON.parse(localStorage.getItem("kestrel.chats." + brain) || "[]").filter(
-                                        (x: { id: string }) => x.id !== c.id,
-                                      ),
-                                    ),
-                                  )
-                                  armedRef.current = null
-                                  force((n) => n + 1)
-                                } else {
-                                  armedRef.current = c.id
-                                  force((n) => n + 1)
-                                }
-                              }}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              {armedRef.current === c.id ? "Click again to delete" : "Delete"}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </TooltipProvider>
-                  )
-                })}
+                <svg className="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d={CARET_D} /></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={FOLDER_D} /></svg>
+                <span className="brain-name">{brain === "demo" ? "Demo brain" : brain}</span>
+                <button
+                  type="button"
+                  className={"row-del group-del" + (groupArmed ? " armed" : "")}
+                  title="Delete all chats in this brain"
+                  aria-label="Delete all chats in this brain"
+                  onClick={(e) => { e.stopPropagation(); armOr(groupKey, () => onDeleteBrainChats?.(brain)) }}
+                >
+                  {groupArmed ? <span>× Remove</span> : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d={TRASH_D} /></svg>}
+                </button>
+              </div>
+              {rows}
             </div>
           )
         })}
+        <div className="view-note">Grouped by brain · sorted by {chatView.sort === "created" ? "Created" : "Updated"}</div>
+      </>
+    )
+
+  return (
+    <aside className={"shell" + (mobileOpen ? " open" : "")} aria-label="Kestrel navigation">
+      <div className="brand">
+        <div className="mark">◆</div>
+        <div>
+          <div className="name">Kestrel</div>
+          <div className="sub">Company Brain</div>
         </div>
+        <div className="grow" />
+        <button type="button" className="sb-collapse" title="Retract sidebar" aria-label="Retract sidebar" onClick={onToggle}>«</button>
       </div>
 
-      {authMode === "clerk" && (
-        <div className="border-t border-sidebar-border px-3 py-3">
-          {signedIn ? (
-            <div className="flex items-center gap-2">
-              <span className="grid h-7 w-7 flex-none place-items-center rounded-full bg-accent-dim text-accent" aria-hidden>◆</span>
-              <div className="min-w-0 flex-1 text-[11.5px] leading-tight text-muted-foreground">Signed in</div>
-              <button type="button" aria-label="Manage account" title="Manage account"
-                      onClick={() => onOpenAccount?.()}
-                      className="rounded-md p-1.5 text-muted-foreground transition-colors duration-150 ease-out hover:bg-wash hover:text-foreground">
-                ⚙
+      <nav className="nav">
+        <div className="nav-label">Workspace</div>
+        {navItem(false, "New chat", "ask", onNewChat)}
+        {navItem(false, "New brain", "upload", () => onBrainChange("__upload__"))}
+        {navItem(view === "legacy-brains", "Brains", "brains", () => onViewChange("legacy-brains"))}
+        {navItem(view === "graph" || view === "legacy-graph", "Graph", "graph", () => onBrainChange("__graph__"))}
+        <div id="sb-chats">
+          <div className="chats-head">
+            <span className="nav-label">Chats</span>
+            <button
+              type="button"
+              className="head-btn"
+              title="View and sort"
+              aria-label="View and sort"
+              onClick={() => setViewMenuOpen((v) => !v)}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d={FILTER_D} /></svg>
+            </button>
+          </div>
+          {viewMenuOpen && (
+            <div className="pop sb-pop" id="sb-viewmenu">
+              <div className="pop-note">View</div>
+              <button type="button" onClick={() => { persistView({ ...chatView, mode: "brain" }); setViewMenuOpen(false) }}>
+                <span>By brain</span>{chatView.mode === "brain" && <span className="tick">✓</span>}
               </button>
-              <button type="button" aria-label="Sign out" title="Sign out"
-                      onClick={() => onSignOut?.()}
-                      className="rounded-md p-1.5 text-muted-foreground transition-colors duration-150 ease-out hover:bg-wash hover:text-foreground">
-                ⎋
+              <button type="button" onClick={() => { persistView({ ...chatView, mode: "timeline" }); setViewMenuOpen(false) }}>
+                <span>Timeline</span>{chatView.mode === "timeline" && <span className="tick">✓</span>}
+              </button>
+              <div className="pop-sep" />
+              <div className="pop-note">Sort by</div>
+              <button type="button" onClick={() => { persistView({ ...chatView, sort: "updated" }); setViewMenuOpen(false) }}>
+                <span>Updated</span>{chatView.sort === "updated" && <span className="tick">✓</span>}
+              </button>
+              <button type="button" onClick={() => { persistView({ ...chatView, sort: "created" }); setViewMenuOpen(false) }}>
+                <span>Created</span>{chatView.sort === "created" && <span className="tick">✓</span>}
               </button>
             </div>
+          )}
+          {listHtml}
+        </div>
+      </nav>
+
+      {authMode === "clerk" && (
+        <div className="sb-user" id="sb-user">
+          {signedIn ? (
+            <>
+              <button type="button" className="avatar" title={user?.nm || "Account"} onClick={() => onOpenAccount?.()}>
+                {user?.imageUrl ? <img src={user.imageUrl} alt="" /> : (user?.initials || "K")}
+              </button>
+              <button type="button" className="who" onClick={() => onOpenAccount?.()}>
+                <div className="nm">{user?.nm || "Kestrel user"}</div>
+                <div className="em">{user?.em || ""}</div>
+              </button>
+              <button type="button" className="gear" aria-label="Settings" onClick={() => onOpenSettings?.()}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" /></svg>
+              </button>
+            </>
           ) : (
-            <button type="button" onClick={() => onOpenSettings?.()}
-                    className="w-full rounded-lg border border-line-2 px-3 py-2 text-[12px] text-foreground transition-colors duration-150 ease-out hover:border-accent/60 hover:text-accent">
-              Sign in
+            <button type="button" className="who" onClick={() => onOpenAccount?.()}>
+              <div className="nm">Sign in</div>
             </button>
           )}
         </div>
       )}
-      <div className="border-t border-sidebar-border px-3 py-3 text-[11px] text-muted-foreground">
-        {qs(currentBrain) && `?brain=${currentBrain}`}
-      </div>
     </aside>
   )
 }
