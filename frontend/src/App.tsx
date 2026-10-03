@@ -237,14 +237,38 @@ export default function App() {
     })(),
   )
 
-  // deep-link restore: ?chat=<id> loads the server-backed thread on mount
+  // Deep-link restore (?chat=<id>) and reload resume: the legacy shell
+  // remembers the open chat per brain in sessionStorage (static/index.html
+  // CHAT_SESSION_KEY) and resumes it unless ?new=1 starts a fresh one.
   useEffect(() => {
-    const id = new URLSearchParams(location.search).get("chat")
-    if (!id) return
+    const params = new URLSearchParams(location.search)
+    const id = params.get("chat")
+    if (id) {
+      setRestoring(true)
+      fetchChat(id)
+        .then((serverTurns) => {
+          if (serverTurns.length) setTurns(serverTurns)
+        })
+        .catch(() => {})
+        .finally(() => setRestoring(false))
+      return
+    }
+    if (params.get("new")) {
+      try { sessionStorage.removeItem("kestrel.currentChat." + (brain || "demo")) } catch { /* private mode */ }
+      return
+    }
+    let remembered: string | null = null
+    try { remembered = sessionStorage.getItem("kestrel.currentChat." + (brain || "demo")) } catch { /* private mode */ }
+    if (!remembered) return
     setRestoring(true)
-    fetchChat(id)
+    fetchChat(remembered)
       .then((serverTurns) => {
-        if (serverTurns.length) setTurns(serverTurns)
+        if (!serverTurns.length) return
+        setTurns(serverTurns)
+        setChatId(remembered)
+        const u = new URL(location.href)
+        u.searchParams.set("chat", remembered)
+        history.replaceState(null, "", u)
       })
       .catch(() => {})
       .finally(() => setRestoring(false))
@@ -421,6 +445,19 @@ export default function App() {
     }
   }
 
+  // Legacy saveHistory(): every finished ask is persisted server-side (and
+  // the chat id remembered per brain for reload resume), not only failures.
+  const persistChat = useCallback(() => {
+    const id = chatIdRef.current || (chatIdRef.current = crypto.randomUUID())
+    const firstUser = turnsRef.current.find((t) => t.role === "user")
+    try {
+      sessionStorage.setItem("kestrel.currentChat." + (brain || "demo"), id)
+    } catch { /* private mode — id lives in the URL */ }
+    return saveChat(id, firstUser ? firstUser.text.slice(0, 60) : "Untitled", brain, turnsRef.current.slice(-60))
+      .then((ok) => ok && refreshChats())
+      .catch(() => {})
+  }, [brain, refreshChats])
+
   const ask = useCallback(async (q: string, files: File[] = []) => {
     // The bot turn opens immediately with the working log and the streaming
     // cursor (legacy addTurn('bot','') + workStart) — never only after the
@@ -533,16 +570,25 @@ export default function App() {
           return [...t, { role: "bot", text: "Could not reach the server: " + err.message }]
         })
       }
-      const id = chatIdRef.current || (chatIdRef.current = crypto.randomUUID())
-      const firstUser = turnsRef.current.find((t) => t.role === "user")
-      void saveChat(id, firstUser ? firstUser.text : "Untitled", brain, turnsRef.current)
-        .then((ok) => ok && refreshChats())
     } finally {
       setStreaming(false)
       stopWork()
       scrollBottom()
+      // The save itself runs in the streaming-flip effect below: it must see
+      // the LAST chunk's commit, and turnsRef lags a render inside finally.
+      justFinishedRef.current = true
     }
-  }, [brain])
+  }, [brain, persistChat])
+
+  // Persist every finished ask (legacy saveHistory runs after finalize, not
+  // only on failures). Runs post-commit so the saved turns include the final
+  // streamed text.
+  const justFinishedRef = useRef(false)
+  useEffect(() => {
+    if (streaming || !justFinishedRef.current) return
+    justFinishedRef.current = false
+    if (turnsRef.current.length) void persistChat()
+  }, [streaming, persistChat])
 
   const handleSend = (q: string, files: File[] = []) => {
     if (!q.trim() && files.length === 0) return
