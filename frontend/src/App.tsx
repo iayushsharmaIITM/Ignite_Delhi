@@ -634,6 +634,7 @@ export default function App() {
         onOpenAccount={clerkOpenProfile}
         onSignOut={clerkSignOut}
         signedIn={signedIn}
+        authMode={authMode}
       />
       <CreateBrainDialog
         open={createOpen}

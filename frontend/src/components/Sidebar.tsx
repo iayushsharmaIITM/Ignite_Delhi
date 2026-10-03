@@ -42,6 +42,7 @@ type Props = {
   onOpenAccount?: () => void
   onSignOut?: () => void
   signedIn?: boolean
+  authMode?: string
 }
 
 const CHAT_CAP = 16
@@ -63,6 +64,7 @@ export function Sidebar({
   onOpenAccount,
   onSignOut,
   signedIn,
+  authMode,
 }: Props) {
   // Parity hooks — rendered in the user area below; kept referenced for TS.
   void onDeleteChat
@@ -286,7 +288,7 @@ export function Sidebar({
         </div>
       </div>
 
-      {signedIn !== undefined && (
+      {authMode === "clerk" && (
         <div className="border-t border-sidebar-border px-3 py-3">
           {signedIn ? (
             <div className="flex items-center gap-2">
