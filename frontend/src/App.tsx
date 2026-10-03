@@ -322,6 +322,10 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [usageOpen, setUsageOpen] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
+  // Where the language/theme submenu sits: legacy anchors a .sub-pop to the
+  // right of the settings item it came from (shell.js subMenu), falling back to
+  // the left edge when there is no room.
+  const [subMenuPos, setSubMenuPos] = useState<{ left: number; bottom: number } | null>(null)
   const [langMenuOpen, setLangMenuOpen] = useState(false)
   const [themeMenuOpen, setThemeMenuOpen] = useState(false)
   const [workElapsed, setWorkElapsed] = useState(0)
@@ -977,6 +981,43 @@ export default function App() {
 
   // Language helpers
   const currentLang = lang
+  const openSubMenu = (which: "lang" | "theme") => {
+    const pop = document.querySelector<HTMLElement>(".settings-pop")
+    const r = pop?.getBoundingClientRect()
+    const width = 200
+    let left = r ? r.right + 8 : 12
+    if (left + width > window.innerWidth - 8) left = r ? Math.max(8, r.left - width - 8) : 12
+    setSubMenuPos({ left, bottom: r ? Math.max(10, window.innerHeight - r.bottom) : 72 })
+    setSettingsOpen(false)
+    if (which === "lang") { setThemeMenuOpen(false); setLangMenuOpen(true) }
+    else { setLangMenuOpen(false); setThemeMenuOpen(true) }
+  }
+
+  // Escape and outside clicks close the submenus, like the settings pop itself.
+  useEffect(() => {
+    if (!langMenuOpen && !themeMenuOpen) return
+    const close = () => { setLangMenuOpen(false); setThemeMenuOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close() }
+    const onClick = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el?.closest(".sub-pop")) return
+      close()
+    }
+    // Registered on the NEXT task: React flushes passive effects for a discrete
+    // event before that event finishes propagating, so a listener added here
+    // synchronously receives the very click that opened the menu and closes it
+    // again (observed: the submenu flashed and vanished).
+    const id = window.setTimeout(() => {
+      document.addEventListener("keydown", onKey)
+      document.addEventListener("click", onClick)
+    }, 0)
+    return () => {
+      window.clearTimeout(id)
+      document.removeEventListener("keydown", onKey)
+      document.removeEventListener("click", onClick)
+    }
+  }, [langMenuOpen, themeMenuOpen])
+
   const changeLang = (code: LangCode) => {
     setLang(code)
     setLangState(code)
@@ -1629,8 +1670,8 @@ export default function App() {
       <SettingsMenu
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        onLanguage={() => { setSettingsOpen(false); setLangMenuOpen(true) }}
-        onTheme={() => { setSettingsOpen(false); setThemeMenuOpen(true) }}
+        onLanguage={() => openSubMenu("lang")}
+        onTheme={() => openSubMenu("theme")}
         onUsage={() => { setSettingsOpen(false); setUsageOpen(true) }}
         onUpgrade={() => { setSettingsOpen(false); setUpgradeOpen(true) }}
         onConnectors={() => { setSettingsOpen(false); openView("connectors") }}
@@ -1644,7 +1685,10 @@ export default function App() {
 
       {/* Language sub-menu */}
       {langMenuOpen && (
-        <PopMenu className="fixed bottom-16 left-3 z-[90] min-w-[190px] rounded-xl border border-line-2 bg-panel p-1.5 shadow-lg">
+        <PopMenu
+          className="sub-pop fixed z-[90] min-w-[190px] rounded-xl border border-line-2 bg-panel p-1.5 shadow-lg"
+          style={subMenuPos ? { left: subMenuPos.left, bottom: subMenuPos.bottom } : undefined}
+        >
           <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
             {t("set.language", "Language")}
           </div>
@@ -1664,7 +1708,10 @@ export default function App() {
 
       {/* Theme sub-menu */}
       {themeMenuOpen && (
-        <PopMenu className="fixed bottom-16 left-3 z-[90] min-w-[190px] rounded-xl border border-line-2 bg-panel p-1.5 shadow-lg">
+        <PopMenu
+          className="sub-pop fixed z-[90] min-w-[190px] rounded-xl border border-line-2 bg-panel p-1.5 shadow-lg"
+          style={subMenuPos ? { left: subMenuPos.left, bottom: subMenuPos.bottom } : undefined}
+        >
           <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
             {t("set.theme", "App theme")}
           </div>

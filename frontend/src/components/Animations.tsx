@@ -15,8 +15,12 @@ export function TurnRise({ children, className }: { children: ReactNode; classNa
 }
 
 /* PopMenu: applies pop animation to menus */
-export function PopMenu({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("anim-pop", className)}>{children}</div>
+export function PopMenu({ children, className, style }: {
+  children: ReactNode
+  className?: string
+  style?: React.CSSProperties
+}) {
+  return <div className={cn("anim-pop", className)} style={style}>{children}</div>
 }
 
 /* SheetModal: applies sheet animation to modals */

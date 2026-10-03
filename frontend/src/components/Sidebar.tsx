@@ -332,9 +332,16 @@ export function Sidebar({
         </div>
       </nav>
 
-      {authMode === "clerk" && (
-        <div className="sb-user" id="sb-user">
-          {signedIn ? (
+      {/* The settings area exists in EVERY mode.
+          Legacy only rendered it in clerk mode (shell.js renderUser hides the
+          box otherwise), which left an auth-off deployment — the local/self-host
+          case, and every lab instance — with no way to reach language, theme,
+          usage, upgrade or connectors at all. The gear is the only door to
+          those surfaces, so it stays; what changes with the mode is what sits
+          next to it, not whether you can configure the app. */}
+      <div className="sb-user" id="sb-user">
+        {authMode === "clerk" ? (
+          signedIn ? (
             <>
               <button type="button" className="avatar" title={user?.nm || "Account"} onClick={() => onOpenAccount?.()}>
                 {user?.imageUrl ? <img src={user.imageUrl} alt="" /> : (user?.initials || "K")}
@@ -343,17 +350,33 @@ export function Sidebar({
                 <div className="nm">{user?.nm || "Kestrel user"}</div>
                 <div className="em">{user?.em || ""}</div>
               </button>
-              <button type="button" className="gear" aria-label="Settings" onClick={() => onOpenSettings?.()}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" /></svg>
-              </button>
             </>
           ) : (
             <button type="button" className="who" onClick={() => onOpenAccount?.()}>
               <div className="nm">{t("set.sign_in", "Sign in")}</div>
+              <div className="em">{t("set.signed_out_em", "Settings are still available")}</div>
             </button>
-          )}
-        </div>
-      )}
+          )
+        ) : (
+          <>
+            <div className="avatar" aria-hidden="true" title={t("set.local", "Local mode")}>◆</div>
+            <div className="who">
+              <div className="nm">{t("set.local", "Local mode")}</div>
+              <div className="em">{t("set.local_em", "No account required")}</div>
+            </div>
+          </>
+        )}
+        <button
+          type="button"
+          className="gear"
+          title={t("set.title", "Settings")}
+          aria-label={t("set.title", "Settings")}
+          aria-haspopup="menu"
+          onClick={() => onOpenSettings?.()}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" /></svg>
+        </button>
+      </div>
     </aside>
   )
 }

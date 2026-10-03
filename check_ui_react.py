@@ -319,6 +319,103 @@ def section_composer_menus_keyboard(suite: Suite, base: str) -> None:
     suite.check("Enter sends", page.locator(".turn").count() > turns_before)
     suite.console_clean("menus")
 
+def section_settings(suite: Suite, base: str) -> None:
+    """The settings surface, in the auth mode this suite runs in.
+
+    Legacy rendered the gear only in clerk mode, so an auth-off deployment (the
+    self-host/local case) had no path to language, theme, usage, upgrade or
+    connectors at all. The item set must match the legacy pop:
+    language, theme | usage, upgrade, connectors (| account, sign-out when
+    signed in — absent here, and asserted absent).
+    """
+    page = suite.page
+    suite.section("settings")
+    suite.check("settings row present", page.locator("#sb-user").is_visible())
+    gear = page.locator("#sb-user .gear")
+    suite.check("gear present", gear.is_visible())
+
+    gear.click()
+    page.wait_for_timeout(400)
+    pop = page.locator(".settings-pop")
+    suite.check("menu opens", pop.is_visible())
+    items = [x.strip() for x in pop.locator("button").all_text_contents() if x.strip()]
+    for label in ["Language", "App theme", "Usage stats", "Upgrade", "Connectors"]:
+        suite.check(f"menu has {label}", any(label in i for i in items), str(items))
+    suite.check("account items hidden when signed out",
+                not any("account" in i.lower() or "disconnect" in i.lower() for i in items), str(items))
+    box = pop.bounding_box()
+    suite.check("menu is anchored, not at the viewport origin",
+                bool(box) and box["x"] >= 0 and box["y"] > 0, str(box))
+
+    # language submenu → live switch (no reload)
+    pop.locator(".set-item", has_text="Language").click()
+    page.wait_for_timeout(400)
+    sub = page.locator(".sub-pop")
+    suite.check("language submenu opens", sub.is_visible())
+    sub.locator("button", has_text="Deutsch").click()
+    page.wait_for_timeout(600)
+    nav = " ".join(page.locator(".nav-item span").all_text_contents()[:3])
+    suite.check("language switches live", "Neuer Chat" in nav, nav)
+    suite.check("<html lang> follows", page.evaluate("() => document.documentElement.lang") == "de")
+
+    # back to English (later sections assert English copy)
+    gear.click()
+    page.wait_for_timeout(300)
+    pop.locator(".set-item", has_text="Sprache").click()
+    page.wait_for_timeout(400)
+    page.locator(".sub-pop button", has_text="English").click()
+    page.wait_for_timeout(500)
+
+    # theme submenu
+    gear.click()
+    page.wait_for_timeout(300)
+    pop.locator(".set-item", has_text="App theme").click()
+    page.wait_for_timeout(400)
+    page.locator(".sub-pop button", has_text="Dark theme").click()
+    page.wait_for_timeout(600)
+    suite.check("theme switches live", page.evaluate("() => document.documentElement.dataset.theme") == "dark")
+    gear.click()
+    page.wait_for_timeout(300)
+    pop.locator(".set-item", has_text="App theme").click()
+    page.wait_for_timeout(400)
+    page.locator(".sub-pop button", has_text="System default").click()
+    page.wait_for_timeout(400)
+
+    # usage
+    gear.click()
+    page.wait_for_timeout(300)
+    pop.locator(".set-item", has_text="Usage stats").click()
+    page.wait_for_timeout(1500)
+    sheet = page.locator(".km-sheet")
+    suite.check("usage modal opens", sheet.is_visible())
+    suite.check("usage modal has a real state",
+                "Usage stats" in (sheet.text_content() or "")
+                and ("Feature" in (sheet.text_content() or "") or "No model calls" in (sheet.text_content() or "")),
+                (sheet.text_content() or "")[:80])
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(300)
+    suite.check("Escape closes the modal", not sheet.is_visible())
+
+    # upgrade
+    gear.click()
+    page.wait_for_timeout(300)
+    pop.locator(".set-item", has_text="Upgrade").click()
+    page.wait_for_timeout(600)
+    suite.check("upgrade modal opens", page.locator(".km-sheet").is_visible())
+    suite.check("upgrade lists the three tiers", page.locator(".tier").count() == 3)
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(300)
+
+    # connectors is reachable from here in every mode
+    gear.click()
+    page.wait_for_timeout(300)
+    pop.locator(".set-item", has_text="Connectors").click()
+    page.wait_for_timeout(1200)
+    suite.check("connectors view opens from the menu",
+                page.locator("h1", has_text="Connectors").count() == 1)
+    suite.console_clean("settings")
+
+
 def section_brains_page(suite: Suite, base: str) -> None:
     page = suite.page
     reset(suite, base + "/?view=brains")
@@ -368,6 +465,7 @@ SECTIONS = [
     ("draft box", section_draft_box),
     ("files sheet", section_files_sheet),
     ("composer menus / keyboard", section_composer_menus_keyboard),
+    ("settings", section_settings),
     ("brains page", section_brains_page),
     ("deep links / history", section_deep_links_history),
 ]

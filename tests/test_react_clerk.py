@@ -243,6 +243,14 @@ def run_browser(signed_in: bool, jwt_token: str, failures: list[str]) -> dict:
                     "context=" in u and "Earlier" in u for u in ask_urls[1:]
                 )
 
+                # 2b. the settings pop carries the signed-in items too
+                page.click("#sb-user .gear")
+                page.wait_for_timeout(500)
+                items = [x.strip() for x in page.locator(".settings-pop button").all_text_contents() if x.strip()]
+                result["settings_items"] = items
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(300)
+
                 # 3. a failing ask is reported, not rendered as a blank answer
                 #    (B2). Intercept the stream with the live server's own 401.
                 page.route(
@@ -356,6 +364,11 @@ def main() -> int:
         if not pos.get("follow_up_has_context"):
             failures.append("positive: the follow-up ask carried no conversation "
                             "context (B3) — every question would be a cold start")
+        items = " | ".join(pos.get("settings_items") or [])
+        for label in ["Language", "App theme", "Usage stats", "Upgrade", "Connectors",
+                      "Manage account", "Disconnect"]:
+            if label not in items:
+                failures.append(f"positive: settings menu is missing {label!r} (got {items})")
         if pos.get("error_bubbles", 0) < 1:
             failures.append("positive: a failing ask rendered no .bubble.err state (B2)")
         elif "Clerk session token" not in (pos.get("error_text") or ""):
