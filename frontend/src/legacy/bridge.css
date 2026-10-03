@@ -1,0 +1,10 @@
+/* ============================================================
+ * REACT↔LEGACY BRIDGE — the only React-specific CSS in the port.
+ * The legacy shell.css lays out the app by styling BODY's direct
+ * children (aside.shell, .app-main, form#f, #chips are siblings
+ * in static/index.html; body is the home-mode flex container).
+ * React mounts into #root, so dissolve that box to reproduce the
+ * same parentage. No design rules here — never add any.
+ * ============================================================ */
+
+#root { display: contents; }
