@@ -285,10 +285,11 @@ the ones we did build would actually work.
 
 ## React frontend (the new UI)
 
-`static/` remains the zero-build fallback UI. The upgraded interface lives in
-`frontend/` — Vite + React + Tailwind v4 + shadcn/ui, speaking the exact same
-API (no backend contract changed; only additive `tz`/`local_time` params on
-`/api/ask`). Design tokens, component inventory and the before/after table
+`frontend/` — Vite + React + Tailwind v4 + shadcn/ui — is what `python app.py`
+serves at `/` (`KESTREL_UI=react`, the default); it speaks the exact same API (no
+backend contract changed; only additive `tz`/`local_time` params on `/api/ask`).
+`KESTREL_UI=legacy` serves `static/` instead — the zero-build fallback UI — and
+the legacy `/graph`, `/brains` and `/upload` pages stay reachable either way. Design tokens, component inventory and the before/after table
 are documented in [DESIGN.md](DESIGN.md).
 
 ```bash

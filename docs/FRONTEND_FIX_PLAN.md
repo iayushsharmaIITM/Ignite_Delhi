@@ -523,3 +523,55 @@ in `frontend/.oxlintrc.json`.
 
 `KESTREL_UI` default is now `react` (app.py, render.yaml, .env.example);
 `KESTREL_UI=legacy` is the rollback and was re-verified.
+
+### Phase C — DONE (`afee8bd`, 2026-10-03)
+
+All of C1–C9. Styling substrate (all Deck roles exposed; `accent` = brand amber
+with `accent-surface` for shadcn hover surfaces; token dedup; self-hosted Inter
+applied to the legacy-styled surfaces too; `--ink` fixed) plus
+`tests/test_frontend_css_utilities.py`, which found the four remaining dead
+classes and fails when a role is removed. Chat surface: per-turn working logs,
+stick-respecting instant scroll while streaming, restored `at`, attachment
+persistence with the 8 MB gate and 1.5 MB snapshots, and abort-on-chat-switch.
+Navigation: `popstate`, `rememberChat` parity, an all-brain chat list, the
+brain-switcher filter/sort/arm. i18n: language is React state, so a switch
+repaints the shell (runtime-verified: German greeting/nav/chips + `<html
+lang="de">`); the corrupted French `usage.title` repaired. Settings: the pop is
+anchored from the gear and closes like legacy; Usage/Upgrade are real modals;
+the sign-in gate mounts Clerk inline. `/api/graph` is asked with `dataset=`.
+Connectors gained import. The slide rail is mounted, and the polish list
+(clipboard fallback, one announcement per answer, backdrop close, textarea
+reset, chips fill the composer, notes accumulate, real hrefs, `?brain=`
+forwarding, `document.title`, stored-mode theme tick) landed.
+
+### Phase D — DONE (`be26abf`, 2026-10-03)
+
+All of D1–D5. `check_ui_react.py` is an acceptance suite for the served bundle
+in seven independent sections (ask/stream/per-turn log/citations, source modal,
+draft, files sheet, menus/keyboard, brains page, deep links + Back/Forward),
+with model calls intercepted. It caught a real regression while being written:
+the files sheet cleared its rows on success, so per-file verdicts vanished.
+`parity_gate.py` captures six states and diffs committed platform-tagged
+baselines — verified both ways (0.000% clean; 2.346% + exit 1 on a tampered
+baseline). `detect_frontend.py` now finds the dev server on 5174 and a served
+build on 8000. `verify.sh` runs the static gates in `--quick` and the acceptance
+suite otherwise, with the Clerk gate opt-in; `check_ui.py` is retired (dead
+binary, webkit, pre-port DOM). CI gained a `ui` job (Postgres mapped to 5434,
+Playwright chromium, lint, acceptance suite against `python app.py`, Clerk gate);
+both suites were run locally against a brand-new `kestrel_ci` database to prove
+the CI path, including the Clerk gate seeding its own ownership row.
+
+### Phase E — DONE (2026-10-03)
+
+18 dead modules deleted (10 components incl. the legacy iframes, plus
+`ui/{command,popover,scroll-area,skeleton,sheet,tooltip,dropdown-menu,separator}`);
+`LegacyMount` and `?view=legacy-*` retired, with `/graph`, `/brains`, `/upload`
+still linked as first-class legacy pages; lint down from 1,686 findings (the
+committed bundle was being linted) to **0 errors / 10 reviewed warnings**,
+documented with reasons in `frontend/README.md`, which is now the frontend's
+operating manual (invariants, build, verification, accepted warnings). Docs
+reconciled: `REACT_UIUX_ADVANCEMENTS.md` carries inline `[fixed]` corrections and
+a status banner, `LEGACY_TO_REACT_PARITY.md` is marked superseded,
+`vite.config.ts`'s false `/static/app` comment and port are corrected, and
+EXECUTION_PLAN Phase 9 records the executed gates. Still open: F6 (graph for
+beta) and D-3 (FilesSheet `/events` vs v2 jobs).

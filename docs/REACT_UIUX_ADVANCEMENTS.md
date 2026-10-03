@@ -1,10 +1,21 @@
 # Kestrel — React Desktop Dashboard: UI/UX System & Advancements
 
+> **Status correction (2026-10-03, after `docs/FRONTEND_FIX_PLAN.md`).** This
+> document was written while the port was verified only through the Vite dev
+> server, and several claims below were true of that setup rather than of the
+> product. The plan was executed (Phases A–E) and this file has been corrected
+> where it mattered; the corrections are marked `[fixed]` inline. Two claims are
+> worth knowing before reading: the React app is now what `python app.py` serves
+> at `/` (it was not — `static/index.html` was), and the "pixel-diff parity
+> gates" below were capture helpers, not gates. The authoritative record is
+> `docs/FRONTEND_FIX_PLAN.md` §6 (execution status).
+
 _A design-system deep dive for LLM review. Written 2026-10-03. Everything
 described here is **built and verified** — file paths are given so every claim
 can be cross-checked against the code. Review target: the `frontend/` React
-application (React 19 + Vite + Tailwind v4), which has replaced the legacy
-`static/index.html` dashboard as the product's desktop frontend._
+application (React 19 + Vite + Tailwind v4), which **`[fixed]`** is served by
+`app.py` at `/` under `KESTREL_UI=react` (the default), replacing the legacy
+`static/index.html` dashboard as the product's frontend._
 
 **Reviewer orientation.** This app went through an unusual port: instead of
 re-styling a new frontend, the legacy HTML dashboard's *exact* stylesheets
@@ -18,10 +29,10 @@ understand §2 first; everything else follows from it.
 
 | Layer | What's real |
 |---|---|
-| Web frontend | `frontend/` — React 19, Vite, Tailwind v4 (`@tailwindcss/vite`), shadcn-style primitives in `frontend/src/components/ui/`, sonner toasts, custom i18n (`lib/i18n.ts`, 6 languages), Clerk auth via CDN loader (`lib/clerk.ts`) |
+| Web frontend | `frontend/` — React 19, Vite, Tailwind v4 (`@tailwindcss/vite`), shadcn-style primitives in `frontend/src/components/ui/`, sonner toasts, custom i18n (`lib/i18n.ts`, 6 languages), Clerk auth via CDN loader (`lib/clerk.ts`), self-hosted Inter (`@fontsource-variable/inter`). Served from the backend at `/` (`KESTREL_UI`, default `react`); `frontend/dist` is committed and CI rebuilds+diffs it |
 | Legacy stylesheets | `frontend/src/legacy/deck.css` (= `static/shell.css` verbatim) and `frontend/src/legacy/shell.css` (= the inline `<style>` of `static/index.html` verbatim) — imported globally, they style the React DOM |
 | Backend | Same-origin `app.py` (FastAPI): `/api/ask` NDJSON stream, `/api/source`, `/api/brains` (+v2 jobs, `/events`), `/api/chats`, `/api/actions/draft`, `/api/actions/send`, `/api/graph`, `/api/stats`, `/api/extract` (+OCR ladder) |
-| Verification | Pixel-diff parity gates vs the legacy app, intercepted-NDJSON UI tests (`frontend/../check_ui_react.py`, `parity_shots.py`, `parity_states.py`), plus the backend battery (`verify.sh`) |
+| Verification **`[fixed]`** | `check_ui_react.py` is an acceptance suite over the **served** bundle (ask/stream/citations/files/draft/menus/keyboard/deep links/history, model calls intercepted); `tests/test_react_clerk.py` proves the Clerk-mode path with a no-token control; `tests/test_frontend_api_transport.py` and `tests/test_frontend_css_utilities.py` are static invariants; `parity_gate.py` is a real pixel gate against committed baselines; `parity_shots.py`/`parity_states.py` remain capture helpers for legacy comparison. All of it runs from `verify.sh` and the CI `ui` job |
 
 Not built (deliberately): no mobile app, no Electron/Tauri shell, no new CSS
 design system. "React-native" here means *the React frontend as the native
@@ -119,7 +130,10 @@ names below are the load-bearing contract with the stylesheets.
   armed delete, `.chat-time` relative stamps in timeline mode).
 - **User area** (`.sb-user`, clerk mode only): avatar initials/image,
   name+email → account modal; gear → `.settings-pop` (language, theme, usage,
-  upgrade, connectors, account, disconnect) with sub-popovers.
+  upgrade, connectors, account, disconnect) with sub-popovers. **`[fixed]`** The
+  pop is anchored from the gear's rect and closes on outside click/Escape (it
+  was unpositioned with `onClose` ignored), and Usage/Upgrade are the real modals
+  over `/api/usage` and the tier table (they were toasts).
 - Known delta: the legacy "gliding hover highlight" (`.sb-slide`,
   mousemove-driven) is not ported; rows fall back to plain `:hover` washes.
 
@@ -204,8 +218,13 @@ the LLM; with generation routes down it fails honestly.)
 `#restore` (cover while a `?chat=` restore is in flight — the empty home state
 never flashes), `#auth-gate` (Clerk `openSignIn` modal over the app;
 `body.locked` blurs `.app-main`/`form#f`). Clerk is loaded from CDN
-(`lib/clerk.ts`), sessions are the signed-in truth, and API calls carry
-Bearer tokens via `lib/api.ts` `useAuthHeaders` (no-op in auth-off mode).
+(`lib/clerk.ts`), sessions are the signed-in truth, and **`[fixed]`** every API
+call carries a Bearer token via `lib/api.ts` `apiFetch` — awaited Clerk boot, a
+token minted **per request**, one forced-refresh retry on 401, and an honest
+error state instead of empty data when the server refuses (previously a
+mount-time hook used in three places, so `/api/ask`, `/api/chats`, `/api/brains`
+and friends 401'd in clerk mode). The gate installs Clerk's card inline inside
+`#clerk-mount`; it used to open a modal over an empty card.
 
 ### 4.9 React-first pages (beyond the legacy shell)
 - **`BrainsPage`** (`components/BrainsPage.tsx`): brain list with live graph
@@ -274,7 +293,8 @@ switch-fx / restore) · hover-reveal `msg-acts` · armed-confirm color flips ·
 |---|---|---|
 | Unit/battery (backend untouched) | `./verify.sh --quick` | 25/25, 13/13, 90/90, 10/10, 4/4 |
 | React UI smoke (clicks every control, fails on console errors) | `python3 check_ui_react.py --base http://localhost:5174` | all views clean |
-| Pixel parity vs legacy | `python3 parity_shots.py <tag>` then PIL/ImageChops diff | ≤ ~37 differing pixels @1440/768/390 (antialiasing noise), dark **and** light |
+| Pixel regression | `python3 parity_gate.py` | 0.000% strong-pixel drift against `docs/ui-review/baselines/<platform>/` (fails above 0.5%) |
+| Side-by-side vs legacy (capture only) | `python3 parity_shots.py <tag>` | PNGs for a human to compare — not a gate |
 | Stream-shaped flows (citations, draft, save) | intercepted NDJSON via Playwright (`parity_states.py`, §patterns in repo chat logs) | identical rendering on both UIs with identical fixtures |
 
 Requires the stack up: `./ops_stack_up.sh` (colima → compose → :8000), lab
@@ -286,8 +306,9 @@ compose + `:8010` (auth-off twin used as the comparison target), Vite
 ## 8. Known deltas & open decisions (so the review sees them)
 
 - **Dropped for parity** (React-only extras): sidebar chat search; the old
-  MessageActions email/steps row (superseded by the draft surface); the
-  `.sb-slide` gliding nav highlight is not ported.
+  MessageActions email/steps row (superseded by the draft surface). **`[fixed]`**
+  The `.sb-slide` gliding nav highlight **is** ported and mounted (it existed but
+  was imported by nobody).
 - **Open decision**: `FilesSheet` streams the legacy `/events` pipeline;
   `UploadPage` speaks the newer v2-jobs API (per-file progress) which the
   spec says supersedes it. Unifying is frontend-only but deliberately
@@ -295,9 +316,11 @@ compose + `:8010` (auth-off twin used as the comparison target), Vite
 - **Blocked on externals**: generation routes are down until 6 Oct — asks and
   draft-generation fail honestly; the signed-in Clerk walkthrough of :8000 is
   pending (gate verified signed-out only).
-- **Honest docs**: `docs/REACT_VS_LEGACY_GAP.md` (port plan + execution
-  status), `docs/LEGACY_SHELL_SPEC.md` (the legacy source of truth),
-  `docs/LEGACY_TO_REACT_PARITY.md` (feature matrix).
+- **Honest docs**: `docs/FRONTEND_FIX_PLAN.md` (the verified findings and the
+  phased fix — §6 carries execution status), `docs/REACT_VS_LEGACY_GAP.md` (port
+  plan + execution status), `docs/LEGACY_SHELL_SPEC.md` (the legacy source of
+  truth), `docs/LEGACY_TO_REACT_PARITY.md` (feature matrix, **superseded** — it
+  predates the port's completion).
 
 *One vocabulary note for the review: this is a React (web) frontend — the
 desktop dashboard. No React Native (mobile framework) code exists or is

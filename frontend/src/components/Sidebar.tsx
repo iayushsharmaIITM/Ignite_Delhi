@@ -15,8 +15,8 @@ type Props = {
   onToggle: () => void
   currentBrain: string
   currentChat: string | null
-  view: "chat" | "brains" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph"
-  onViewChange: (v: "chat" | "brains" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph") => void
+  view: "chat" | "brains" | "connectors" | "graph"
+  onViewChange: (v: "chat" | "brains" | "connectors" | "graph") => void
   onBrainChange: (brain: string) => void
   onNewChat: () => void
   onOpenChat: (chatId: string, brain?: string) => void
@@ -294,8 +294,8 @@ export function Sidebar({
         <div className="nav-label">{t("nav.workspace", "Workspace")}</div>
         {navItem(false, t("nav.new_chat", "New chat"), "ask", onNewChat, `/?new=1${brainQS ? "&" + brainQS : ""}`)}
         {navItem(false, t("nav.new_brain", "New brain"), "upload", () => onBrainChange("__upload__"), "/upload")}
-        {navItem(view === "legacy-brains" || view === "brains", t("nav.brains", "Brains"), "brains", () => onViewChange("brains"), `/brains`)}
-        {navItem(view === "graph" || view === "legacy-graph", t("nav.graph", "Graph"), "graph", () => onViewChange("graph"), `/graph${brainQS ? "?" + brainQS : ""}`)}
+        {navItem(view === "brains", t("nav.brains", "Brains"), "brains", () => onViewChange("brains"), `/brains`)}
+        {navItem(view === "graph", t("nav.graph", "Graph"), "graph", () => onViewChange("graph"), `/graph${brainQS ? "?" + brainQS : ""}`)}
         <div id="sb-chats">
           <div className="chats-head">
             <span className="nav-label">{t("nav.chats", "Chats")}</span>

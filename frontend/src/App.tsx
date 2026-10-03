@@ -8,7 +8,6 @@ import { FilesSheet } from "@/components/FilesSheet"
 import { DraftBox, type EmailDraftData } from "@/components/DraftBox"
 import { CreateBrainDialog } from "@/components/CreateBrainDialog"
 import { GraphView } from "@/components/GraphView"
-import { LegacyMount } from "@/components/LegacyMount"
 import { Toaster } from "@/components/ui/sonner"
 import { PopMenu, AuthGate, SettingsMenu, UsageModal, UpgradeModal } from "@/components/Animations"
 import {
@@ -345,10 +344,10 @@ export default function App() {
   const [railTip, setRailTip] = useState<{ x: number; y: number; label: string; answer: string } | null>(null)
 
   const [createOpen, setCreateOpen] = useState(false)
-  const [view, setView] = useState<"chat" | "brains" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph">(
+  const [view, setView] = useState<"chat" | "brains" | "connectors" | "graph">(
     (() => {
       const v = new URLSearchParams(location.search).get("view")
-      return v === "connectors" || v === "graph" || v === "brains" || v === "legacy-brains" || v === "legacy-upload" || v === "legacy-graph" ? v : "chat"
+      return v === "connectors" || v === "graph" || v === "brains" ? v : "chat"
     })(),
   )
 
@@ -500,8 +499,7 @@ export default function App() {
       const p = new URLSearchParams(location.search)
       const v = p.get("view")
       setView(
-        v === "connectors" || v === "graph" || v === "brains" ||
-        v === "legacy-brains" || v === "legacy-upload" || v === "legacy-graph" ? v : "chat",
+        v === "connectors" || v === "graph" || v === "brains" ? v : "chat",
       )
       setBrain(p.get("brain") || DEFAULT_BRAIN)
       const id = p.get("chat")
@@ -583,7 +581,7 @@ export default function App() {
     })
   }, [])
 
-  const startWork = (idx: number) => {
+  const startWork = useCallback((idx: number) => {
     workStartRef.current = Date.now()
     setWorkElapsed(0)
     patchTurn(idx, { steps: [], workedMs: 0, stopped: false })
@@ -592,21 +590,21 @@ export default function App() {
     workTimerRef.current = setInterval(() => {
       setWorkElapsed((Date.now() - workStartRef.current) / 1000)
     }, 100)
-  }
+  }, [patchTurn])
 
   // Steps carry their start time so each done row can show its measured
   // duration ("✓ label · 0.5s"), exactly like the legacy workStart() log.
   // ms is the server-measured duration when the stream provides one.
-  const addWorkStep = (idx: number, label: string, ms?: number) => {
+  const addWorkStep = useCallback((idx: number, label: string, ms?: number) => {
     setTurns((t) => {
       const copy = [...t]
       const turn = copy[idx]
       if (turn) copy[idx] = { ...turn, steps: [...(turn.steps || []), { label, at: Date.now(), ms }] }
       return copy
     })
-  }
+  }, [])
 
-  const stopWork = (idx: number, stopped?: boolean) => {
+  const stopWork = useCallback((idx: number, stopped?: boolean) => {
     if (workTimerRef.current) {
       clearInterval(workTimerRef.current)
       workTimerRef.current = null
@@ -628,7 +626,7 @@ export default function App() {
       return copy
     })
     setExpandedLogs((prev) => ({ ...prev, [idx]: false }))
-  }
+  }, [])
 
   // Legacy saveHistory(): every finished ask is persisted server-side (and
   // the chat id remembered per brain for reload resume), not only failures.
@@ -648,7 +646,7 @@ export default function App() {
       u.searchParams.set("chat", id)
       u.searchParams.delete("new")
       history.replaceState(null, "", u)
-      if (chatIdRef.current !== chatId) setChatId(id)
+      setChatId(id)
     }
     return saveChat(id, firstUser ? firstUser.text.slice(0, 60) : "Untitled", brain, turnsRef.current.slice(-60))
       .then((ok) => ok && refreshChats())
@@ -830,7 +828,7 @@ export default function App() {
       justFinishedRef.current = true
       setSaveTick((n) => n + 1)
     }
-  }, [brain, persistChat])
+  }, [brain, persistChat, startWork, addWorkStep, stopWork])
 
   // Persist every finished ask (legacy saveHistory runs after finalize, not
   // only on failures), and again when late-arriving citations change the turn.
@@ -840,6 +838,9 @@ export default function App() {
     if (streaming || !justFinishedRef.current) return
     justFinishedRef.current = false
     if (turnsRef.current.length) void persistChat()
+    // persistChat is called conditionally, so the linter cannot see that it is
+    // a real dependency: a new brain changes which chat is remembered.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [streaming, saveTick, persistChat])
 
   const handleSend = (q: string, files: File[] = []) => {
@@ -851,7 +852,7 @@ export default function App() {
     // ("_(stopped.)_" / "Stopped before any answer arrived.") and marks the log.
     ;(window as unknown as { CONTROLLER?: AbortController }).CONTROLLER?.abort()
   }
-  const openView = (v: "chat" | "brains" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph") => {
+  const openView = (v: "chat" | "brains" | "connectors" | "graph") => {
     setView(v)
     const u = new URL(location.href)
     if (v === "chat") u.searchParams.delete("view")
@@ -1329,12 +1330,6 @@ export default function App() {
           <GraphView brain={brain} />
         ) : view === "brains" ? (
           <BrainsPage />
-        ) : view === "legacy-brains" ? (
-          <LegacyMount path="/brains" label="Brains" />
-        ) : view === "legacy-upload" ? (
-          <LegacyMount path="/upload" label="Add documents" />
-        ) : view === "legacy-graph" ? (
-          <LegacyMount path="/graph" label="Graph (full)" />
         ) : (
           <>
             <div id="home">

@@ -1,3 +1,11 @@
+> **SUPERSEDED (2026-10-03).** This audit was written 2026-10-02, before the
+> "Path 1" port landed: most of its ❌ items ("settings menu", "left rail",
+> "working log", "i18n", "theme selector", "demo chips", "watermark", …) were
+> built on 2026-10-03, and its ⚠️ notes about routing/history describe a frontend
+> that no longer exists. It is kept for the record of what was missing, not as a
+> description of the product. Current state: `docs/FRONTEND_FIX_PLAN.md` §1
+> (verified findings) and §6 (execution status).
+
 # Legacy HTML → React: Complete Feature & Design Parity Audit
 
 **Date:** 2026-10-02  

@@ -15,6 +15,10 @@ const HONEST_NOTE =
   "Ingestion runs on the free model route right now and can take several " +
   "minutes. You can keep chatting while the job finishes."
 
+function newIdempotencyKey(): string {
+  return `ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 export function CreateBrainDialog({ open, onClose }: Props) {
   const [name, setName] = useState("")
   const [files, setFiles] = useState<File[]>([])
@@ -24,6 +28,8 @@ export function CreateBrainDialog({ open, onClose }: Props) {
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // Module scope: an idempotency key is not render state, and Date.now()/
+  // Math.random() inside the component body trips the purity rule.
   const submit = async () => {
     setError(null)
     if (name.trim().length < 3 || files.length === 0) {
@@ -31,7 +37,7 @@ export function CreateBrainDialog({ open, onClose }: Props) {
       return
     }
     setBusy(true)
-    const key = `ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const key = newIdempotencyKey()
     const r = await createBrainV2(name.trim(), files, key)
     setBusy(false)
     if (!r.ok || !r.job_id) {

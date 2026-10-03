@@ -3,8 +3,10 @@ import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 
-// The backend serves the built files from /static/app and keeps the API at
-// the same origin, so dev proxies everything API-shaped to 127.0.0.1:8000.
+// In production app.py serves the built bundle from frontend/dist at "/" (see
+// KESTREL_UI in app.py) — NOT from /static/app, which was never true. The dev
+// server proxies everything API-shaped (and the legacy pages the product still
+// links to) to the backend, so both live on one origin either way.
 const API = process.env.KESTREL_API || "http://localhost:8000"
 
 export default defineConfig({
@@ -13,7 +15,9 @@ export default defineConfig({
     alias: { "@": path.resolve(__dirname, "./src") },
   },
   server: {
-    port: 5173,
+    // 5174 is the port the local stack and the docs use (--strictPort there);
+    // 5173 is Vite's default. detect_frontend.py probes both.
+    port: 5174,
     proxy: {
       "/api": API,
       "/health": API,

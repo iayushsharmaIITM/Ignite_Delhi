@@ -139,7 +139,7 @@ Derives from `/private/tmp/prompt.md` (execution prompt) + `REALITY_CHECK.md`
 - Proof gate: end-to-end lab evidence + restart + legacy-compat logs.
 - Rollback: read-path flag; legacy path intact.
 
-### Phase 9 — React as the supported frontend (L, 2–4 days)
+### Phase 9 — React as the supported frontend (L, 2–4 days) — **EXECUTED 2026-10-03**
 - Work: in `frontend/` — brain creation via `/api/brains/v2` (+ idempotency
   key), job progress via `/api/jobs/{id}` polling, brain list/selection from
   server (new lightweight GET or reuse `/api/brains`), server-backed chat
@@ -150,6 +150,42 @@ Derives from `/private/tmp/prompt.md` (execution prompt) + `REALITY_CHECK.md`
   survives restart) from React alone; no silent legacy redirects; mobile +
   desktop checks saved as evidence.
 - Rollback: React changes are additive routes/components; legacy untouched.
+
+**Execution record (2026-10-03).** The port's own verification hid three P0
+defects — the app was not the one being served, every core API call was
+unauthenticated in the live Clerk configuration, and the ask path rendered
+failures as answers — so Phase 9 was executed through
+`docs/FRONTEND_FIX_PLAN.md` (Phases A–E, §6 is the status of record):
+
+- **A** `app.py` serves `frontend/dist` at `/` under `KESTREL_UI` (default
+  `react`); `/assets` immutable, index no-cache, favicon/icons served; the
+  bundle is committed with a CI rebuild-and-diff gate. Rollback:
+  `KESTREL_UI=legacy`.
+- **B** one authenticated transport (`apiFetch`: awaited Clerk boot, per-request
+  token, one 401 retry) used by every call site; `res.ok`/per-line-parse
+  hardening; the legacy terminal states and `.bubble.err`; last-three-turn
+  `context` on every ask; honest 401/403/5xx states. Gate:
+  `tests/test_react_clerk.py` (signed JWT → 200s and a streamed answer; a control
+  run that must 401 and show the server's words).
+- **C** the ~18 verified parity regressions closed: styling substrate + dead
+  utility guard, per-turn working logs, stick-respecting scroll, restored
+  timestamps/attachments, popstate, `rememberChat`, all-brain chat list, live
+  i18n, anchored settings pop + real Usage/Upgrade modals, inline Clerk gate,
+  `dataset=` for `/api/graph`, connector import panel, mounted slide rail.
+- **D** `check_ui_react.py` is an acceptance suite over the **served** bundle
+  (ask/citations/files/draft/menus/keyboard/deep links/history, model calls
+  intercepted); `parity_gate.py` is a pixel gate against committed baselines;
+  `verify.sh` runs both lanes; CI gained a `ui` job (Postgres on 5434, chromium,
+  lint, acceptance suite, Clerk gate).
+- **E** 18 dead modules deleted, legacy iframes/`?view=legacy-*` retired (the
+  legacy pages stay linked), lint at 0 errors / 10 reviewed warnings documented
+  in `frontend/README.md`, and the docs corrected
+  (`docs/REACT_UIUX_ADVANCEMENTS.md`, `docs/LEGACY_TO_REACT_PARITY.md`,
+  `frontend/vite.config.ts`).
+
+Still open from this phase: F6 (graph view for beta — kept as the labelled
+legacy hand-off, with the in-app view now querying the right brain) and the
+FilesSheet `/events` vs v2-jobs unification (D-3 in the fix plan).
 
 ### Phase 10 — Connector classification (S, no code)
 - Work: documentation + UI status labels only: Slack = stub-tested/not live;
