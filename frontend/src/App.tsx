@@ -5,6 +5,7 @@ import { Connectors } from "@/components/Connectors"
 import { BrainsPage } from "@/components/BrainsPage"
 import { SourceModal } from "@/components/SourceModal"
 import { FilesSheet } from "@/components/FilesSheet"
+import { DraftBox, type EmailDraftData } from "@/components/DraftBox"
 import { CreateBrainDialog } from "@/components/CreateBrainDialog"
 import { GraphView } from "@/components/GraphView"
 import { LegacyMount } from "@/components/LegacyMount"
@@ -92,6 +93,7 @@ const GRID_D = "M3 3h7.5v7.5H3zM13.5 3H21v7.5h-7.5zM3 13.5h7.5V21H3zM13.5 13.5H2
 const CHEV_DOWN_D = "m6 9 6 6 6-6"
 const COPY_D = "M9 9h11v11H9zM5 15V5a2 2 0 0 1 2-2h10"
 const UP_D = "M7 11v9M7 11l4-7c1.2 0 2 .9 2 2v4h5.2a1.8 1.8 0 0 1 1.8 2.1l-1 5.5A2 2 0 0 1 17 19H7"
+const MAIL_ACT_D = "M2.5 4.5h19v15h-19zM3 6l9 6.5L21 6"
 const DOWN_D = "M17 13V4M17 13l-4 7c-1.2 0-2-.9-2-2v-4H5.8a1.8 1.8 0 0 1-1.8-2.1l1-5.5A2 2 0 0 1 7 5h10"
 const JUMP_D = "M12 5v14m0 0-6-6m6 6 6-6"
 const DOC_D = CHIP_ICON.doc
@@ -185,6 +187,9 @@ export default function App() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [sourcesPanel, setSourcesPanel] = useState<{ title: string; excerpt?: string } | null>(null)
   const [filesOpen, setFilesOpen] = useState(false)
+  // P6 actions/draft surface: the email draft for the last answer
+  const [draft, setDraft] = useState<EmailDraftData | null>(null)
+  const [draftBusy, setDraftBusy] = useState(false)
   const chatIdRef = useRef<string | null>(null)
   const botIdxRef = useRef(-1)
   const turnsRef = useRef<Turn[]>([])
@@ -777,6 +782,42 @@ export default function App() {
     setFeedback((prev) => ({ ...prev, [i]: prev[i] === kind ? undefined : kind }))
   }
 
+  // Draft a mail from an answer (POST /api/actions/draft — the agent only
+  // drafts; sending is the explicit approval gate in the box).
+  const draftFrom = async (i: number) => {
+    if (draftBusy) return
+    const turn = turns[i]
+    if (!turn) return
+    let question = ""
+    for (let j = i - 1; j >= 0; j--) {
+      if (turns[j].role === "user") { question = turns[j].text; break }
+    }
+    setDraftBusy(true)
+    try {
+      const r = await fetch("/api/actions/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "email",
+          question,
+          answer: turn.text,
+          sources: (turn.sources || []).map((s) => s.source).filter(Boolean),
+          brain,
+        }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok || !d.ok) {
+        toast.error(d.detail || `HTTP ${r.status}`)
+        return
+      }
+      setDraft({ to: d.draft?.to, subject: d.draft?.subject || "Kestrel answer", body: d.draft?.body || "" })
+    } catch (e) {
+      toast.error("Could not reach the server: " + (e as Error).message)
+    } finally {
+      setDraftBusy(false)
+    }
+  }
+
   const brainLabel = !brain || brain === "demo" || brain === DEFAULT_BRAIN ? "Demo brain" : brain
   // Legacy picks the generic starters only for a non-demo brain.
   const chips = brain && brain !== "demo" && brain !== DEFAULT_BRAIN ? GENERIC_CHIPS : DEMO_CHIPS
@@ -857,6 +898,14 @@ export default function App() {
               onClick={() => copyAnswer(i)}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={COPY_D} /></svg>
+            </button>
+            <button
+              type="button"
+              title="Draft a mail from this answer"
+              aria-label="Draft a mail from this answer"
+              onClick={() => void draftFrom(i)}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={MAIL_ACT_D} /></svg>
             </button>
             <button
               type="button"
@@ -956,6 +1005,14 @@ export default function App() {
                   {turns.length === 0 && <div className="placeholder" id="empty" />}
                   {turns.map((turn, i) => renderTurn(turn, i))}
                 </div>
+                {draft && (
+                  <DraftBox
+                    draft={draft}
+                    busy={draftBusy}
+                    onBodyChange={(body) => setDraft((d) => (d ? { ...d, body } : d))}
+                    onClose={() => setDraft(null)}
+                  />
+                )}
               </div>
             </div>
           </>
