@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 // The sidebar is the legacy shell's `aside.shell` DOM (static/shell.js
 // buildLinks/chatGroup/renderUser), styled by legacy/deck.css. React only
@@ -129,6 +129,21 @@ export function Sidebar({
     })
     return [...m.entries()]
   }, [sorted, currentBrain])
+
+  // The legacy shell closes #sb-viewmenu on any click outside it (or the
+  // head-btn) and on Escape — static/shell.js closeViewMenu.
+  useEffect(() => {
+    if (!viewMenuOpen) return
+    const close = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t?.closest("#sb-viewmenu") || t?.closest?.(".head-btn")) return
+      setViewMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setViewMenuOpen(false) }
+    document.addEventListener("click", close)
+    document.addEventListener("keydown", onKey)
+    return () => { document.removeEventListener("click", close); document.removeEventListener("keydown", onKey) }
+  }, [viewMenuOpen])
 
   const persistView = (v: { mode: "brain" | "timeline"; sort: "updated" | "created" }) => {
     setChatView(v)
