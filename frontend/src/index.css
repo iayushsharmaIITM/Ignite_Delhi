@@ -95,9 +95,9 @@ html[data-theme="light"] {
   --wash: rgba(28, 24, 16, 0.05);
   --wash-2: rgba(28, 24, 16, 0.075);
   --wash-3: rgba(28, 24, 16, 0.04);
-  --good: #16a34a;
-  --bad: #c53030;
-  --warn: #b45309;
+  /* --good/--bad/--warn intentionally NOT redefined here: legacy light mode
+     (static/shell.css html[data-theme=light]) overrides only --bad and lets
+     good/warn inherit the dark :root values — match that cascade exactly. */
 }
 
 html, body, #root { height: 100%; }
