@@ -28,6 +28,13 @@ SKIP_TEXTS = {
     "Delete", "Click again to delete",  # destructive
     "Graph",                             # triggers confirm() about legacy hand-off
     "Rename", "Pin",                     # sidebar dropdown items (alert())
+    "Connect",                           # starts the real Slack OAuth round-trip
+    # overlay-opening triggers (post-port they cover the viewport and would
+    # make the blanket click-loop throw) — each has its own targeted check
+    "New brain", "Brains", "Add documents", "Switch brain", "Conversation actions",
+    # state toggles the blanket loop can't follow (the retract moves the whole
+    # bar off-canvas; the view pop re-parents) — covered by targeted checks
+    "Retract sidebar", "View and sort",
 }
 
 # Views to exercise (React app has chat, connectors, graph).
@@ -68,34 +75,48 @@ def run_checks(page: Page, base: str) -> list[str]:
     sidebar = page.locator('aside[aria-label="Kestrel navigation"]')
     track("sidebar visible", sidebar.is_visible())
 
-    # Composer must be present
-    textarea = page.locator('textarea[aria-label="Ask across every document"]')
+    # Composer must be present (legacy form#f bar-card anatomy)
+    textarea = page.locator("textarea#q")
     track("composer textarea visible", textarea.is_visible())
 
     # Send button must be present
     send_btn = page.locator('button[aria-label="Send"], button[aria-label="Stop generating"]')
     track("send button visible", send_btn.count() > 0)
 
-    # Brain selector must be present
-    brain_btn = page.locator('button[aria-label*="Current brain"]')
+    # Brain selector must be present (legacy #brainswitch)
+    brain_btn = page.locator("#brainswitch")
     track("brain selector visible", brain_btn.count() > 0)
 
-    # Suggestion chips must be present (on empty chat)
-    chips = page.locator('button:has-text("Summarise"), button:has-text("next steps"), button:has-text("Draft a mail"), button[has-text="consistent"]')
-    track("suggestion chips visible", chips.count() >= 3, f"found {chips.count()}")
+    # Suggestion chips must be present (legacy DEMO starters on landing)
+    chips = page.locator(".chip")
+    bluepeak_chip = page.locator('.chip:has-text("Bluepeak")')
+    track("suggestion chips visible", chips.count() >= 3 and bluepeak_chip.count() >= 1,
+          f"chips={chips.count()} bluepeak={bluepeak_chip.count()}")
 
-    # Sidebar nav buttons
-    for label in ["New chat", "New brain", "Connectors"]:
-        btn = page.locator(f'button:has-text("{label}")').first
-        track(f'sidebar button "{label}"', btn.count() > 0)
+    # Sidebar nav items (legacy .nav-item anchors)
+    for label in ["New chat", "New brain", "Brains"]:
+        btn = page.locator(f'.nav-item:has-text("{label}")').first
+        track(f'sidebar nav item "{label}"', btn.count() > 0)
 
-    # Click every safe button and verify no errors
+    # Chats view/sort pop opens from the chats head (legacy #sb-viewmenu)
+    page.click('.head-btn')
+    viewmenu_visible = page.locator("#sb-viewmenu").is_visible()
+    track("chats view/sort menu opens", viewmenu_visible)
+    if viewmenu_visible:
+        page.keyboard.press("Escape")
+        page.click("#home")  # dismiss (pop closes on outside click)
+
+    # Click every safe button and verify no errors. Locators re-resolve live,
+    # so a button the app's own state has hidden (e.g. home chips unmount once
+    # an ask moves the app into the thread view) is skipped, not a failure.
     all_buttons = page.locator('button:visible')
     clicked = 0
     threw = 0
     for i in range(all_buttons.count()):
         btn = all_buttons.nth(i)
         try:
+            if not btn.is_visible():
+                continue
             text = (btn.text_content() or "").strip()
             aria = btn.get_attribute("aria-label") or ""
             full = f"{text} {aria}"
@@ -117,8 +138,10 @@ def run_checks(page: Page, base: str) -> list[str]:
     page.goto(f"{base}/?view=connectors", wait_until="networkidle")
     page.wait_for_timeout(1000)
 
-    connectors_btn = page.locator('button:has-text("Connectors")')
-    track("connectors view renders", connectors_btn.count() > 0)
+    # The Connectors view itself (the sidebar no longer carries a Connectors
+    # button — legacy parity; it lives in the gear menu in clerk mode).
+    connectors_head = page.locator('h1:has-text("Connectors")')
+    track("connectors view renders", connectors_head.count() > 0)
 
     # Click buttons in connectors view
     conn_buttons = page.locator('button:visible')
@@ -127,6 +150,8 @@ def run_checks(page: Page, base: str) -> list[str]:
     for i in range(conn_buttons.count()):
         btn = conn_buttons.nth(i)
         try:
+            if not btn.is_visible():
+                continue
             text = (btn.text_content() or "").strip()
             aria = btn.get_attribute("aria-label") or ""
             full = f"{text} {aria}"
@@ -195,7 +220,9 @@ def main() -> int:
     print(f"React UI smoke test — {base}\n")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=not args.headful)
+        # channel="chrome": this Mac has no Playwright-managed chromium; the
+        # parity scripts (parity_shots.py) use the same channel.
+        browser = p.chromium.launch(channel="chrome", headless=not args.headful)
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
 
         try:
