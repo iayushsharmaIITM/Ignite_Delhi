@@ -52,11 +52,11 @@ services:
       # artifact, served by app.py — this runtime has no Node for a build step),
       # legacy = static/index.html. See docs/FRONTEND_FIX_PLAN.md Phase A;
       # flipping this value back is the rollback.
-      # Held at legacy until Phase B makes the React app work in clerk mode:
-      # today nearly every API call it makes is unauthenticated. Flip to react
-      # at the B5 gate, not before.
+      # Flipped at the B5 gate (2026-10-03): tests/test_react_clerk.py proves
+      # the served bundle authenticates in clerk mode. Set legacy here (or in
+      # the dashboard) to roll back — static/index.html stays reachable.
       - key: KESTREL_UI
-        value: legacy
+        value: react
       # Render requires a web service to bind 0.0.0.0 to receive public traffic,
       # and forwards to $PORT (default 10000). app.py defaults HOST to
       # 127.0.0.1 for local use, so without this line the service starts, passes

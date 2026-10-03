@@ -1,0 +1,12 @@
+# Test/dev-only dependencies (NOT installed in the app tier).
+#
+# The app itself needs requirements.txt and nothing else. These are for the
+# browser-driving proof gates — tests/test_react_clerk.py (Clerk-mode React),
+# check_ui_react.py (UI smoke), parity_*.py (captures) — which need a real
+# browser. Chromium is installed separately:
+#
+#   pip install -r requirements-dev.txt
+#   python -m playwright install chromium     # or use the system Chrome
+#
+# CI installs this file only in the job that runs the UI gates.
+playwright==1.56.0

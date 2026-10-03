@@ -20,6 +20,8 @@ type Props = {
   onNewChat: () => void
   onOpenChat: (chatId: string, brain?: string) => void
   chats: ChatSummary[]
+  /** The server's own words when the chat list could not be read (401/403/5xx). */
+  chatsError?: string | null
   onRefreshChats?: () => void
   onDeleteChat?: (chatId: string, brain?: string) => void
   onDeleteBrainChats?: (brain: string) => void
@@ -101,6 +103,7 @@ export function Sidebar({
   onNewChat,
   onOpenChat,
   chats,
+  chatsError,
   onDeleteChat,
   onDeleteBrainChats,
   onOpenSettings,
@@ -205,7 +208,13 @@ export function Sidebar({
 
   let shown = 0
   const listHtml =
-    groups.length === 0 ? (
+    chatsError ? (
+      // Honest state: "No saved chats yet" while the request 401s is the most
+      // misleading thing the port could say (shell.css:258 .err).
+      <div className="chat-empty err" title={chatsError}>
+        {chatsError}
+      </div>
+    ) : groups.length === 0 ? (
       <div className="chat-empty">{t("nav.no_chats", "No saved chats yet")}</div>
     ) : chatView.mode === "timeline" ? (
       <>

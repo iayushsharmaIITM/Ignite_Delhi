@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { apiFetch, serverError } from "@/lib/api"
 
 type GNode = { id: string; label?: string; degree?: number }
 type GEdge = { source_node_id?: string; target_node_id?: string; source?: string; target?: string }
@@ -22,8 +23,13 @@ export function GraphView({ brain }: Props) {
     setLoading(true)
     setError(null)
     setSelected(null)
-    fetch(`/api/graph?brain=${encodeURIComponent(brain)}`)
-      .then((r) => r.json())
+    apiFetch(`/api/graph?brain=${encodeURIComponent(brain)}`)
+      .then(async (r) => {
+        // 401/403/5xx answers with JSON, so without this the view rendered the
+        // "graph is empty — run ingest.py" state for a permission error.
+        if (!r.ok) throw new Error(await serverError(r))
+        return r.json()
+      })
       .then((d) => {
         setNodes(d.nodes || [])
         setEdges(d.edges || [])

@@ -4,6 +4,7 @@ import { Link2, Plug, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { SlackAccessDialog } from "@/components/SlackAccessDialog"
+import { apiFetch, serverError } from "@/lib/api"
 
 type Status = {
   email_send?: boolean
@@ -43,14 +44,23 @@ export function Connectors() {
   const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [armed, setArmed] = useState<string | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
 
   const refresh = useCallback(() => {
-    fetch("/api/connectors/status")
-      .then((r) => r.json())
-      .then(setStatus)
-      .catch(() => setStatus({}))
-    fetch("/api/connectors/slack/workspaces")
-      .then((r) => r.json())
+    apiFetch("/api/connectors/status")
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await serverError(r))
+        return r.json()
+      })
+      .then((d) => { setStatus(d); setStatusError(null) })
+      // "Not configured" and "could not ask" are different facts: showing the
+      // first when the second is true is how a 401 hides behind a status pill.
+      .catch((e) => { setStatus({}); setStatusError((e as Error).message) })
+    apiFetch("/api/connectors/slack/workspaces")
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await serverError(r))
+        return r.json()
+      })
       .then((d) => setWorkspaces(d.workspaces || []))
       .catch(() => setWorkspaces([]))
   }, [])
@@ -64,7 +74,7 @@ export function Connectors() {
     }
     setArmed(null)
     try {
-      const r = await fetch(`/api/connectors/slack/${encodeURIComponent(ws.team_id)}/disconnect`, {
+      const r = await apiFetch(`/api/connectors/slack/${encodeURIComponent(ws.team_id)}/disconnect`, {
         method: "POST",
       })
       const d = await r.json()
@@ -87,6 +97,11 @@ export function Connectors() {
           Bring external conversations into a brain. Disconnecting stops future syncs —
           already imported messages stay cited.
         </p>
+        {statusError && (
+          <p className="mt-4 rounded-lg border border-border bg-card px-3.5 py-2.5 text-[12.5px] text-destructive">
+            Could not read connector status: {statusError}
+          </p>
+        )}
 
         {/* Slack ------------------------------------------------------------ */}
         <section className="mt-8 rounded-xl border border-border bg-card p-5 transition-colors duration-150 ease-out hover:border-accent/40">
@@ -177,6 +192,7 @@ export function Connectors() {
               variant="secondary"
               className="rounded-lg"
               disabled={!googleOAuth?.configured}
+              // transport-exempt: OAuth hand-off is a browser navigation
               onClick={() => (window.location.href = "/api/connectors/oauth/google/start")}
             >
               {googleOAuth?.state === "connected" ? "Reconnect" : "Connect"}

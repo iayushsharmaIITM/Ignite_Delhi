@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { apiFetch } from "@/lib/api"
 
 type Props = {
   title: string
@@ -21,7 +22,7 @@ export function SourceDrawer({ title, excerpt, brain, onClose }: Props) {
   useEffect(() => {
     let alive = true
     const ac = new AbortController()
-    fetch(`/api/source?name=${encodeURIComponent(title)}&dataset=${encodeURIComponent(brain)}`, {
+    apiFetch(`/api/source?name=${encodeURIComponent(title)}&dataset=${encodeURIComponent(brain)}`, {
       signal: ac.signal,
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))

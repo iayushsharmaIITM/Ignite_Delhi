@@ -461,3 +461,65 @@ because it is behaviour users hit on every question.
 Total: ~5–6 focused days, i.e. EXECUTION_PLAN Phase 9's 2–4 days plus the three P0
 defects that plan did not know about — with the P0s front-loaded, because nothing
 else about the frontend is verifiable while it 401s and renders failures as answers.
+
+---
+
+## 6. Execution status
+
+### Phase A — DONE (`19e6d2b`, 2026-10-03)
+
+All of A1–A4. `app.py` mounts `frontend/dist/assets` immutable, serves
+`dist/index.html` + `/favicon.svg` + `/icons.svg` at the root under
+`KESTREL_UI`, keeps the legacy routes, and logs which UI it will serve.
+`frontend/dist` is committed with `ops/build_frontend.sh`; CI rebuilds and diffs
+it plus asserts the bundle is self-consistent.
+
+Gate A4 evidence: on `:8020` (`PROVIDER=mock AUTH_MODE=off KESTREL_UI=react`),
+`/` served `id="root"` with 200s for the JS/CSS/favicon/icons (404 before),
+`cache-control: immutable` on assets and `no-cache` on the index, and
+`check_ui_react.py --base http://127.0.0.1:8020` was clean on every view with zero
+console errors. Controls: unset → legacy; `react` with no `dist` → legacy + a loud
+log line, no crash.
+
+Two self-reference traps were found and fixed while implementing it: Tailwind's
+auto content detection consumed the committed bundle (87,515 → 97,530 bytes CSS,
+all hashes changed) — pinned with `@import "tailwindcss" source("../src")`; and
+oxlint linted the bundle (1,649 warnings) — pinned with `ignorePatterns: ["dist/**"]`
+in `frontend/.oxlintrc.json`.
+
+### Phase B — DONE (2026-10-03)
+
+- **B1** `lib/api.ts::apiFetch` — awaits Clerk boot, mints a token per request,
+  retries once on 401 with a forced refresh — is now the only way `src/` reaches
+  the API (44 files pass `tests/test_frontend_api_transport.py`, which fails on a
+  bare `fetch(` or an `/api/` literal outside the transport; OAuth navigations
+  carry an explicit `transport-exempt` marker). The mount-time `useAuthHeaders`
+  hook is gone; its two invalid-hook-call lint **errors** went with it.
+- **B2** The ask path checks `res.ok`/`res.body` and quotes the server's `detail`,
+  parses each NDJSON line defensively, and renders the legacy terminal states
+  (`_(stopped.)_`, "Stopped before any answer arrived.", "No answer returned for
+  that question.", "_(connection lost — showing what arrived.)_") with failures in
+  the `.bubble.err` state instead of as markdown. `done` finalizes (composer freed,
+  citations keep landing and re-save the turn); only `stage:"step"` feeds the
+  working log, so the first row no longer claims retrieval was bypassed.
+- **B3** Every ask sends the last three turns as `context` (capped at the server's
+  6,000 chars), merged with attachment context.
+- **B4** `useBrains`/`useChats`/`fetchChat`/graph/connectors surface 401/403/5xx in
+  the server's own words (`.err` in the sidebar and brain menu, banners on the
+  brains page and connectors, an error state on the graph) instead of rendering
+  empty data.
+- **B5 gate**: `tests/test_react_clerk.py` has two halves. Contract (in-process,
+  `auth.inject_jwks_for_test`, the seam `tests/test_route_authz.py` already uses):
+  a signed token gets 200 on `/api/brains`, no token gets 401 — a subprocess
+  cannot be injected into, so the browser half serves its own JWKS over HTTP and
+  the two halves pin the same rule. Browser: boots the real app in clerk mode,
+  then drives the served bundle twice —
+  positive (signed test JWT): `/api/brains`, `/api/chats`, `/api/ask` all 200 with
+  a Bearer token on every request, an answer streams, the follow-up carries
+  `context=`, a 401 on the stream renders `.bubble.err` with the server's words and
+  frees the composer; control (a session that cannot mint a token): the same
+  requests 401 **and** the screen shows the server's message rather than
+  "No saved chats yet". Result: **PASS**.
+
+`KESTREL_UI` default is now `react` (app.py, render.yaml, .env.example);
+`KESTREL_UI=legacy` is the rollback and was re-verified.

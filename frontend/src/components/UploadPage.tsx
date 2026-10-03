@@ -9,7 +9,7 @@ import {
   Plus,
   X,
 } from "lucide-react"
-import { useAuthHeaders } from "@/lib/api"
+import { apiFetch } from "@/lib/api"
 import { t } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -157,8 +157,7 @@ export function UploadPage() {
       files.forEach((e) => fd.append("files", e.file, e.file.name))
 
       try {
-        const headers = await useAuthHeaders()
-        const res = await fetch("/api/brains", { method: "POST", body: fd, headers })
+        const res = await apiFetch("/api/brains", { method: "POST", body: fd })
         const body = await res.json().catch(() => ({}))
 
         if (res.status === 409 && !append) {
@@ -220,10 +219,8 @@ export function UploadPage() {
       }
 
       try {
-        const headers = await useAuthHeaders()
-        const res = await fetch(
+        const res = await apiFetch(
           `/api/brains/${encodeURIComponent(brainName)}/events`,
-          { headers },
         )
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
 

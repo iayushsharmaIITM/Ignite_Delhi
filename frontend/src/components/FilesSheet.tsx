@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import { useAuthHeaders } from "@/lib/api"
+import { apiFetch } from "@/lib/api"
 import { t } from "@/lib/i18n"
 
 type Props = {
@@ -27,7 +27,6 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
   const [done, setDone] = useState("")
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const authHeaders = useAuthHeaders()
   const addPicked = (list: FileList | null) => {
     if (!list?.length) return
     const next: Row[] = [...picked]
@@ -56,7 +55,7 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
       if (f) fd.append("files", f)
     })
     try {
-      const res = await fetch("/api/brains", { method: "POST", body: fd, headers: authHeaders })
+      const res = await apiFetch("/api/brains", { method: "POST", body: fd })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         // The API's own refusal messages are the honest ones — surface verbatim.
@@ -100,9 +99,7 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
   // dataset reaches a terminal one (or the sheet closes).
   const streamPipeline = async (name: string, set: (s: string) => void) => {
     try {
-      const res = await fetch(`/api/brains/${encodeURIComponent(name)}/events?timeout_s=600`, {
-        headers: authHeaders,
-      })
+      const res = await apiFetch(`/api/brains/${encodeURIComponent(name)}/events?timeout_s=600`)
       const reader = res.body!.getReader()
       const dec = new TextDecoder()
       let buf = ""

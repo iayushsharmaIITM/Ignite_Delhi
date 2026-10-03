@@ -151,10 +151,13 @@ app.mount("/static", NoCacheStaticFiles(directory=os.path.join(HERE, "static")),
 # KESTREL_UI selects which UI a browser gets at "/":
 #   react  — frontend/dist/index.html (with /assets, /favicon.svg)
 #   legacy — static/index.html, the pre-port dashboard
-# The default is legacy until the react path is verified end to end; flipping
-# it is this one line, and flipping back is the rollback.
+# Default flipped to react on 2026-10-03 after the Phase A/B gates passed:
+# tests/test_react_clerk.py proves the served bundle is authenticated in clerk
+# mode (with a no-token control run) and that asks stream, carry conversation
+# context and report failures honestly. Setting KESTREL_UI=legacy is the
+# rollback, and the legacy pages stay reachable either way.
 DIST_DIR = os.path.join(HERE, "frontend", "dist")
-UI_MODE = (os.getenv("KESTREL_UI") or "legacy").strip().lower()
+UI_MODE = (os.getenv("KESTREL_UI") or "react").strip().lower()
 if UI_MODE not in ("react", "legacy"):
     # A typo must not silently pick a UI the operator did not ask for.
     raise SystemExit(f"KESTREL_UI={UI_MODE!r} is not one of: react, legacy")

@@ -13,6 +13,8 @@ import { Toaster } from "@/components/ui/sonner"
 import { PopMenu, AuthGate, SettingsMenu } from "@/components/Animations"
 import {
   DEFAULT_BRAIN,
+  apiConfig,
+  apiFetch,
   greeting,
   useBrains,
   useChats,
@@ -26,7 +28,7 @@ import { loadClerk } from "@/lib/clerk"
 const Markdown = lazy(() => import("@/components/Markdown"))
 
 type Source = { source: string; excerpt?: string }
-type Turn = { role: "user" | "bot"; text: string; sources?: Source[] }
+type Turn = { role: "user" | "bot"; text: string; sources?: Source[]; error?: boolean }
 
 // Same fields the legacy sidebar's userLabel() derives from the Clerk user
 // (static/shell.js renderUser): display name, email, avatar initials.
@@ -117,7 +119,7 @@ async function buildContext(files: File[], signal: AbortSignal | undefined): Pro
       } else if (!imagey) {
         const fd = new FormData()
         fd.append("file", f)
-        const r = await fetch("/api/extract", { method: "POST", body: fd, signal })
+        const r = await apiFetch("/api/extract", { method: "POST", body: fd, signal })
         const d = await r.json()
         if (r.ok && d.text) {
           context = `Attached file "${f.name}":\n${String(d.text).slice(0, 2400)}\n\n${context}`
@@ -132,6 +134,19 @@ async function buildContext(files: File[], signal: AbortSignal | undefined): Pro
     }
   }
   return context.slice(0, CONTEXT_CAP)
+}
+
+// Same label mapping as legacy stageLabel() (static/index.html:602): the
+// engine's raw step names render as their friendly forms. Only `stage:"step"`
+// events carry a label — matching every stage is what made the first row of
+// every ask read "General chat — bypassing retrieval" (the `stage:"start"`
+// event has no label and picked up the router string).
+function stageLabel(raw: string): string {
+  if (/^Smalltalk:/.test(raw)) return t("stage.smalltalk", raw)
+  if (/^Orchestrator: planning/.test(raw)) return t("stage.plan", raw)
+  if (/^Router: general chat/.test(raw)) return t("stage.router_chat", raw)
+  if (/^Delegating to/.test(raw)) return t("stage.delegating", raw)
+  return raw
 }
 
 function cleanText(text: string): string {
@@ -254,7 +269,9 @@ export default function App() {
         .then((serverTurns) => {
           if (serverTurns.length) setTurns(serverTurns)
         })
-        .catch(() => {})
+        // A restore that fails must say so: silently showing an empty thread
+        // is indistinguishable from a chat that was never saved.
+        .catch((e) => toast.error("Could not restore this chat: " + (e as Error).message))
         .finally(() => setRestoring(false))
       return
     }
@@ -275,17 +292,17 @@ export default function App() {
         u.searchParams.set("chat", remembered)
         history.replaceState(null, "", u)
       })
-      .catch(() => {})
+      .catch((e) => toast.error("Could not resume this chat: " + (e as Error).message))
       .finally(() => setRestoring(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Auth mode detection — mirrors legacy auth.js: fetch config, load Clerk,
-  // await Clerk.load(), then check sessions for sign-in state
+  // await Clerk.load(), then check sessions for sign-in state. The config is
+  // shared with the transport (lib/api.ts apiConfig) so there is one fetch.
   useEffect(() => {
     let cancelled = false
-    fetch("/api/config")
-      .then((r) => r.json())
+    apiConfig()
       .then((cfg) => {
         if (cancelled) return
         setAuthMode(cfg.authMode || "off")
@@ -389,8 +406,8 @@ export default function App() {
     return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("click", onClick) }
   }, [])
 
-  const { chats, refreshChats } = useChats(view === "chat" ? brain : null)
-  const { brains, refreshBrains } = useBrains()
+  const { chats, refreshChats, chatsError } = useChats(view === "chat" ? brain : null)
+  const { brains, refreshBrains, brainsError } = useBrains()
 
   // Landing pad for the OAuth round-trip
   useEffect(() => {
@@ -463,6 +480,9 @@ export default function App() {
       .catch(() => {})
   }, [brain, refreshChats])
 
+  const finalizedRef = useRef(false)
+  const [saveTick, setSaveTick] = useState(0)
+
   const ask = useCallback(async (q: string, files: File[] = []) => {
     // The bot turn opens immediately with the working log and the streaming
     // cursor (legacy addTurn('bot','') + workStart) — never only after the
@@ -473,20 +493,56 @@ export default function App() {
       return [...t, { role: "user", text: q }, { role: "bot", text: "" }]
     })
     setStreaming(true)
+    finalizedRef.current = false
     startWork()
     const controller = new AbortController()
     ;(window as unknown as { CONTROLLER?: AbortController }).CONTROLLER = controller
     let text = ""
+    let serverError: string | null = null
+    let aborted = false
+
+    // Write to the bot turn this ask opened (botIdxRef), never to "the last
+    // turn" — the index is captured before any await.
+    const setBotText = (value: string, extra?: Partial<Turn>) => {
+      const idx = botIdxRef.current
+      setTurns((t) => {
+        const copy = [...t]
+        if (idx >= 0 && copy[idx]?.role === "bot") {
+          copy[idx] = { ...copy[idx], role: "bot", text: value, ...extra }
+        }
+        return copy
+      })
+    }
+
+    // Legacy finalize(): the composer is freed the moment the answer is
+    // complete. Citations keep arriving afterwards into the finished turn, so
+    // this must not end the read loop (static/index.html:1256-1281,1408-1417).
+    const finalize = () => {
+      if (finalizedRef.current) return
+      finalizedRef.current = true
+      setStreaming(false)
+      stopWork()
+    }
+
     try {
       const params = new URLSearchParams({ q })
       if (brain && brain !== "demo") params.set("dataset", brain)
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-      params.set("tz", tz)
+      params.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone)
       params.set("local_time", new Date().toISOString())
+
+      // A follow-up is resolved against the last few turns: without this every
+      // question is a cold start and "and who signs it off?" has no referent
+      // (static/index.html:1237-1239 → app.py:1164-1194).
+      let context = turnsRef.current
+        .slice(-3)
+        .map((t) => (t.role === "user" ? "Earlier question: " : "Earlier answer: ") + (t.text || "").slice(0, 700))
+        .join("\n")
+        .trim()
+
       if (files.length) {
         addWorkStep("Reading attached files…")
-        const context = await buildContext(files, controller.signal)
-        if (context) params.set("context", context)
+        const fileContext = await buildContext(files, controller.signal)
+        if (fileContext) context = fileContext + (context ? "\n\n" + context : "")
         const ingestible = files.filter((f) => !(f.type || "").startsWith("image/"))
         if (brain && brain !== "demo" && ingestible.length) {
           addWorkStep(`Adding ${ingestible.length} file(s) to ${brain}…`)
@@ -494,7 +550,7 @@ export default function App() {
           fd.append("name", brain)
           fd.append("append", "true")
           ingestible.forEach((f) => fd.append("files", f))
-          fetch("/api/brains", { method: "POST", body: fd, signal: controller.signal })
+          apiFetch("/api/brains", { method: "POST", body: fd, signal: controller.signal })
             .then((r) => r.json())
             .then((d) => {
               if (d.ok || d.partial) toast.success(`Added to ${brain} — answerable in future questions`)
@@ -503,8 +559,17 @@ export default function App() {
             .catch(() => toast.warning("Upload failed: no response from server"))
         }
       }
-      const res = await fetch(`/api/ask?${params}`, { signal: controller.signal })
-      const reader = res.body!.getReader()
+      if (context) params.set("context", context.slice(0, CONTEXT_CAP))
+
+      const res = await apiFetch(`/api/ask?${params}`, { signal: controller.signal })
+      // A 401/500 answers with a JSON body and no trailing newline. Without
+      // this guard the buffer-tail logic swallowed it and the user got a
+      // permanently empty answer with no error at all.
+      if (!res.ok || !res.body) {
+        const detail = await res.json().catch(() => null)
+        throw new Error((detail && detail.detail) || `HTTP ${res.status}`)
+      }
+      const reader = res.body.getReader()
       const dec = new TextDecoder()
       let buf = ""
       while (true) {
@@ -515,93 +580,92 @@ export default function App() {
         buf = lines.pop() || ""
         for (const line of lines) {
           if (!line.trim()) continue
-          const ev = JSON.parse(line)
+          let ev: {
+            type?: string; text?: string; stage?: string; label?: string
+            message?: string; ms?: number; items?: { source?: string; excerpt?: string }[]
+          }
+          // One malformed line must never kill the stream (legacy:1398).
+          try { ev = JSON.parse(line) } catch { continue }
           if (ev.type === "chunk") {
             text += ev.text || ""
-            const idx = botIdxRef.current
-            setTurns((t) => {
-              const copy = [...t]
-              // spread, not replace: references can land between chunks and
-              // must survive the next text update
-              if (copy[idx]) copy[idx] = { ...copy[idx], role: "bot", text }
-              return copy
-            })
+            setBotText(text)
             scrollBottom()
           } else if (ev.type === "references") {
-            const items: Source[] = (ev.items || []).map((s: { source?: string; excerpt?: string }) => ({
-              source: s.source || "source",
-              excerpt: s.excerpt,
-            }))
+            const items: Source[] = (ev.items || [])
+              .filter((s) => s && s.source)
+              .map((s) => ({ source: s.source as string, excerpt: s.excerpt }))
+            const idx = botIdxRef.current >= 0 ? botIdxRef.current : turnsRef.current.length - 1
             setTurns((t) => {
               const copy = [...t]
-              const idx = botIdxRef.current >= 0 ? botIdxRef.current : copy.length - 1
               if (copy[idx]?.role === "bot") copy[idx] = { ...copy[idx], sources: items }
               return copy
             })
+            // References land AFTER done: the turn is already saved without
+            // them, so save again or the chips vanish on reload (legacy:1410).
+            if (finalizedRef.current) {
+              justFinishedRef.current = true
+              setSaveTick((n) => n + 1)
+            }
+          } else if (ev.stage === "step") {
+            addWorkStep(stageLabel(ev.label || ""), typeof ev.ms === "number" ? ev.ms : undefined)
+          } else if (ev.stage === "done") {
+            finalize()
           } else if (ev.stage === "error") {
-            text += (text ? "\n\n" : "") + "⚠️ " + (ev.message || "The request failed.")
-            const idx = botIdxRef.current
-            setTurns((t) => {
-              const copy = [...t]
-              if (copy[idx]) copy[idx] = { ...copy[idx], role: "bot", text }
-              return copy
-            })
-          } else if (ev.stage && ev.stage !== "done" && !ev.message) {
-            const raw: string = ev.label || ev.stage
-            // Same label mapping as legacy stageLabel(): the engine's raw
-            // step names render as their friendly forms.
-            const stageLabel =
-              ev.stage === "start" ? t("stage.router_chat", "Searching the brain…") :
-              ev.stage === "ready" ? t("stage.delegating", "Composing the answer…") :
-              /^Smalltalk:/.test(raw) ? t("stage.smalltalk", raw) :
-              /^Orchestrator: planning/.test(raw) ? t("stage.plan", raw) :
-              /^Router: general chat/.test(raw) ? t("stage.router_chat", raw) :
-              /^Delegating to/.test(raw) ? t("stage.delegating", raw) :
-              raw
-            addWorkStep(stageLabel, typeof ev.ms === "number" ? ev.ms : undefined)
+            serverError = ev.message || "The request failed."
           }
         }
       }
+      if (serverError && !text) {
+        setBotText("Something went wrong: " + serverError, { error: true })
+      } else if (serverError) {
+        // Keep the partial answer that did arrive, and say what happened.
+        setBotText(text)
+        toast.error(serverError)
+      } else if (!text) {
+        setBotText("No answer returned for that question.")
+      }
     } catch (e) {
       const err = e as Error
-      if (err.name !== "AbortError") {
-        const idx = botIdxRef.current
-        setTurns((t) => {
-          const copy = [...t]
-          if (idx >= 0 && copy[idx]?.role === "bot" && !copy[idx].text) {
-            copy[idx] = { role: "bot", text: "Could not reach the server: " + err.message }
-            return copy
-          }
-          return [...t, { role: "bot", text: "Could not reach the server: " + err.message }]
-        })
+      if (err.name === "AbortError") {
+        aborted = true
+        setBotText(text ? text + "\n\n_(stopped.)_" : "Stopped before any answer arrived.")
+      } else if (text) {
+        // Partial answer stands — never append a second bot turn over it.
+        setBotText(text + "\n\n_(connection lost — showing what arrived.)_")
+        toast.error("Could not reach the server: " + err.message)
+      } else {
+        setBotText("Could not reach the server: " + err.message, { error: true })
       }
     } finally {
+      finalizedRef.current = true
       setStreaming(false)
-      stopWork()
+      stopWork(aborted)
       scrollBottom()
-      // The save itself runs in the streaming-flip effect below: it must see
-      // the LAST chunk's commit, and turnsRef lags a render inside finally.
+      // The save itself runs in the effect below: it must see the LAST chunk's
+      // commit, and turnsRef lags a render inside finally.
       justFinishedRef.current = true
+      setSaveTick((n) => n + 1)
     }
   }, [brain, persistChat])
 
   // Persist every finished ask (legacy saveHistory runs after finalize, not
-  // only on failures). Runs post-commit so the saved turns include the final
-  // streamed text.
+  // only on failures), and again when late-arriving citations change the turn.
+  // Runs post-commit so the saved turns include the final streamed text.
   const justFinishedRef = useRef(false)
   useEffect(() => {
     if (streaming || !justFinishedRef.current) return
     justFinishedRef.current = false
     if (turnsRef.current.length) void persistChat()
-  }, [streaming, persistChat])
+  }, [streaming, saveTick, persistChat])
 
   const handleSend = (q: string, files: File[] = []) => {
     if (!q.trim() && files.length === 0) return
     ask(q, files)
   }
   const handleStop = () => {
+    // Abort only: the ask's catch renders the legacy terminal state
+    // ("_(stopped.)_" / "Stopped before any answer arrived.") and marks the log.
     ;(window as unknown as { CONTROLLER?: AbortController }).CONTROLLER?.abort()
-    stopWork(true)
   }
   const openView = (v: "chat" | "brains" | "connectors" | "graph" | "legacy-brains" | "legacy-upload" | "legacy-graph") => {
     setView(v)
@@ -739,7 +803,7 @@ export default function App() {
     setMenu2Open(false)
     const id = chatId
     if (id) {
-      try { await fetch(`/api/chats/${encodeURIComponent(id)}`, { method: "DELETE" }) } catch {}
+      try { await apiFetch(`/api/chats/${encodeURIComponent(id)}`, { method: "DELETE" }) } catch {}
     }
     newChat()
     refreshChats()
@@ -748,17 +812,17 @@ export default function App() {
   // Delete handlers
   const handleDeleteChat = async (targetId: string, _brain?: string) => {
     try {
-      await fetch(`/api/chats/${encodeURIComponent(targetId)}`, { method: "DELETE" })
+      await apiFetch(`/api/chats/${encodeURIComponent(targetId)}`, { method: "DELETE" })
     } catch {}
     if (targetId === chatId) newChat()
     refreshChats()
   }
   const handleDeleteBrainChats = async (targetBrain: string) => {
     try {
-      const r = await fetch(`/api/chats?brain=${encodeURIComponent(targetBrain)}`)
+      const r = await apiFetch(`/api/chats?brain=${encodeURIComponent(targetBrain)}`)
       const d = await r.json()
       for (const c of d.chats || []) {
-        await fetch(`/api/chats/${encodeURIComponent(c.id)}`, { method: "DELETE" }).catch(() => {})
+        await apiFetch(`/api/chats/${encodeURIComponent(c.id)}`, { method: "DELETE" }).catch(() => {})
       }
     } catch {}
     if (targetBrain === brain) newChat()
@@ -794,7 +858,7 @@ export default function App() {
     }
     setDraftBusy(true)
     try {
-      const r = await fetch("/api/actions/draft", {
+      const r = await apiFetch("/api/actions/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -867,7 +931,10 @@ export default function App() {
             })}
           </div>
         )}
-        <div className={"bubble rendered" + (streamingHere ? " streaming" : "")}>
+        {/* Legacy .bubble.err (static/index.html:1423-1424, shell.css:258):
+            a failure is an error state, not model output. Rendering it as
+            markdown made "Something went wrong" read like an answer. */}
+        <div className={"bubble rendered" + (streamingHere ? " streaming" : "") + (turn.error ? " err" : "")}>
           {turn.text ? (
             <Suspense fallback={<span>{turn.text}</span>}>
               <Markdown>{turn.text}</Markdown>
@@ -968,6 +1035,7 @@ export default function App() {
         onNewChat={() => { newChat(); setMobileOpen(false) }}
         onOpenChat={(id, b) => void openChat(id, b ?? brain)}
         chats={chats}
+        chatsError={chatsError}
         onRefreshChats={refreshChats}
         onDeleteChat={(id) => void handleDeleteChat(id)}
         onDeleteBrainChats={handleDeleteBrainChats}
@@ -1144,6 +1212,7 @@ export default function App() {
 
               <div className="pop" id="brainmenu" hidden={!brainMenuOpen}>
                 <div className="pop-note">Ask in</div>
+                {brainsError && <div className="count err">{brainsError}</div>}
                 {brains.map((b) => {
                   const isCurrent = b.name === brain
                   return (

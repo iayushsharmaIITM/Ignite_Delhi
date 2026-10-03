@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 import { t } from "@/lib/i18n"
+import { apiFetch } from "@/lib/api"
 
 type Props = {
   title: string
@@ -23,7 +24,7 @@ export function SourceModal({ title, excerpt, brain, onClose }: Props) {
     const ac = new AbortController()
     const params = new URLSearchParams({ name: title })
     if (brain) params.set("dataset", brain)
-    fetch(`/api/source?${params.toString()}`, { signal: ac.signal })
+    apiFetch(`/api/source?${params.toString()}`, { signal: ac.signal })
       .then((r) => r.json().catch(() => ({})).then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
         if (!alive) return

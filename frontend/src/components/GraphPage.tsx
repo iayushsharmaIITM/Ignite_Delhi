@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -139,7 +140,7 @@ export function GraphPage({ brain }: Props) {
     setInspectorOpen(false);
     setExitVisible(false);
 
-    fetch(`/api/graph?brain=${encodeURIComponent(brain)}`)
+    apiFetch(`/api/graph?brain=${encodeURIComponent(brain)}`)
       .then((r) => {
         if (!r.ok) {
           if (r.status === 401 || r.status === 403) {

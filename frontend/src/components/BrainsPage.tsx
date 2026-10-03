@@ -10,7 +10,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react"
-import { useAuthHeaders, useBrains, type Brain } from "@/lib/api"
+import { apiFetch, useBrains, type Brain } from "@/lib/api"
 import { t } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -48,7 +48,6 @@ function DeleteButton({ name, onDeleted }: { name: string; onDeleted: () => void
   const [armed, setArmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const authHeaders = useAuthHeaders()
 
   const disarm = useCallback(() => {
     setArmed(false)
@@ -64,9 +63,8 @@ function DeleteButton({ name, onDeleted }: { name: string; onDeleted: () => void
     disarm()
     setBusy(true)
     try {
-      const r = await fetch(`/api/brains/${encodeURIComponent(name)}`, {
+      const r = await apiFetch(`/api/brains/${encodeURIComponent(name)}`, {
         method: "DELETE",
-        headers: authHeaders,
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok || !d.ok) throw new Error(d.detail || `HTTP ${r.status}`)
@@ -76,7 +74,7 @@ function DeleteButton({ name, onDeleted }: { name: string; onDeleted: () => void
       toast.error((e as Error).message)
       setBusy(false)
     }
-  }, [armed, name, onDeleted, disarm, authHeaders])
+  }, [armed, name, onDeleted, disarm])
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 
@@ -216,7 +214,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 /* ------------------------------------------------------------------ */
 
 export function BrainsPage() {
-  const { brains, refreshBrains } = useBrains()
+  const { brains, refreshBrains, brainsError } = useBrains()
   const [createOpen, setCreateOpen] = useState(false)
   const [enriched, setEnriched] = useState<BrainWithStats[]>([])
 
@@ -232,7 +230,7 @@ export function BrainsPage() {
 
     /* Fetch stats for each brain in parallel */
     mapped.forEach((b) => {
-      fetch(`/api/stats?dataset=${encodeURIComponent(b.name)}`)
+      apiFetch(`/api/stats?dataset=${encodeURIComponent(b.name)}`)
         .then((r) => r.json())
         .then((d: BrainStats) => {
           setEnriched((prev) =>
@@ -283,7 +281,12 @@ export function BrainsPage() {
         </div>
 
         {/* List */}
-        {enriched.length === 0 ? (
+        {brainsError ? (
+          // "No brains yet" for a 401 is a lie; quote the server instead.
+          <p className="mt-8 rounded-xl border border-border bg-card px-4 py-3 text-[13px] text-destructive">
+            Could not load brains: {brainsError}
+          </p>
+        ) : enriched.length === 0 ? (
           <div className="mt-8">
             <EmptyState onCreate={() => setCreateOpen(true)} />
           </div>

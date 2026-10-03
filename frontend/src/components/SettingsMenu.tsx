@@ -18,7 +18,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { t, setLang, getLang, getLangs, type LangCode } from "@/lib/i18n"
 import { setTheme } from "@/theme"
-import { useAuthHeaders } from "@/lib/api"
+import { apiFetch } from "@/lib/api"
 
 type ThemeMode = "system" | "dark" | "light"
 
@@ -75,14 +75,13 @@ export function SettingsMenu({ open, onOpenChange }: Props) {
   const [usage, setUsage] = useState<UsageRow[]>([])
   const [usageLoading, setUsageLoading] = useState(false)
   const [usageError, setUsageError] = useState(false)
-  const authHeaders = useAuthHeaders()
 
   // Fetch usage stats when opened
   useEffect(() => {
     if (!open) return
     setUsageLoading(true)
     setUsageError(false)
-    fetch("/api/usage", { headers: authHeaders })
+    apiFetch("/api/usage")
       .then((r) => {
         if (!r.ok) throw new Error("Failed")
         return r.json()
@@ -95,7 +94,7 @@ export function SettingsMenu({ open, onOpenChange }: Props) {
         setUsageError(true)
         setUsageLoading(false)
       })
-  }, [open, authHeaders])
+  }, [open])
 
   const handleLangChange = (code: LangCode) => {
     setLang(code)
@@ -122,7 +121,14 @@ export function SettingsMenu({ open, onOpenChange }: Props) {
     w.Clerk?.openUserProfile?.()
   }
 
-  const isSignedIn = !!authHeaders.Authorization
+  // Signed-in truth comes from Clerk's sessions — the durable signal, since a
+  // transiently null `user` after an Account Portal redirect is still signed
+  // in (static/auth.js state()). This module is unused (Phase E deletes it);
+  // it compiles against the shared transport like everything else.
+  const clerk = (window as unknown as {
+    Clerk?: { session?: unknown; client?: { sessions?: unknown[] } }
+  }).Clerk
+  const isSignedIn = !!clerk?.session || (clerk?.client?.sessions?.length || 0) > 0
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

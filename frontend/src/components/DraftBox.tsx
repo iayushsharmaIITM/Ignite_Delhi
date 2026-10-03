@@ -1,5 +1,6 @@
 import { toast } from "sonner"
 import { t } from "@/lib/i18n"
+import { apiFetch } from "@/lib/api"
 
 export type EmailDraftData = { to?: string; subject: string; body: string }
 
@@ -28,7 +29,7 @@ export function DraftBox({ draft, busy, onBodyChange, onClose }: Props) {
   }
   const send = async () => {
     try {
-      const r = await fetch("/api/actions/send", {
+      const r = await apiFetch("/api/actions/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind: "email", draft }),

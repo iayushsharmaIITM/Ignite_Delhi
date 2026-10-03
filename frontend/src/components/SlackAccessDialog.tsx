@@ -9,6 +9,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
+import { apiFetch } from "@/lib/api"
 
 type Props = { open: boolean; onClose: () => void }
 
@@ -19,13 +20,15 @@ export function SlackAccessDialog({ open, onClose }: Props) {
 
   useEffect(() => {
     if (!open) return
-    fetch("/api/connectors/status")
+    apiFetch("/api/connectors/status")
       .then((r) => r.json())
       .then((s) => setConfigured(!!s?.oauth?.slack?.configured))
       .catch(() => setConfigured(false))
   }, [open])
 
   const connect = () => {
+    // transport-exempt: a top-level navigation, not a fetch — the browser
+    // follows the server's OAuth redirect and returns through /?connected=slack.
     window.location.href = `/api/connectors/slack/connect?mode=${mode}&private=${priv ? 1 : 0}`
   }
 
