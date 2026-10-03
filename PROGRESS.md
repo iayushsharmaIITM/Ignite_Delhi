@@ -1,3 +1,50 @@
+## Ops that have to be true without anyone checking 2026-10-04
+
+Three gaps that only matter on the day they matter, each closed with a check that
+proves itself rather than a claim.
+
+**Secrets.** `commit.sh` runs `git add -A`, so a pasted key reaches history on an
+ordinary "wip" commit. `ops/check_secrets.sh` scans the stage area before every
+commit and every tracked file in CI. It **self-tests**: if the pattern cannot match
+its own example the script exits 2 instead of reporting "clean", because a silently
+broken detector is the worst of the three outcomes. Proof both directions: the
+tracked repo scans clean today, and a planted key is caught in a normal source
+file *and* inside `.env.example` (templates are exempt from the filename rule on
+purpose, never from the content rule).
+
+**Backups.** They existed as a script and a hope. Installing a schedule exposed
+BLOCKERS **M-ops.1**: launchd cannot read `~/Desktop` at all (exit 126, `Operation
+not permitted`), so the login "self-healing" job has never run — which is why four
+colima stops left the stack down while a log written by a *terminal*-launched run
+made it look alive. The nightly backup therefore lives outside the repo
+(`~/Library/Application Support/Kestrel/…` → `~/Kestrel_backups`), reads nothing
+under Desktop, and was verified **through launchd**, not a shell: last exit 0, 12 MB
+dump + both volume tars + SHA256SUMS. Artifacts are checked, not assumed — `tar tf`
+and a requirement that the dump END with pg_dump's own terminator, which is exactly
+what caught one of my own status echoes being written *into* `db.sql`. The receipt
+answers "when did this last work" (`--status` → OK / FAIL / STALE, exit 1 past 36h,
+tested against a 92 h receipt): a stale "OK" and a broken job otherwise look
+identical. `ops/install_agents.sh` installs it; no plist with a repo path is
+committed, because that installs a job guaranteed to fail. The stack watchdog needs
+the repo, so it is reported with three concrete remedies rather than rewritten
+silently.
+
+**Restore.** The drill had two latent bugs and could not have told anyone: it
+restored onto an un-cleared schema (`relation "alembic_version" already exists`),
+and every failure after that died under `set -e` with no output — including one of
+my own first attempts, where `set -e` aborted on the `curl` line before the error
+report I had just added could run. Now: schema dropped first, status goes to stderr
+so it cannot pollute a dump, a 240 s ask ceiling with the timeout reported as
+itself, an `EXIT` trap so a failed drill leaves no orphaned server on `:8010`, and
+a verdict line with a real exit code.
+
+Honest scope of what is proven: the data layer restores and is queried
+(`brain_access=2`, `chats=8`, `graph_node=93`, dataset present, lab cognee healthy).
+The final "ask the restored brain" gate **FAILS** (`0 chars, 0 refs`) because the
+lab cognee has no working LLM endpoint (`LiteLLM TimeoutError` in its logs) —
+recorded as BLOCKERS **M-ops.2**. So "we can restore" is proven for data and
+explicitly unproven for answering, and the drill now says so on its own.
+
 ## M4 closed — a brain name is claimed, not probed 2026-10-04
 
 The one defect the 22 Sep pass deliberately left open because it needed a design

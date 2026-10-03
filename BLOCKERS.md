@@ -51,6 +51,30 @@ the 126 honestly rather than showing "loaded" as if that meant "working".
 
 ---
 
+## M-ops.2 — the restore drill cannot prove brain-level recovery (lab LLM endpoint) — 2026-10-04 — **OPEN**
+
+**What is proven.** `ops/restore_lab.sh` restores a real backup into the lab and
+now reports every gate: schema dropped and reloaded cleanly, `brain_access=2`,
+`chats=8`, `graph_node=93`, both cognee volume tars listed, dataset present on the
+restored copy, lab cognee healthy. Before this pass the drill died at the first
+line of the restore (`relation "alembic_version" already exists`) and, after that,
+silently mid-gate under `set -e` — a failed drill that printed nothing looked like
+a passed one.
+
+**What is not proven.** The final gate (ask the restored brain) fails with
+`GATE demo-answer: FAIL (0 chars, 0 refs)`: the lab cognee container cannot reach
+its LLM endpoint — `LiteLLM TimeoutError`, retried, in its own logs — so the
+stream stalls after "hedging with vector retrieval agent" and never answers. The
+data recovery and the query path are therefore separately unresolved: nothing
+here says the backup's *brain* is unusable, and nothing here yet says it works.
+
+**What unblocks it.** Give the lab brain the same LLM/embedding configuration the
+live container has (`compose.lab.yml` env), re-run `./ops/restore_lab.sh`, and the
+gate should pass end to end. Until then, treat "we can restore" as proven for data
+and unproven for answering.
+
+---
+
 ## M0.1 — battery red: two test suites depend on ambient `.env` PROVIDER — 2026-09-25 — **RESOLVED**
 
 Human approved both proposed edits on 2026-09-25. Applied:
