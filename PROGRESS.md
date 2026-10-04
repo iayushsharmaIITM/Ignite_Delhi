@@ -1,3 +1,60 @@
+## The big hunt: 26 bugs in the engine and the UI, 15 fixed, 10 handed back
+
+Two parallel read-only passes over the answer engine and the interface, every claim
+re-read at its cited line before being believed. The report is
+**`docs/BUG_HUNT_2026-10-05.md`**; the ledger is `BUGS_AUDIT.md` Round 8 (A-46…A-73).
+The shape of it: almost nothing needed new invention. The engine had features that an
+**ordering mistake switched off**, and the UI had patterns already written correctly
+somewhere that **one call site skipped**.
+
+The three that mattered most. A retrieval that succeeded and found nothing was
+recorded as a failure, raised "both retrieval agents failed", and fell through to the
+fixture safety net — whose entries carry hand-written citation chips naming real
+contract files. That is a fabricated citation under the product's one absolute
+invariant, on a path where nothing had actually failed; it now says it found nothing
+and returns `refs: []`. `POST /api/jobs/{id}/cancel` had no tenant check at all while
+the GET on the same resource does, and the published contract says knowing an id is
+not ownership; it now mirrors its sibling, including 404-not-500 on a malformed id.
+And the browser's local-time note was prepended to the question *before* the greeting
+classifier ran and *then thrown away* — so "hi" paid 11–25s of retrieval in the
+shipping app and "what time is it?" was answered from the server's clock, labelled
+"local time". Both halves proven, the second by AST walk: after that assignment `q`
+had no remaining use in the route.
+
+On the UI side: "Add documents" on a brain row re-filed the conversation you were
+reading into the other brain (`storage.py:341` re-stamps unconditionally);
+"New chat" did not abort the answer in flight, so the abandoned stream wrote into the
+new thread and then **saved** the mixture; and the sidebar's armed destructive confirm
+armed and never disarmed, leaving a row one click from deleting up to 500 chats
+indefinitely. Each had a correct sibling implementation already in the tree.
+
+Also fixed: a usage screen that rendered a database outage as "no model calls
+recorded"; `/api/extract` reading an upload of unbounded size into memory after
+`_read_capped` exists for exactly that; an expired JWKS cache discarding good keys,
+re-fetching on every request, and blocking the event loop from `async def` handlers;
+cancelled asks never metered; the general-chat branch orphaning the citations
+prewarmer; an unbounded rate-limit map; the bundle guard going permanently blind on a
+tab opened in the background; a sheet reporting success on a refused progress stream;
+a double-clickable email approval gate; a per-keystroke blob leak; and two
+translation keys that were typos silently discarding existing translations.
+
+**Ten handed back, on purpose.** The citation collision table is written and never
+read — the only remaining hole under the citation invariant, and the one fix I
+declined to make blind. A REBUILD job can never publish (fence requires a state a
+rebuild brain is never in). Nineteen missing translation keys, five components
+bypassing `t()`, three mouse-only controls whose correct keyboard implementation
+already exists unused in the same repo, four dialogs that claim `aria-modal` without
+moving focus, and the create-brain dialog's unstoppable poll. Each is real, none is a
+one-liner, and bundling them would have traded a verified fix for an unverified pile.
+
+**Two claims corrected before commit, in my own report.** U4 and U13 were written up
+as fixed and were not landed. And a browser gate for the phatic route was withdrawn:
+it failed four checks whose cause I could not establish in the time available, and
+shipping an unproven gate is the exact false-green this round was hunting. The 38-check
+hermetic tier covers the route instead — including a real `TestClient` call showing the
+template answer with no references — and `verify.sh` now runs it as its own tier, which
+`--quick` includes, so CI has it too.
+
 ## The New chat dead-end, and the legacy UI's last page going the right way
 
 Reported by the owner: from any section other than the chat — New brain, Brains, Graph —

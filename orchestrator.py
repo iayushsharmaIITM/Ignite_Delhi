@@ -44,7 +44,9 @@ RACERS = [
 import llm  # shared endpoint resolution (Token Harbor primary, OpenRouter fallback)
 
 
-async def answer(query: str, dataset: str | None, smalltalk: bool = False):
+async def answer(query: str, dataset: str | None, smalltalk: bool = False,
+                 phatic_kind: str | None = None, lang: str | None = None,
+                 tz: str | None = None):
     """Yield the same event stream memory_layer._cloud yields.
 
     The head agent's plan: prewarm citations while the retrieval racers run;
@@ -53,6 +55,25 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
     import cognee_cloud
 
     t_start = time.time()
+
+    # --- Fastest path: a social message answered from the table ----------------
+    # Greetings, thanks, farewells and "what can you do" get fixed wording in the
+    # reader's own UI language, with no model call and no retrieval at all. This is
+    # strictly cheaper than the smalltalk route below, which still paid one small
+    # completion for the same messages, and it is the path the shipping app never
+    # reached: the web tier used to classify the question AFTER prepending its
+    # local-time note, so every greeting looked like content and fell through to
+    # retrieval. See tests/test_phatic.py.
+    if phatic_kind:
+        import phatic
+        reply = phatic.reply(phatic_kind, lang, tz=tz)
+        if reply:
+            yield {"stage": "step", "label": "Phatic: template, no model, no retrieval"}
+            for word in reply.split(" "):
+                yield {"type": "chunk", "text": word + " "}
+                await asyncio.sleep(0.01)
+            yield {"stage": "done", "ms": int((time.time() - t_start) * 1000)}
+            return
 
     # --- Fast path: greetings/smalltalk never touch the brain ----------------
     # Retrieval (embed + graph search + generation) is an 11-25s round trip;
@@ -126,6 +147,14 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
             for p in tasks:
                 p.cancel()
                 asyncio.ensure_future(_swallow(p))
+            # The citations prewarmer was already running. Cancelling the racers and
+            # returning without it left that task detached: a general-chat reply,
+            # which retrieves nothing, still fanned out a full document dump against
+            # the brain service on an 8-worker pool, delaying citations for every
+            # concurrent ask in the process. The normal exit awaits it (below); this
+            # branch must not be the one place that forgets.
+            prewarm.cancel()
+            asyncio.ensure_future(_swallow(prewarm))
             reply = await asyncio.to_thread(_direct_chat_general, query)
             for word in reply.split(" "):
                 yield {"type": "chunk", "text": word + " "}
@@ -137,6 +166,8 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
         winner = None
         pending = set(tasks)
         hedged = False
+        answered_blank = False    # a racer that completed with no answer text
+        errored = 0               # a racer that actually failed
         while pending:
             # The hedge: wait for the primary only up to the delay. A fast
             # failure skips the wait entirely (fail over at once); a slow
@@ -159,12 +190,15 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
                 try:
                     res = fut.result()
                     text = cognee_cloud.answer_text(res)
+                    if not text.strip():
+                        answered_blank = True
                     if text.strip() and results is None:
                         results, winner = res, name
                         yield {"stage": "step",
                                "label": f"{name} answered first",
                                "ms": int((time.time() - t0) * 1000)}
                 except Exception as exc:  # noqa: BLE001 - a failed retrieval is not a failed ask
+                    errored += 1
                     yield {"stage": "step",
                            "label": f"{name} failed ({str(exc)[:60]})"}
                     if not hedged:
@@ -184,6 +218,21 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False):
                         for p in pending:
                             asyncio.ensure_future(_swallow(p))
                         pending = set()
+        if results is None and answered_blank and errored == 0:
+            # Nothing came back, but nothing failed either: the brain answered the
+            # question by saying nothing. Reporting that as an outage used to fall
+            # through to memory_layer's fixture safety net, which answered with a
+            # committed paragraph about the DEMO brain and hand-written citation
+            # chips naming real contracts — a fabricated citation for a question the
+            # brain did answer. Say the truth instead: no finding, no sources.
+            yield {"stage": "step", "label": "Retrieval returned no content"}
+            for word in ("I found nothing in this brain that answers that. I only "
+                         "say what your documents say, so there is no source to "
+                         "cite here — try rephrasing, or add the document that "
+                         "would cover it. ").split(" "):
+                yield {"type": "chunk", "text": word + " "}
+            yield {"stage": "done", "ms": int((time.time() - t_start) * 1000)}
+            return
         if results is None:
             raise RuntimeError("both retrieval agents failed")
         if winner != RACERS[0][0]:

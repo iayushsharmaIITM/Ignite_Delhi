@@ -843,7 +843,7 @@ export function UpgradeModal({ open, onClose }: UsageModalProps) {
             <div className={"tier" + (tier.hot ? " hot" : "")} key={tier.key}>
               <div className="tn">{t(`up.${tier.key}`, tier.key)}</div>
               <div className="tp">
-                ${tier.price}<small>{t("up.per_month", "/month")}</small>
+                ${tier.price}<small>{t("up.per_mo", "/mo")}</small>
               </div>
               <ul>
                 {[1, 2, 3].map((n) => (
@@ -858,7 +858,7 @@ export function UpgradeModal({ open, onClose }: UsageModalProps) {
             </div>
           ))}
         </div>
-        <p className="km-note">{t("upg.note", "Plans are not purchasable yet — nothing is charged.")}</p>
+        <p className="km-note">{t("up.note", "Plans are not purchasable yet — nothing is charged.")}</p>
       </div>
     </div>
   )

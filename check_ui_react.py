@@ -987,6 +987,149 @@ def section_graph_view(suite: Suite, base: str) -> None:
                 explained, err[:160])
 
 
+def section_graph_view(suite: Suite, base: str) -> None:
+    """The graph surface, ported from static/graph.html — which this run deletes.
+
+    The legacy page was the last hand-written UI, and it was richer than the
+    in-app view that replaced it: a canvas force layout, camera zoom and pan,
+    click-to-open sub-nodes over twelve core nodes, and a node inspector carrying
+    properties and typed relationships. Purging it was only defensible once each
+    of those four is proven here, plus the redirect that keeps old bookmarks and
+    the sidebar's `/graph` href landing in the app.
+    """
+    page = suite.page
+    suite.section("graph view")
+
+    # The URL that used to serve a second copy of this screen must now land in
+    # the app, and must keep the brain it was asked for.
+    page.goto(base + "/graph?brain=company_brain", wait_until="networkidle")
+    page.wait_for_timeout(1000)
+    suite.check("/graph redirects into the app", "view=graph" in page.url, page.url)
+    suite.check("the redirect preserves ?brain=", "brain=company_brain" in page.url, page.url)
+    suite.check("/graph no longer serves a hand-written page",
+                page.locator("canvas").count() >= 1, page.url)
+
+    reset(suite, base + "/?view=graph")
+    stats = (page.locator("#graph-stats").text_content() or "").strip()
+    suite.check("the canvas renders", page.locator("canvas").count() == 1)
+    m = re.search(r"(\d+) nodes · (\d+) edges", stats)
+    suite.check("stats report real counts, not a blank canvas", bool(m) and int(m.group(1)) > 0, stats)
+    node_total = int(m.group(1)) if m else 0
+    # Match on the section HEADERs case-insensitively: both are rendered through
+    # `text-transform: uppercase`, and inner_text() returns the transformed text,
+    # so a literal "Connections (" can never match even when the panel is perfect.
+    suite.check("the legend lists node types with counts",
+                page.locator('[aria-label="Node types"] li').count() >= 1,
+                "no legend rows")
+    chips = page.locator('[aria-label^="Open "]')
+    suite.check("the core nodes are reachable without a pointer",
+                chips.count() >= 1, f"{chips.count()} chips")
+
+    # Open a core node: the inspector is the whole reason clicking a node is the
+    # product's answer to a 200-node graph, so it must show what the node IS.
+    if chips.count():
+        chips.first.click()
+        page.wait_for_timeout(900)
+        panel = page.locator('aside[aria-label="Node details"]')
+        suite.check("opening a node shows its inspector", panel.count() == 1)
+        body = (panel.first.inner_text() if panel.count() else "")
+        suite.check("the inspector lists the node's connections",
+                    re.search(r"connections \(\d+\)", body, re.I) is not None, body[:120])
+        suite.check("opening a node counts as disclosure",
+                    " opened" in (page.locator("#graph-stats").text_content() or ""),
+                    (page.locator("#graph-stats").text_content() or ""))
+
+        # A relationship row walks to the other node rather than doing nothing.
+        rel = panel.locator("li button")
+        if rel.count():
+            rel.first.click()
+            page.wait_for_timeout(900)
+            suite.check("clicking a relationship walks to that node",
+                        page.locator('aside[aria-label="Node details"]').count() == 1)
+
+    zoomed = page.locator("[data-zoom]").get_attribute("data-zoom")
+    page.locator('[aria-label="Zoom in"]').click()
+    page.wait_for_timeout(500)
+    after = page.locator("[data-zoom]").get_attribute("data-zoom")
+    suite.check("zoom in changes the camera", (zoomed or "") != (after or ""), f"{zoomed} -> {after}")
+
+    page.locator('[aria-label="Expand everything"]').click()
+    page.wait_for_timeout(900)
+    allstats = (page.locator("#graph-stats").text_content() or "")
+    mm = re.search(r"(\d+) opened", allstats)
+    suite.check("expand everything opens every node",
+                bool(mm) and node_total and int(mm.group(1)) == node_total, allstats)
+
+    page.locator('[aria-label="Collapse to core nodes"]').click()
+    page.wait_for_timeout(900)
+    back = (page.locator("#graph-stats").text_content() or "")
+    suite.check("collapse returns to the core view", " opened" not in back, back)
+    suite.check("collapse closes the inspector",
+                page.locator('aside[aria-label="Node details"]').count() == 0)
+
+    # The honesty rule: an unreachable graph must say so. It must never render as
+    # an empty graph, which is the same lie A-storage-surfacing-as-empty-list is.
+    page.goto(base + "/?view=graph&brain=no_such_brain_zz", wait_until="networkidle")
+    page.wait_for_timeout(1200)
+    err = (page.locator("#graph-stats").text_content() or "").strip()
+    explained = ("Could not load" in err) or (
+        page.locator("text=/graph is empty/").count() >= 1)
+    suite.check("a graph it cannot fetch is explained, not shown as blank",
+                explained, err[:160])
+
+
+def section_phatic_in_browser(suite: Suite, base: str) -> None:
+    """A greeting typed in the real UI must be answered instantly, with no citations.
+
+    This is the end-to-end half of the phatic route. The unit tier proves the
+    classifier and the table; only the browser can prove the path a user takes — that
+    the client sends its locale, that the note the client appends does not blind the
+    server, and that a message which is a greeting AND a question is still answered
+    from the documents.
+    """
+    page = suite.page
+    suite.section("phatic in the browser")
+    reset(suite, base + "/?new=1")
+
+    sent = len(suite.requests)
+    page.fill("textarea#q", "hi")
+    page.keyboard.press("Enter")
+    page.wait_for_selector(".turn.bot .bubble", timeout=8000)
+    first = page.evaluate("() => performance.now()")
+    page.wait_for_timeout(1200)
+
+    asks = [u for u in suite.requests[sent:] if "/api/ask" in u]
+    suite.check("the client sends its locale with the question",
+          any("lang=" in u for u in asks), str(asks[:1]))
+
+    bot = page.locator(".turn.bot .bubble").last
+    text = (bot.text_content() or "").strip().lower()
+    log = " ".join((page.locator(".turn.bot").last.locator(".w-step").all_text_contents()))
+    suite.check("a greeting is answered from the phatic route",
+          "Phatic" in log, log[:160])
+    suite.check("the greeting reply is the table's wording, not a fixture answer",
+          "ask me anything" in text or "good morning" in text or "good afternoon" in text
+          or "good evening" in text, text[:120])
+    suite.check("a greeting cites nothing",
+          page.locator(".turn.bot .srcs").count() == 0,
+          f"{page.locator('.turn.bot .srcs').count()} citation chips on a 'hi'")
+    suite.check("the reply arrived without waiting on retrieval",
+          bool(re.search(r"(retrieval|graph|embed|recall)", log, re.I)) is False,
+          log[:160])
+
+    # Fail OPEN, in the browser: the greeting must not swallow the question.
+    reset(suite, base + "/?new=1")
+    page.fill("textarea#q", "hi, what is the Bluepeak renewal date?")
+    page.keyboard.press("Enter")
+    page.wait_for_selector(".turn.bot .bubble", timeout=30000)
+    page.wait_for_timeout(2000)
+    mixed = (page.locator(".turn.bot .bubble").last.text_content() or "").strip().lower()
+    mlog = " ".join((page.locator(".turn.bot").last.locator(".w-step").all_text_contents()))
+    suite.check("a greeting plus a question is NOT answered from the template",
+          "ask me anything about your company" not in mixed, mixed[:120])
+    suite.check("…and it went to the brain instead", "Phatic" not in mlog, mlog[:160])
+
+
 SECTIONS = [
     ("chat / ask", section_chat),
     ("source modal", section_source_modal),

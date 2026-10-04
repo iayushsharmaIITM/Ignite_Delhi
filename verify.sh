@@ -253,6 +253,19 @@ else
   FAILS=$((FAILS + 1))
 fi
 
+# --- 6b. phatic routing (hermetic: no database, no provider, no browser) ------
+# The answer engine's greeting/thanks path. It is gated here because it was merged
+# working and shipped broken: the web tier classified the question AFTER prepending
+# its own local-time note, so every greeting in the real app paid a full retrieval
+# round trip. The tier pins PROVIDER=mock and refuses a non-lab DATABASE_URL, so it
+# can never reach the live tenant or spend real inference.
+if python3 tests/test_phatic.py > /tmp/kestrel_verify_phatic.log 2>&1; then
+  note phatic "PASS  $(tally /tmp/kestrel_verify_phatic.log)"
+else
+  note phatic "FAIL — see /tmp/kestrel_verify_phatic.log"
+  FAILS=$((FAILS + 1))
+fi
+
 # --- 6a. doc freshness --------------------------------------------------------
 # A stale route inside an instruction document is not cosmetic: an agent obeys it.
 # CLAUDE_CONTEXT.md used to tell agents to verify with pytest, which this file's own
@@ -265,7 +278,7 @@ else
   FAILS=$((FAILS + 1))
 fi
 
-# --- 6b. chat integrity (Round 2: CH-1..CH-9) ---------------------------------
+# --- 6c. chat integrity (Round 2: CH-1..CH-9) ---------------------------------
 # The rules that keep a conversation from being silently rewritten: a save with
 # fewer turns than the server holds is refused unless it declares a trim; a
 # deleted chat stays deleted (410); DELETE tells the truth (404, not 200

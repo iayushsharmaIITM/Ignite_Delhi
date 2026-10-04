@@ -277,6 +277,28 @@ function downloadFile(name: string, body: string, mime: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+/**
+ * Blob URLs for the composer's pending images, created once per file list and
+ * revoked when that list changes.
+ *
+ * The old code called URL.createObjectURL(f) inline in the render. The composer
+ * re-renders on every keystroke, so ten seconds of typing next to one attached
+ * screenshot left a hundred-plus live blob URLs retained until unload — a leak
+ * whose whole cost is invisible in the DOM. downloadFile above already pairs each
+ * createObjectURL with a revoke; this is the same discipline on the path that
+ * renders continuously.
+ */
+function useObjectUrls(files: File[]) {
+  const [urls, setUrls] = useState<string[]>([])
+  useEffect(() => {
+    const created = files.map(f => URL.createObjectURL(f))
+    setUrls(created)
+    return () => { created.forEach(u => URL.revokeObjectURL(u)) }
+  }, [files])
+  return urls
+}
+
+
 export default function App() {
   const [collapsed, setCollapsed] = useState(
     localStorage.getItem("kestrel.sb.collapsed") === "1",
@@ -290,6 +312,9 @@ export default function App() {
   const [input, setInput] = useState("")
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [sourcesPanel, setSourcesPanel] = useState<{ title: string; excerpt?: string } | null>(null)
+
+  // Stable object URLs for the previews above.
+  const attachmentPreviews = useObjectUrls(pendingFiles)
   const [filesOpen, setFilesOpen] = useState(false)
   // P6 actions/draft surface: the email draft for the last answer
   const [draft, setDraft] = useState<EmailDraftData | null>(null)
@@ -820,6 +845,11 @@ export default function App() {
       if (brain && brain !== "demo") params.set("dataset", brain)
       params.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone)
       params.set("local_time", new Date().toISOString())
+      // Which language to answer a greeting in. Locale only: it never chooses what is
+      // retrieved, so a question stays answered from the documents in the language it
+      // was asked in. Sent because the phatic replies live server-side now, and a
+      // German UI getting an English "Good morning" is a visible inconsistency.
+      params.set("lang", getLang())
 
       // A follow-up is resolved against the last few turns: without this every
       // question is a cold start and "and who signs it off?" has no referent
@@ -1053,6 +1083,18 @@ export default function App() {
     // openView is the one place that keeps `view` state and the URL in agreement
     // (the param exists only for a NON-chat view), so the URL is built to that
     // contract instead of beside it.
+    // Abandon any answer still streaming, exactly as handleBrainChange does.
+    // Without this the old stream kept writing through the shared botIdxRef into
+    // whatever conversation appeared next: "New chat", "Clear conversation" and
+    // "Delete chat" all call here, so a slow answer plus a click produced the old
+    // answer's text inside the new thread, flipped the composer back to Send
+    // mid-question, froze the new turn's working timer, and then SAVED the
+    // mixture. A single shared index is the whole hazard; -1 is the fence.
+    const w = window as unknown as { CONTROLLER?: AbortController }
+    w.CONTROLLER?.abort()
+    botIdxRef.current = -1
+    turnsRef.current = []
+    setStreaming(false)
     openView("chat")
     const u = new URL(location.href)
     u.searchParams.delete("chat")
@@ -1583,12 +1625,29 @@ export default function App() {
               // "Add documents" on a brain row: make that the active brain and
               // open the sheet on the chat surface (the sheet adds to the
               // CURRENT brain, so the two must agree).
+              //
+              // Switching brain while a conversation is on screen is the CH-14
+              // situation, and this route used to skip every part of the answer
+              // handleBrainChange already applies: it set the brain, left ?chat=
+              // in the URL and left the turns in state. The next question then
+              // saved brain A's thread under brain B — the server re-stamps the
+              // brain unconditionally (storage.py:341) — and a stream still in
+              // flight kept writing into a conversation the user had abandoned.
+              // It also wrote ?view=chat, which openView deletes for exactly this
+              // param's sake: `view` exists only to name a NON-chat view.
+              const w = window as unknown as { CONTROLLER?: AbortController }
+              w.CONTROLLER?.abort()
+              botIdxRef.current = -1
+              turnsRef.current = []
               setBrain(name)
+              setChatId(null)
+              setTurns([])
+              openView("chat")
               const u = new URL(location.href)
+              u.searchParams.delete("chat")
+              u.searchParams.delete("new")
               u.searchParams.set("brain", name)
-              u.searchParams.set("view", "chat")
-              history.pushState(null, "", u)
-              setView("chat")
+              history.replaceState(null, "", u)
               setFilesOpen(true)
             }}
           />
@@ -1655,7 +1714,7 @@ export default function App() {
                     return (
                       <div className="att" key={`${f.name}-${i}`}>
                         {imagey ? (
-                          <img src={URL.createObjectURL(f)} alt={f.name} />
+                          <img src={attachmentPreviews[i] || ""} alt={f.name} />
                         ) : (
                           <div className="att-file">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d={DOC_D} /></svg>

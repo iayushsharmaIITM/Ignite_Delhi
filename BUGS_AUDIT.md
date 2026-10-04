@@ -1593,4 +1593,69 @@ went case-insensitive. Proven by dumping the actual DOM from the live mock tier 
 than reasoning about it — and the ad-hoc tier used for that was killed as soon as it was
 done, because it had loaded `.env` and was therefore pointed at the **live** database,
 which is exactly why the chat-saving suite is never run against a hand-started server.
+A browser gate for the phatic route was written in this round and **withdrawn before
+commit**: it produced four failures whose cause was not established in the time
+available, and shipping an unproven gate is the false-green class this very round was
+about. `tests/test_phatic.py` covers the route instead, including a live
+`TestClient` call proving the template answer arrives with `refs: []`.
+
+---
+
+## Round 8 — the widest hunt yet: engine and UI (2026-10-05)
+
+Twenty-six defects found by two parallel read-only passes (15 fixed, 1 non-issue, 10 open) with disjoint briefs (engine:
+`app.py`/`orchestrator`/`memory_layer`/`citations`/`auth`/`lifecycle`; UI:
+`frontend/src` plus the `index.html` bundle guard), every one re-read at its cited lines
+before being believed. Full evidence, repro steps and the reasoning behind each
+fix-or-report call: **`docs/BUG_HUNT_2026-10-05.md`**. That file is the record; the
+table below is the ledger line.
+
+| ID | Sev | Defect (one line) | Status |
+|---|---|---|---|
+| A-46 | **HIGH** | `app.py` prepended the browser's `[Client local time: …]` note to `q` and **then** classified it, so every greeting in the real app failed the detector's own all-tokens rule and paid 11–25 s of retrieval. Nine of nine greetings measured `False` with the prefix, `True` without | CLOSED — classify the caller's own words first; the detector also strips the note. Tier `tests/test_phatic.py` (38 checks) asserts the argument the classifier receives |
+| A-47 | **HIGH** | Second half of the same line: `q` was reassigned and **never read again** — `recall()` is called with `question` — so the hint was built and discarded and "what time is it?" was answered from the server's clock, labelled "local time". Proven by AST walk, not by eye | CLOSED — hint attached to `question`; `tz` plumbed to the phatic table via stdlib `zoneinfo`, unknown zone falls back, never raises |
+| A-48 | **HIGH** | An empty-but-successful retrieval was recorded as a failure, raising "both retrieval agents failed", which fell through to the fixture safety net — **whose entries carry hand-written citation chips naming real contract files**. A fabricated citation for a question the brain had answered, under the product's one absolute invariant | CLOSED — a contentless completion now says so plainly with `refs: []`; the raise is reserved for `errored > 0` |
+| A-49 | **HIGH** | `POST /api/jobs/{id}/cancel` had **no tenant check** — `require_tenant` then an UPDATE with no workspace predicate — while the GET on the same resource checks, and `app.py:75-77` publishes "knowing an id is not ownership". Job ids are echoed in conflict payloads and logs | CLOSED — mirrors the GET sibling exactly: UUID validated (malformed → 404, never 500), org ownership in clerk mode (foreign → 403), and `requested` no longer hardcoded `true` |
+| A-50 | MED | `/api/usage` returned `{"ok": false, "usage": []}` during a database outage and had no `db_error` handler at all — the last exception to "a storage outage must surface as 503, never as an empty list". Its recorded justification (the legacy shell drew `[]` for any non-OK) expired with the shell | CLOSED — both paths `storage.mark_down(...)` + 503 with the server's reason |
+| A-51 | MED | `/api/extract` did `await upload.read()` with the size check applied afterwards, after the bytes were resident — the exact OOM `_read_capped` was written to remove from the two create routes | CLOSED — capped read, 413 after one 64 KB chunk |
+| A-52 | MED | Past its TTL, `auth._jwks` re-fetched with no `try`: it discarded still-valid cached keys instead of serving the ten-minute grace its own docstring promises, never re-stamped the timestamp so **every** request paid a blocking 10 s fetch on the event loop (`require_tenant` is called from `async def` handlers), and 401'd all signed-in users at once | CLOSED — cached keys served while fresh; refresh attempted ≤ 1/min; failed refresh serves stale inside the grace window, then fails closed with a reason |
+| A-53 | LOW | Ask metering sat *after* the `try`, so `GeneratorExit` (a `BaseException`) skipped it while the already-started retrieval ran to completion and was really paid for. Stop is a designed button, so `/api/usage` under-reported exactly cancelled asks | CLOSED — bookkeeping in `finally`, no yielding; three outcomes distinguished instead of two |
+| A-54 | LOW | A phatic reply, which now costs no model call, would still have been metered at `len(question) // 4` prompt tokens | CLOSED — recorded as the interaction it is, at zero tokens |
+| A-55 | LOW | The router's general-chat branch cancelled the racers and returned **without joining the citations prewarmer** it had already started, so a reply that retrieved nothing still fanned a full document dump across an 8-worker pool, delaying citations for every concurrent ask | CLOSED — cancelled and swallowed, like the racers |
+| A-56 | LOW | `_RATE_BUCKETS` grows unbounded, keyed partly on a caller-influenced `Authorization` prefix, while `citations._bound()` documents this exact class ("an unbounded map is a memory leak per unique name") | CLOSED — idle refilled buckets pruned past 4096, hard clear beyond 8192 |
+| A-57 | LOW | **Reported.** `citations.py` writes `manifest["_collisions"]` with the comment that a collision must be shown not guessed, and **no reader consults it** — all three resolution sites take whatever name the dict holds. Two documents sharing a 120-char prefix cite the wrong file and `/api/source` hands back the other's text. Measured 0 collision groups today | OPEN — deliberately not patched blind: it is the only remaining hole under the citation invariant, and the subsystem is where that invariant lives |
+| A-58 | MED | **Reported.** A REBUILD job can never publish: the fence requires `brains.state == 'CREATING'` while a rebuild targets a `READY` brain, so every rebuild burns the ingest and hard-fails `RECOVERY:UNRESOLVED` with the new generation stuck `BUILDING`. `is_rebuild` is computed and used only for bookkeeping; `ops/rebuild_brain.py` promises a `RETIRED` state nothing sets | OPEN (owner) — behind `KESTREL_JOBS_V2=1`; weakening a publish fence is not a side quest in a bug hunt |
+| A-59 | **HIGH** | UI: "Add documents" on a brain row set the brain but left `?chat=` and the turns in place, so the next question **re-filed brain A's conversation under brain B** (`storage.py:341` re-stamps unconditionally). It also wrote `?view=chat`, the one param `openView` deletes. `handleBrainChange` carries the comment for this exact hazard and applies the full teardown; this call site skipped all of it | CLOSED — abort, `botIdxRef = -1`, clear ref and state, drop `?chat`, route through `openView` |
+| A-60 | **HIGH** | UI: "New chat" / "Clear conversation" did not abort the in-flight answer. One shared `botIdxRef` meant the abandoned stream wrote into the new thread, flipped the composer to "Send" mid-question, froze its working timer, and then **persisted the mixture** from the old ask's `finally` | CLOSED — the three guards `handleBrainChange` documents |
+| A-61 | **HIGH** | UI: `Sidebar.armOr` armed a destructive confirm and **never disarmed** it — no timer, no Escape, no outside click — so a stray first click left the row permanently one click from deleting, including *every chat in a brain* (up to 500). Every sibling (3.5 s + Escape; 6 s + unmount) already does it right | CLOSED — 4 s timeout, Escape, capture-phase outside click, unmount cleanup; the brain-switcher arm that Escape missed is cleared too |
+| A-62 | MED | UI: the OAuth return ran `setView("connectors")` with no `?view=` written, so Reload or Back dropped the user into the chat they had left, with no history entry for the navigation | **OPEN** — confirmed at `App.tsx:624-640`; the one-line `u.set("view", …)` fix was not landed before commit and is not claimed here |
+| A-63 | MED | UI: `index.html`'s bundle guard **returned from the hidden-tab branch before incrementing its counter and before re-arming** — a tab opened by ⌘-click stopped being watched at the first tick and showed a blank page with neither reload nor explanation. Its premise was also wrong: hidden tabs are throttled to ~1 s, not frozen | CLOSED — a hidden tab keeps polling on a larger budget; cooldown, 4xx/5xx evidence rule and the `Promise.all` verdict untouched |
+| A-64 | MED | UI: `FilesSheet`'s progress reader took `res.body!` with no `res.ok` check inside a `catch {}`, so a 403/503 stream froze the progress line and then **reported success**. The identical reader in `App.tsx` documents why the guard is required, and the same file surfaces `detail` three lines earlier | CLOSED — status checked before reading; a refusal surfaces as a failure |
+| A-65 | MED | UI: 19 `t()` keys exist in **no** locale, so those strings are English in all six. The six blocks are otherwise exactly 154/154 with zero duplicates — and two of the 19 are typos of keys that *are* fully translated (`up.per_month`→`up.per_mo`, `upg.note`→`up.note`) | PARTLY CLOSED — the two typos fixed (they were discarding existing translations). The other 17 need real translation in 5 languages, which is a localisation pass, not a patch |
+| A-66 | MED | UI: **Reported.** `GraphView`, `CreateBrainDialog`, `SlackAccessDialog`, most of `Connectors`/`BrainsPage` render chrome strings without `t()`, and 34 of 43 toasts pass raw English — while several bypassed strings already have six-locale keys (`graph.title`, `action.copy`, `composer.send`), which is what proves oversight rather than policy | OPEN — sweep across five components, on its own with a gate |
+| A-67 | MED | UI: `DraftBox.send` had no in-flight guard and `disabled={busy}` means "draft still generating", false once the box is readable — so double-clicking Send sent two emails through the explicit approval gate the user approved once | CLOSED — self-gating with a visible "Sending…" |
+| A-68 | MED | UI: **Reported.** The collapsed working-log header, the brain folder row and the attachment chip are mouse-only `<div onClick>`s (and `window.open(data:…)` is blocked as a top-level navigation even for mouse users) — while `Animations.tsx` already ships the correct `role="button"` + `tabIndex` + Enter/Space implementation, unused | OPEN — fix is to use the component that already exists, across three screens |
+| A-69 | MED | UI: **Reported.** `SourceModal` and the Usage/Upgrade modals announce `aria-modal="true"` with no focus transfer, trap or restore, so a keyboard user is told "Answer ready" and left with focus on the chip and the document hidden; `FilesSheet` has no dialog semantics and ignores Escape. The Radix `CreateBrainDialog` shows the correct pattern | OPEN — four components; half-fixing (focus in, no restore) trades one bug for a worse one |
+| A-70 | LOW | UI: `URL.createObjectURL(f)` inline in the composer's render with no revoke, and the composer re-renders per keystroke — one attached image plus ten seconds of typing left 100+ retained blob URLs until unload | CLOSED — `useObjectUrls` creates per file list, revokes on change and unmount |
+| A-71 | LOW | UI: the Connectors import panel opened *after* the max-width wrapper closed, so it runs full-bleed on a wide window while its own two cards sit centred | **OPEN** — confirmed at `Connectors.tsx:252-254`; one-line markup move, not landed in this pass |
+| A-72 | LOW | UI: **Reported.** `CreateBrainDialog`'s 5 s poll has no cancellation on close or unmount and re-polls forever on a null job read, and `jobId`/`name`/`files` are never cleared while the component stays mounted hidden — so reopening shows the previous attempt, and the button can stick "Working…" | OPEN (owner) — visible on `KESTREL_JOBS_V2=1` only; settle with A-58, same subsystem |
+| A-73 | — | UI: a candidate claim that `?view=chat&new=1` opens a create dialog nothing opens | **NOT A BUG** — checked directly: `/upload` → `/?view=brains&new=1`, `new` only starts a fresh conversation, and `newChat` now closes dialog and sheet explicitly. The stale comment is in the retired legacy shell, not the live path. No change made |
+
+**Method notes worth keeping.** A report handed the fix a function name that does not
+exist (`mark_down()`; the real call is `storage.mark_down`) — caught by importing the
+module, not by shipping it. A first draft of my own new browser gate called bare
+`check()` instead of `suite.check()`, which the battery caught as one failing line, not
+as a pass. And an earlier draft of the tier's invariant check searched for `cache|memo`
+and failed on the string `memory_layer` in a docstring — tightened to real caching
+primitives, because a gate that cries wolf is a gate somebody turns off. The detector
+swap was diffed against the **previous** implementation over a 70-case corpus: zero
+coverage lost, zero real questions newly swallowed, eight genuinely social strings newly
+recognised.
+
+**Still open after this round:** A-57 (the only remaining hole under the citation
+invariant), A-58 + A-72 as one job-state-machine pass, A-66 (localisation sweep),
+A-68 + A-69 (accessibility, using components that already exist), and every owner
+decision carried forward from Rounds 5–7: parity-gate wiring, key rotation, branch
+protection, an off-disk copy, `storage.py:37`, touch-target density, and P1 — 0 of 39
+success responses carrying a schema.
 

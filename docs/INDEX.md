@@ -24,6 +24,7 @@ record, a historical record, or a business document.
 | `docs/api-analysis/` | per-endpoint logic + API agent-readiness score | new | when a route's contract changes |
 | `docs/ui-review/` | UI audit and browser baselines | 3 | before/after visual work |
 | `docs/CATEGORY_SCAN_2026.md` | 2026 feature bar scored against this codebase, connector landscape and the standout thesis | new | before committing roadmap or connector work |
+| `docs/BUG_HUNT_2026-10-05.md` | the widest engine + UI hunt to date: 26 defects, evidence and repro per finding, and which were fixed versus handed back | new | when one of its open items is closed |
 | `docs/ACL_AND_MCP_BLUEPRINT.md` | **design, not built** — document-level policy model, the two live enumeration oracles that must close first, and the in-process MCP read surface | new | when an ACL phase lands or an oracle is closed |
 
 ## Historical — read-only, do not cite as current

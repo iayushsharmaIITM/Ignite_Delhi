@@ -220,6 +220,18 @@ def _rate_limit(key: str, capacity: int, per_seconds: int) -> bool:
             _RATE_BUCKETS[key] = (tokens, now)
             return False
         _RATE_BUCKETS[key] = (tokens - 1.0, now)
+        # Bound the map. Keys fall back to a caller-influenced value (an
+        # Authorization header prefix, then the client host), so an unbounded dict is
+        # a memory leak anyone can drive — the same rule _bound() applies to the
+        # citation caches. Prune buckets that have refilled to capacity and are
+        # therefore idle; refilling is what makes them harmless to drop.
+        if len(_RATE_BUCKETS) > 4096:
+            stale = [k for k, (tk, st) in _RATE_BUCKETS.items()
+                     if tk >= float(capacity) - 1.0 and now - st > per_seconds]
+            for k in stale:
+                _RATE_BUCKETS.pop(k, None)
+            if len(_RATE_BUCKETS) > 8192:
+                _RATE_BUCKETS.clear()
         return True
 
 
@@ -942,14 +954,29 @@ def chats_delete(request: Request, chat_id: str):
 def usage(request: Request, days: int = 30):
     identity = require_tenant(request)
     days = max(1, min(days, 365))
+    # AGENTS.md: "A storage outage must surface as 503, never as an empty list."
+    # This route was the last exception to that rule — it returned
+    # {"ok": false, "usage": []}, which the usage screen rendered as "No model
+    # calls recorded yet": a claim about spend that is not true during an outage.
+    # The reason recorded in BUGS_AUDIT (the legacy shell drew [] for any non-OK)
+    # went away when the shell did: the only consumer today renders the 503 reason
+    # honestly (Animations.tsx UsageModal error state).
     if not storage.available():
-        return {"ok": False, "usage": []}
+        storage.mark_down("usage: database unavailable")
+        raise HTTPException(status_code=503,
+                            detail="Metering is stored in the database, which is "
+                                   "unreachable. No usage can be reported right now.")
     # LOW-4: scope metering to the caller's org; auth-off keeps the old
     # platform-wide view.
     org = identity.get("org_id") if isinstance(identity, dict) else None
     uid = identity.get("user_id") if isinstance(identity, dict) else None
-    rows = storage.usage_summary(days, org=org, user_id=uid) if auth.active() \
-        else storage.usage_summary(days)
+    try:
+        rows = storage.usage_summary(days, org=org, user_id=uid) if auth.active() \
+            else storage.usage_summary(days)
+    except storage.db_error as exc:
+        storage.mark_down(f"usage: {str(exc)[:120]}")
+        raise HTTPException(status_code=503,
+                            detail=f"Usage is unavailable: {str(exc)[:160]}")
     return {"ok": True, "usage": rows}
 
 
@@ -986,7 +1013,12 @@ async def extract_attachment(request: Request):
     upload = form.get("file")
     if upload is None or isinstance(upload, str):
         raise HTTPException(status_code=400, detail="Attach one file as 'file'.")
-    data = await upload.read()
+    # Capped read, same helper the two create routes use. The old `await
+    # upload.read()` put the entire payload in memory and only THEN asked
+    # documents.extract whether it was too big, so one caller could pin a
+    # multi-gigabyte buffer and take the single-worker tier down with it — the
+    # exact failure _read_capped was written to remove, left in on this path.
+    data = await _read_capped(upload, documents.MAX_FILE_BYTES)
     name = upload.filename or "attachment"
     ocr_used = False
     try:
@@ -1463,13 +1495,17 @@ async def connectors_import(request: Request):
 @app.get("/api/ask")
 async def ask(request: Request, q: str, dataset: str | None = None,
               context: str | None = None, tz: str | None = None,
-              local_time: str | None = None):
+              local_time: str | None = None, lang: str | None = None):
     """Stream the answer as newline-delimited JSON so the UI never sits blank.
 
     `context` carries the preceding turns of the conversation. It is prepended
     to the question so a follow-up ("and who signs it off?") is resolved against
     what was already asked — without it, every turn is a cold start and a
     follow-up question has no referent.
+
+    `lang` is the UI's locale, and it selects the wording of a phatic reply only.
+    It never changes what is retrieved: the brain answers the question, in the
+    language the question was asked in.
     """
     # SEC-1/NEW-1: authorize the normalized name and use it everywhere
     # downstream — one name, one meaning, start to finish.
@@ -1492,60 +1528,98 @@ async def ask(request: Request, q: str, dataset: str | None = None,
                    f"The limit is {MAX_CONTEXT_CHARS}.",
         )
 
+    # Classify FIRST, on the caller's own words. The additive client hint below
+    # (browser timezone + local time, which lets "what time is it?" answer without
+    # asking where the user is) is metadata ABOUT the message, not the message, and
+    # it used to be prepended before this decision ran — so every greeting the real
+    # app sent reached the classifier as "client local time asiakolkata hi", failed
+    # its own vocabulary rule, and paid an 11-25s retrieval round trip to say hello.
+    # The detector now ignores the note as well; both halves are deliberate, because
+    # a decision that depends on a value a later line mutates is the whole bug class.
+    raw_kind = memory_layer.phatic_kind(q)
     question = q if not context else f"{context.strip()}\n\nFollow-up question: {q}"
-    # additive client hint (UI sends browser timezone + local time): lets
-    # "what time is it?" answer without asking the user's location
+    # The hint goes on the text the model actually reads. It used to be assigned to
+    # `q`, which nothing downstream reads — `recall` is called with `question` — so
+    # the note was built, dropped, and "what time is it?" was answered from the
+    # server's clock while being told it was "local time". Verified by AST: after
+    # that assignment `q` had no remaining use in the route.
     if tz and local_time:
-        q = f"[Client local time: {local_time} ({tz})]\n{q}"
-
-    raw_smalltalk = memory_layer._is_smalltalk(q)
+        question = f"[Client local time: {local_time} ({tz})]\n{question}"
 
     async def gen():
         t_ask = time.time()
         answer_chars = 0
-        route = "smalltalk" if raw_smalltalk else "brain"
+        route = "phatic" if raw_kind else "brain"
         ask_error = None
+        completed = False
         yield json.dumps({"stage": "start", "dataset": dataset or DEMO_DATASET}) + "\n"
         try:
-            async for event in recall(question, dataset, smalltalk=raw_smalltalk):
+            async for event in recall(question, dataset, smalltalk=raw_kind is not None,
+                                      phatic_kind=raw_kind, lang=lang, tz=tz):
                 if event.get("type") == "chunk":
                     answer_chars += len(event.get("text") or "")
                 # P5: the route actually taken, from the orchestrator's own
                 # stage labels — this is the per-route cost split dimension.
                 label = event.get("label", "")
-                if label.startswith("Smalltalk"):
+                if label.startswith("Phatic"):
+                    route = "phatic"
+                elif label.startswith("Smalltalk"):
                     route = "smalltalk"
                 elif label.startswith("Router: general chat"):
                     route = "chat"
                 elif event.get("stage") == "error":
                     ask_error = event.get("message")
                 yield json.dumps(event) + "\n"
+            yield json.dumps({"stage": "done"}) + "\n"
+            completed = True
         except Exception as exc:  # noqa: BLE001 - demo must never white-screen
             # S6: truncate — the untruncated tenant traceback/paths/SQL used
-            # to echo to every caller on this one path.
+            # to echo to every caller on this one path. The terminal event is
+            # emitted here too: the client's read loop waits on it, so an error
+            # path that stopped after `stage: error` hung the UI instead of
+            # finishing the answer.
             ask_error = str(exc)[:300]
             yield json.dumps({"stage": "error", "message": ask_error}) + "\n"
-        yield json.dumps({"stage": "done"}) + "\n"
-        ms_total = int((time.time() - t_ask) * 1000)
-        # metering (P2): estimates = chars/4; the true provider usage lives in
-        # the provider dashboard until a usage-exposing recall path exists
-        storage.save_llm_call(
-            brain=dataset or DEMO_DATASET, feature="ask",
-            model=os.getenv("LLM_MODEL", "brain-llm"),
-            est_prompt_tokens=len(question) // 4,
-            est_completion_tokens=answer_chars // 4,
-            ms=ms_total,
-        )
-        # P5 observability: the same estimate, now with the route dimension,
-        # posted fire-and-forget to Langfuse (no-op without keys).
-        observe.trace(
-            feature="ask", brain=dataset or DEMO_DATASET, route=route,
-            model=os.getenv("LLM_MODEL", "brain-llm"),
-            user=(identity or {}).get("user_id"),
-            est_prompt=len(question) // 4, est_completion=answer_chars // 4,
-            ms=ms_total, ok=ask_error is None, error=ask_error,
-            started_at=t_ask,
-        )
+            yield json.dumps({"stage": "done"}) + "\n"
+            completed = True
+        finally:
+            # Bookkeeping in `finally`, and no yielding in it. The metering used to sit
+            # after the try, so a client disconnect — which raises GeneratorExit, a
+            # BaseException the except clause never saw — skipped it entirely while the
+            # retrieval already triggered kept running in a worker thread and was really
+            # paid for. Stop is a designed button (App.tsx handleStop), so the skipped
+            # rows were not an edge case: /api/usage under-reported exactly the asks a
+            # user cancelled, and Langfuse held no trace for them at all.
+            ms_total = int((time.time() - t_ask) * 1000)
+            # A phatic reply cost no model call, so it must not be metered as if it
+            # did. The interaction is still recorded (it is real traffic) at zero tokens.
+            est_prompt = 0 if route == "phatic" else len(question) // 4
+            est_completion = 0 if route == "phatic" else answer_chars // 4
+            note_err = ask_error if ask_error else (
+                None if completed else "client disconnected before the answer completed")
+            try:
+                storage.save_llm_call(
+                    brain=dataset or DEMO_DATASET, feature="ask",
+                    model=os.getenv("LLM_MODEL", "brain-llm"),
+                    est_prompt_tokens=est_prompt,
+                    est_completion_tokens=est_completion,
+                    ms=ms_total,
+                )
+            except Exception:  # noqa: BLE001 - metering must never break teardown
+                pass
+            # P5 observability: the same estimate, now with the route dimension,
+            # posted fire-and-forget to Langfuse (no-op without keys).
+            try:
+                observe.trace(
+                    feature="ask", brain=dataset or DEMO_DATASET, route=route,
+                    model=os.getenv("LLM_MODEL", "brain-llm"),
+                    user=(identity or {}).get("user_id"),
+                    est_prompt=est_prompt, est_completion=est_completion,
+                    ms=ms_total, ok=note_err is None, error=note_err,
+                    started_at=t_ask,
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
@@ -1660,11 +1734,38 @@ def job_status_v2(request: Request, job_id: str):
 
 @app.post("/api/jobs/{job_id}/cancel")
 def job_cancel_v2(request: Request, job_id: str):
+    """Cancel a job the caller's own workspace owns.
+
+    This route used to take any signed-in caller and pass their `job_id` straight to
+    `lifecycle.request_cancel`, whose UPDATE has no workspace predicate — so knowing a
+    job UUID was ownership. The UUID is not secret: it is echoed in SlugConflict and
+    idempotency payloads and in log lines. The GET on the SAME resource does check, and
+    the published contract says "knowing an id is not ownership" (app.py:75-77). A
+    malformed id also reached Postgres and raised InvalidTextRepresentation -> 500.
+    """
     if not _jobs_v2_enabled():
         raise HTTPException(status_code=404, detail="Not found.")
     identity = require_tenant(request)
     import lifecycle
-    return {"ok": lifecycle.request_cancel(job_id), "requested": True}
+    import uuid as _uuid
+    try:
+        _uuid.UUID(job_id)
+    except (ValueError, AttributeError, TypeError):
+        # Malformed ids are "not found", never a 500 — same rule as the GET sibling.
+        raise HTTPException(status_code=404, detail="No such job.")
+    if auth.active():
+        with lifecycle._conn() as conn, conn.cursor() as cur:
+            row = cur.execute(
+                """select w.clerk_org_id from brain_jobs j
+                   join workspaces w on w.id = j.workspace_id where j.id = %s""",
+                (job_id,)).fetchone()
+        if not row or row["clerk_org_id"] != (identity or {}).get("org_id"):
+            raise HTTPException(status_code=403,
+                                detail="This job belongs to another workspace.")
+    if not lifecycle.request_cancel(job_id):
+        raise HTTPException(status_code=404,
+                            detail="No such job, or it already finished.")
+    return {"ok": True, "requested": True}
 
 
 @app.on_event("startup")

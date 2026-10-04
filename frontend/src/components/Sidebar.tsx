@@ -129,7 +129,29 @@ export function Sidebar({
     try { return JSON.parse(localStorage.getItem(FOLD_KEY) || "[]") } catch { return [] }
   })
   const [armed, setArmed] = useState<string | null>(null) // chat id or "brain:<name>"
+  const armTimer = useRef<number>(0)
   const navRef = useRef<HTMLElement>(null)
+
+  // An armed destructive confirm is a state that must expire. Escape, a click
+  // anywhere outside the row, and unmount all drop it, so the second click can
+  // only ever come from someone who is still looking at the row they armed.
+  useEffect(() => {
+    if (!armed) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setArmed(null) }
+    const onClick = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el?.closest?.(".row-del, .folder-del, .brain-row")) return
+      setArmed(null)
+    }
+    document.addEventListener("keydown", onKey)
+    document.addEventListener("click", onClick, true)
+    return () => {
+      document.removeEventListener("keydown", onKey)
+      document.removeEventListener("click", onClick, true)
+    }
+  }, [armed])
+
+  useEffect(() => () => { if (armTimer.current) clearTimeout(armTimer.current) }, [])
   // Folders the user expanded past the default per-brain cap. Without this the
   // sidebar showed 5 of 23 chats with no hint that the other 18 existed.
   const [showAllBrains, setShowAllBrains] = useState<string[]>([])
@@ -176,9 +198,20 @@ export function Sidebar({
     })
   }
   // Two-step armed destructive confirm, same anatomy as shell.js chat-del.
+  //
+  // It used to arm and never disarm. Nothing reset `armed` except clicking the same
+  // row a second time, so a stray first click that the user walked away from left
+  // that row permanently one-click-from-deleted — including "delete EVERY chat in
+  // this brain" (up to 500 threads). Clicking elsewhere, switching view, or
+  // pressing Escape all left it armed, and the × stayed on the row.
+  // Every sibling in this app already does it properly (App.tsx clearArmed has a
+  // 3.5 s timeout plus Escape; BrainsPage has a 6 s timeout with unmount cleanup),
+  // so this is the odd one out, not a house style.
   const armOr = (key: string, run: () => void) => {
-    if (armed === key) { setArmed(null); run(); return }
+    if (armed === key) { setArmed(null); if (armTimer.current) clearTimeout(armTimer.current); run(); return }
+    if (armTimer.current) clearTimeout(armTimer.current)
     setArmed(key)
+    armTimer.current = window.setTimeout(() => setArmed(null), 4000)
   }
 
   // Real hrefs + modifier-click support: legacy lets ⌘/Ctrl/middle-click open a

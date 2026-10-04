@@ -98,14 +98,25 @@ def _is_social_reply(text: str) -> bool:
 
 
 async def recall(query: str, dataset: str | None = None,
-                 smalltalk: bool | None = None):
+                 smalltalk: bool | None = None, phatic_kind: str | None = None,
+                 lang: str | None = None, tz: str | None = None):
     """Yield events. Async generator so the UI can stream.
 
     `dataset=None` asks the demo brain. Any other value asks that specific
     brain, which is what makes one UI able to serve every uploaded brain.
+
+    `phatic_kind` is the family name of a social message (greeting, thanks, …)
+    decided by the web tier on the caller's own words; `smalltalk` stays the boolean
+    every existing caller passes, and is derived from the kind when not given. `lang`
+    only chooses the wording of a phatic reply — never what is retrieved.
     """
+    if phatic_kind is None:
+        # A caller that only passes the boolean (or neither) still gets the correct
+        # family: derive it rather than guessing, because "thanks" answered with a
+        # good-morning line is its own kind of wrong.
+        phatic_kind = _phatic_family(query) if smalltalk is not False else None
     if PROVIDER == "mock":
-        async for event in _mock(query, dataset):
+        async for event in _mock(query, dataset, phatic_kind=phatic_kind, lang=lang, tz=tz):
             yield event
         return
 
@@ -116,7 +127,8 @@ async def recall(query: str, dataset: str | None = None,
     # fixtures never saw.
     produced = False
     try:
-        async for event in _cloud(query, dataset, smalltalk=smalltalk):
+        async for event in _cloud(query, dataset, smalltalk=smalltalk,
+                                  phatic_kind=phatic_kind, lang=lang, tz=tz):
             # COR-1: track ANSWER TEXT, not events. The orchestrator emits a
             # stage step before any retrieval — counting every event as
             # "produced" took the mid-answer branch (and skipped the fixture
@@ -148,14 +160,30 @@ async def recall(query: str, dataset: str | None = None,
         yield event
 
 
-async def _mock(query: str, dataset: str | None = None):
+async def _mock(query: str, dataset: str | None = None, phatic_kind: str | None = None,
+                lang: str | None = None, tz: str | None = None):
     """Offline path. Reads a committed fixture, so it works with zero network.
 
     The fixtures only describe the demo brain. Serving them for an uploaded
     brain would be a fabricated answer dressed as a real one, so we refuse
     instead - the same reason app.py refuses to show the demo graph for a
     user's brain.
+
+    A phatic message is answered from the template here too, BEFORE any fixture is
+    read. Without this the offline mode answered "hi" with a committed paragraph about
+    Bluepeak renewals and its citations attached — a fabricated citation for a
+    greeting, and the exact thing the product's invariant forbids. It also meant the
+    battery (which runs PROVIDER=mock) could never observe the phatic route at all.
     """
+    if phatic_kind:
+        import phatic as _phatic
+        reply = _phatic.reply(phatic_kind, lang, tz=tz)
+        if reply:
+            yield {"stage": "step", "label": "Phatic: template, no model, no retrieval"}
+            for word in reply.split(" "):
+                yield {"type": "chunk", "text": word + " "}
+            yield {"stage": "done", "refs": [], "ms": 0}
+            return
     if dataset and dataset != default_dataset():
         yield {
             "type": "chunk",
@@ -236,32 +264,117 @@ _SOCIAL_PHRASES = frozenset({
     "well done",
 })
 
+# Which family a social message belongs to, so the reply can be chosen without a
+# model. Order matters in `_PHATIC_CORES`: the first family holding a token in the
+# message wins, so "thanks hello" reads as thanks, matching what a person means
+# when they start with it.
+#
+# `phatic.KINDS` is the authority for the names. A family listed here but missing
+# there would silently fall through to retrieval, which the test tier checks.
+_PHATIC_PHRASES = {
+    "how are you": "howareyou", "how r u": "howareyou",
+    "how is it going": "howareyou", "hows it going": "howareyou",
+    "how do you do": "howareyou", "what is up": "howareyou",
+    "whats up": "howareyou", "what s up": "howareyou",
+    "who are you": "capability", "what can you do": "capability",
+    "what do you do": "capability", "how do you work": "capability",
+    "what are you": "capability", "who r u": "capability",
+    "good morning": "greeting", "good afternoon": "greeting",
+    "good evening": "greeting", "good night": "farewell", "good day": "greeting",
+    "buenos dias": "greeting",
+    "thank you": "thanks", "thanku": "thanks", "thanks a lot": "thanks",
+    "see you": "farewell", "see ya": "farewell", "see you later": "farewell",
+    "good job": "praise", "good work": "praise", "great job": "praise",
+    "great work": "praise", "nice work": "praise", "well done": "praise",
+    "nice one": "praise", "good bot": "praise",
+    "you re welcome": "welcome", "your welcome": "welcome",
+    "no problem": "welcome", "no worries": "welcome", "it s ok": "welcome",
+    "its ok": "welcome", "that s ok": "welcome", "thats ok": "welcome",
+    "sorry": "sorry", "so sorry": "sorry", "my bad": "sorry",
+    "excuse me": "sorry",
+}
 
-def _is_smalltalk(query: str) -> bool:
-    """True for greetings and social chitchat that the documents cannot
-    answer. Word-capped so a real question never misroutes."""
-    q = (query or "").strip().lower()
+# Families whose words can stand alone as the whole message. `_CORE` stays the union,
+# because other code and tests read it as the social vocabulary.
+_PHATIC_CORES = (
+    ("greeting", {"hi", "hello", "hey", "yo", "hiya", "sup", "namaste", "hola",
+                  "morning", "afternoon", "evening", "heythere"}),
+    ("thanks", {"thanks", "thank", "thx", "ty"}),
+    ("welcome", {"welcome"}),
+    ("farewell", {"bye", "goodbye"}),
+    ("sorry", {"sorry"}),
+    ("praise", {"awesome", "nice", "cool", "great", "perfect"}),
+)
+
+_CORE = frozenset(w for _, words in _PHATIC_CORES for w in words)
+
+
+def phatic_kind(query: str) -> str | None:
+    """Which social family this message is, or None if it may be a real question.
+
+    None is the safe answer and the common one: anything that is not unmistakably
+    phatic goes to the brain. The word cap and the all-tokens rule exist for that
+    reason (COR-6), and they are kept exactly as they were — this function only adds
+    the family name, plus one fix that changes everything in production:
+
+    The ask route prepends the caller's browser timezone to the text before the model
+    sees it, so "what time is it?" can be answered. That note used to be added BEFORE
+    classification ran, which meant the shipping app's "hi" arrived here as
+    "client local time asiakolkata hi", failed the all-tokens rule, and paid a full
+    11-25s retrieval round trip to be greeted. Detection is now blind to the note, and
+    app.py classifies the user's own message before attaching anything.
+    """
+    import phatic as _phatic
+
+    q = _phatic.strip_system_note(query)
+    q = (q or "").strip().lower()
     if not q:
-        return False
+        return None
     words = q.split()
     if len(words) > 8:
-        return False
+        return None
     squashed = re.sub(r"[^a-z\s]", "", q)
     squashed = re.sub(r"\s+", " ", squashed).strip()
     # Elongated greetings ("hii", "hellooo") — collapse 3+ runs, never 2
     # ("cool", "good" keep their double letters).
     squashed = re.sub(r"(.)\1{2,}", r"\1", squashed)
+    if not squashed:
+        return None
     # Doubled-letter greetings ("hii", "heyy") that the collapse above keeps:
     # match the greeting cores with flexible tails before token rules run.
     if re.fullmatch(r"(h+i+|hello+|hey+|yo+|hiya+|sup+)", squashed):
-        return True
-    if squashed in _SOCIAL_PHRASES:
-        return True
+        return "greeting"
+    if squashed in _PHATIC_PHRASES:
+        return _PHATIC_PHRASES[squashed]
     tokens = squashed.split()
     if not tokens:
-        return False
-    return (any(t in _CORE for t in tokens)
-            and all(t in _CORE or t in _FILLER for t in tokens))
+        return None
+    if not any(t in _CORE for t in tokens):
+        return None
+    if not all(t in _CORE or t in _FILLER for t in tokens):
+        return None
+    for t in tokens:
+        for kind, words_of_kind in _PHATIC_CORES:
+            if t in words_of_kind:
+                return kind
+    return "greeting"
+
+
+# A stable alias for the classifier, because `recall` below takes a parameter named
+# `phatic_kind`. A function reached through its own shadowed name resolves to a string
+# at call time — a TypeError that would surface only on the exact path that passes no
+# family, which is the worst kind of latent break to leave in a greeting handler.
+_phatic_family = phatic_kind
+
+
+def _is_smalltalk(query: str) -> bool:
+    """True for greetings and social chitchat that the documents cannot answer.
+
+    Kept as the boolean every existing caller already uses; `phatic_kind` is the same
+    decision with the family attached, so a reply can be chosen without a model call.
+    Word-capped so a real question never misroutes.
+    """
+    return phatic_kind(query) is not None
 
 
 def _backend_dataset_name(slug: str | None) -> str | None:
@@ -285,7 +398,8 @@ def _backend_dataset_name(slug: str | None) -> str | None:
 
 
 async def _cloud(query: str, dataset: str | None = None,
-                 smalltalk: bool | None = None):
+                 smalltalk: bool | None = None, phatic_kind: str | None = None,
+                 lang: str | None = None, tz: str | None = None):
     """Real path, delegated to the orchestrator (head agent).
 
     The orchestrator runs retrieval racers and the citations prewarmer
@@ -300,11 +414,12 @@ async def _cloud(query: str, dataset: str | None = None,
     # orchestrator, racers and citation enrichment all target the real dataset.
     dataset = _backend_dataset_name(dataset) or dataset
 
-    # app.py passes the RAW-question flag down: the wrapped query carries
+    # app.py passes the RAW-question family down: the wrapped query carries
     # context preamble that defeats the greeting regex in ongoing chats
-    if smalltalk is None:
-        smalltalk = _is_smalltalk(query)
-    async for event in orchestrator.answer(query, dataset, smalltalk=smalltalk):
+    if phatic_kind is None and smalltalk is None:
+        phatic_kind = _phatic_family(query)
+    async for event in orchestrator.answer(query, dataset, smalltalk=bool(smalltalk),
+                                          phatic_kind=phatic_kind, lang=lang, tz=tz):
         yield event
 
 

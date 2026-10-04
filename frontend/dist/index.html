@@ -113,7 +113,13 @@
             }
             // A hidden tab is timer-throttled; React may simply not have run yet.
             // Reloading it would have the guard manufacture the outage it reports.
-            if (document.hidden) return;
+            // But this branch used to RETURN — before ++tries and before re-arming —
+            // so a tab first opened in the background (any ⌘-click) was never watched
+            // again: the user arrived to a blank page with neither a reload nor the
+            // explanation panel, until they reloaded by hand. Keep watching a hidden
+            // tab at a slower budget instead of going dark; the cost is a timer, the
+            // alternative is a silent dead end exactly where the guard matters most.
+            if (document.hidden) { if (++tries < 24) setTimeout(tick, 2500); return; }
             if (++tries < 4) { setTimeout(tick, 2500); return; }
             // Still empty after ~10s in a visible tab. Reload ONLY if a bundle request
             // actually came back 4xx/5xx. The await matters: `.some(s => isMissing(...))`
@@ -132,7 +138,7 @@
         });
       })();
     </script>
-    <script type="module" crossorigin src="/assets/index-DPCY5ynt.js"></script>
+    <script type="module" crossorigin src="/assets/index-CZ7BZjFg.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-Dnbpnha1.css">
   </head>
   <body>

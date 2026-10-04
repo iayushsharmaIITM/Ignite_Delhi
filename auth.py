@@ -91,15 +91,55 @@ _JWKS_TS: dict = {}
 _JWKS_TTL = 600
 
 
+_JWKS_GRACE = 600       # serve stale keys this long past the TTL, then fail closed
+_JWKS_RETRY = 60        # do not re-hit an unreachable JWKS once per request
+
+
 def _jwks(url: str) -> dict:
+    """Keys for this URL, honouring the module's own fail-closed contract.
+
+    The contract at the top of this file says an INFRASTRUCTURE failure serves the
+    cached keys for up to ten minutes and then fails closed. The first version did
+    neither half correctly past the TTL: it re-fetched with no try/except, so a Clerk
+    outage (a) threw away perfectly good cached keys instead of serving them in a
+    grace window, (b) never re-stamped the timestamp, so EVERY request paid its own
+    blocking 10-second fetch on the event loop — `require_tenant` is called from
+    `async def` handlers, so the whole tier stalls — and (c) 401'd every signed-in
+    user at once, including with tokens that validated minutes earlier.
+    """
+    now = time.time()
     ts = _JWKS_TS.get(url)
-    if not ts or time.time() - ts > _JWKS_TTL or url not in _JWKS_DATA:
+    fresh = ts is not None and now - ts <= _JWKS_TTL
+    if not fresh and url not in _JWKS_DATA:
         _JWKS_DATA[url] = _fetch_jwks(url)
-        _JWKS_TS[url] = time.time()
-    return _JWKS_DATA[url]
+        _JWKS_TS[url] = now
+        return _JWKS_DATA[url]
+    if fresh:
+        return _JWKS_DATA[url]
+    # Past the TTL: try to refresh, but never let a failed refresh discard the keys
+    # or turn into a per-request network stall.
+    last_try = _JWKS_RETRY_TS.get(url, 0)
+    if now - last_try < _JWKS_RETRY:
+        age = now - (ts or 0)
+        if age <= _JWKS_TTL + _JWKS_GRACE:
+            return _JWKS_DATA[url]        # stale-but-accepted window, per the contract
+        raise RuntimeError("Clerk JWKS unreachable and cached keys are too old")
+    _JWKS_RETRY_TS[url] = now
+    try:
+        keys = _fetch_jwks(url)
+    except Exception as exc:  # noqa: BLE001 - decide below, never discard silently
+        age = now - (ts or 0)
+        if age <= _JWKS_TTL + _JWKS_GRACE:
+            return _JWKS_DATA[url]
+        raise RuntimeError(f"Clerk JWKS unreachable and cached keys are too old: "
+                           f"{str(exc)[:120]}") from exc
+    _JWKS_DATA[url] = keys
+    _JWKS_TS[url] = now
+    return keys
 
 
 _JWKS_DATA: dict = {}
+_JWKS_RETRY_TS: dict = {}   # url -> last refresh attempt, for the backoff above
 
 
 def _jwks_client():  # test seam
