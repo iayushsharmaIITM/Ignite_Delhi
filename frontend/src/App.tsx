@@ -1044,12 +1044,29 @@ export default function App() {
     }
   }
   const newChat = () => {
+    // Clearing the conversation is not the same as leaving the section it was
+    // started from. This used to delete ?chat and set ?new=1 and nothing else, so
+    // clicking "New chat" from Brains, Connectors or Graph pushed the
+    // contradiction `?view=brains&new=1`, left the other view on screen, and
+    // reloaded straight back to it — the owner's report exactly, and the same
+    // defect CH-4 already fixed in openChat but never looked for in its sibling.
+    // openView is the one place that keeps `view` state and the URL in agreement
+    // (the param exists only for a NON-chat view), so the URL is built to that
+    // contract instead of beside it.
+    openView("chat")
     const u = new URL(location.href)
     u.searchParams.delete("chat")
     u.searchParams.set("new", "1")
-    history.pushState(null, "", u)
+    // replace, not push: openView already took the history entry for this jump,
+    // and a second push would make Back land on a view the user never saw.
+    history.replaceState(null, "", u)
     setChatId(null)
     setTurns([])
+    // These two belong to the section being left, not to a fresh conversation.
+    // /upload lands on ?view=brains&new=1 with the create dialog open, so without
+    // this "New chat" returned the composer to the screen behind a modal.
+    setCreateOpen(false)
+    setFilesOpen(false)
   }
   const toggleSidebar = () => {
     setCollapsed((c) => {

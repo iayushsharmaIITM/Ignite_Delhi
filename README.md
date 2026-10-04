@@ -326,16 +326,18 @@ frontend/          The React UI (Vite + Tailwind): src/ is source, dist/ is the
 check_ui_react.py  Browser acceptance over the served bundle (run via verify.sh)
 fixtures/          Offline answers + per-brain graph snapshots for no-network path
 corpus/            12 synthetic company documents & code assets
-static/            Legacy remnants: graph.html for /graph, plus the retired
-                   shell's js/css kept only while /graph depends on them
 api/index.py       Vercel serverless ASGI entrypoint
 vercel.json        Vercel deployment configuration & routing
 ```
 
-Retired 2026-10-04: `check_ui.py` (the legacy browser smoke suite, superseded by
-`check_ui_react.py`) and `static/index.html`, `static/brains.html`,
-`static/upload.html` (the pages the React build replaced). Older entries in
-`PROGRESS.md` still name them; that is a log, not a route.
+Retired on this pass: the whole legacy UI. `check_ui.py` (the browser suite for the
+pre-port shell), `static/graph.html` with `shell.js`/`ui.js`/`auth.js`/`shell.css`
+(its last hand-written page — now React's `GraphView`), and the earlier
+`static/index.html`, `static/brains.html`, `static/upload.html`. `/graph`, `/brains`
+and `/upload` are 307 redirects into the app, and `app.py` no longer mounts
+`/static` at all. The stylesheets the port lives in are
+`frontend/src/design/` — they were renamed out of `legacy/`, because the old name
+read as dead code to every reviewer while being the product's design system.
 
 ---
 

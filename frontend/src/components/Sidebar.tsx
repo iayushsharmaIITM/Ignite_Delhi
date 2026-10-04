@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { t } from "@/lib/i18n"
 import { SlideRail } from "@/components/Animations"
 
-// The sidebar is the legacy shell's `aside.shell` DOM (static/shell.js
-// buildLinks/chatGroup/renderUser), styled by legacy/deck.css. React only
-// replaces the state layer: the same classes mean the same styles, and every
+// The sidebar keeps the shell's `aside.shell` DOM contract (the class names the
+// retired static/shell.js used to build in buildLinks/chatGroup/renderUser),
+// styled by design/deck.css. React only replaces the state layer: the same
+// classes mean the same styles, and every
 // handler is the pre-port React one. Nav matches legacy exactly (Connectors
 // lives in the gear menu, as on :8000).
 

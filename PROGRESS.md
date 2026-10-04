@@ -1,3 +1,113 @@
+## The New chat dead-end, and the legacy UI's last page going the right way
+
+Reported by the owner: from any section other than the chat — New brain, Brains, Graph —
+"New chat" did nothing. Also: clear the legacy UI completely. The two turned out to be
+one story, because the fourth surface was the only one still hand-written.
+
+**Root cause first, fix second.** `newChat` (App.tsx:1046) cleared the conversation and
+rewrote the URL, and that was all: no `setView("chat")`, no `searchParams.delete("view")`.
+So from the Brains page the click produced `?view=brains&new=1` — a URL that contradicts
+itself — while the screen stayed on Brains, and a reload proved it. Measured in the browser
+before touching code: `before ?view=brains`, `after ?view=brains&new=1`, `composers=0`.
+
+The uncomfortable part: this bug had already been fixed once. `openChat` carries the CH-4
+comment — *"clicking a chat from another section does nothing you can see, and it only
+showed up after a reload, which is why it survived the port"* — and `openView` is the one
+function that keeps `view` state and the URL in agreement. Three call sites went through it.
+The fourth, its immediate sibling, did not, and the fix that landed never looked sideways.
+So the gate now asserts all three non-chat views, in a loop, plus the reload each time:
+
+```
+  FAIL  'New chat' from brains drops the brains view  — /?view=brains&new=1
+  FAIL  'New chat' from brains shows the composer     — composers=0
+  … nine failing lines across brains, connectors, graph …
+```
+
+Fixed by routing `newChat` through the `openView("chat")` contract, `replaceState`ing the
+`?new=1` onto the entry `openView` already pushed rather than taking a second history entry
+(Back would have landed on a view the user never saw), and closing the create dialog and
+files sheet — they belong to the section being left, and `/upload` opens them, so "New chat"
+was returning a composer behind a modal.
+
+**The legacy purge needed a port, not a delete command.** `static/` was down to one page:
+`graph.html`, 712 lines plus `shell.js`/`ui.js`/`auth.js`/`shell.css`, reached from the
+React sidebar's own primary nav. The in-app `GraphView` that was supposed to replace it was
+a static circle layout, capped at 120 nodes, with an inspector that showed an id and a
+degree — and its own body text told the reader to leave for "the full interactive graph".
+Deleting `static/` on the strength of "clean all" would have quietly removed force layout,
+zoom/pan, expand-to-12-cores and the real inspector from a primary surface. That is the
+A-19 mistake one round later, so it was asked first, the bar was set to parity, and the
+port is what got deleted afterwards:
+
+- canvas force layout on the legacy constants (repulsion 1500/d², spring rest 135 at 0.012,
+  centring 0.0009, damping 0.86, alpha decay 0.99), settling instead of spinning forever
+- eased camera with the same 0.3–1.5 fit clamp; wheel zoom anchored to the pointer (the
+  canvas is offset by the sidebar, so raw `clientX` zooms toward the wrong place); drag-pan
+  with the 5px travel rule, because a pan that selects whatever is under the cursor when
+  it ends feels broken
+- click a core node → its sub-nodes open and the camera flies to them; click again → they
+  close. `expand all` / `collapse to core` as real buttons
+- the node inspector: typed properties (capped at 14 rows, long values truncated with the
+  whole value on hover, because a TextSummary carries its entire passage) and directional
+  relationships you can walk along
+- node colours from the theme tokens rather than the legacy's ten hardcoded hexes, and
+  re-resolved when `data-theme` changes, since a light palette surviving into dark mode is
+  a real defect and not a cosmetic one
+
+Then `static/` went, `/graph` became a 307 that keeps `?brain=` like `/brains` and
+`/upload` already did, and `app.py` stopped mounting `/static` — verified before deleting:
+zero `/static/` strings anywhere in the built bundle.
+
+**Two things the port caught on the way.** `GraphView` treated a non-200 correctly but not
+the shape `/api/graph` actually returns when the tenant is unreachable and no snapshot
+covers the brain — `200 {error, nodes: [], edges: []}` — so an outage read as "This brain's
+graph is empty. Create a brain and add documents." Same class as the API rule about a
+storage outage never surfacing as an empty list, now in the UI, and now gated. And the
+canvas was pointer-only, which the port would have inherited: the twelve core nodes render
+as buttons, so the disclosure rule is visible, keyboard-reachable and assertable, and the
+zoom level is published as `data-zoom` because a camera living in a ref is otherwise
+untestable.
+
+**Sixteen graph gates, all green** — redirect, brain preserved, canvas, real counts,
+legend, chips, inspector, its connections list, disclosure counted, walking a
+relationship, zoom changes the camera, expand-all opens exactly `nodes.length`, collapse
+clears both, and the un-fetchable graph explained rather than blank.
+
+**Where my own gates were wrong, honestly recorded.** Two failed initially because the
+product was fine: both inspector headers render through `text-transform: uppercase` and
+`inner_text()` returns the transformed text, so a literal `"Connections ("` cannot match;
+the legend assertion was an anchored regex against a row of separate spans. Neither was
+fixed by loosening the check — the legend became the list it always was
+(`<ul aria-label="Node types">`) and the header match went case-insensitive. The DOM was
+dumped from a live mock tier to find this rather than reasoned about. That ad-hoc tier was
+killed immediately afterwards: it had loaded `.env`, so it was pointed at the **live**
+database, and the chat-saving suite must never be run against a server somebody started by
+hand — which is the whole reason `verify.sh` owns its own port and checks that the thing
+answering is the tier it launched.
+
+**The rename nobody asked for but everybody needed.** `frontend/src/legacy/` is four
+stylesheets `main.tsx` imports — the product's entire visual language, copied from the old
+shell and maintained since. The directory name said "dead", and it had already fooled a
+review into proposing the deletion of the UI's styling. It is `frontend/src/design/` now,
+with `main.tsx`'s header stating the cascade order and why it is load-bearing, and the
+stale "verbatim `static/shell.css`" claims corrected in place — after `static/` was deleted
+that phrase pointed at nothing.
+
+Docs amended where they lied: `marketing/LAUNCH_BLOCKERS.md:42` sent readers to
+`static/auth.js` for the branded Clerk appearance (it is `appearanceProps()`,
+Animations.tsx:380); the `PROGRESS.md` entry below this one asserted "`static/` is
+load-bearing" and now carries a visible supersession note instead of a rewrite;
+`docs/REACT_UIUX_ADVANCEMENTS.md` no longer claims `parity_gate.py` runs in CI and routes
+its audit command away from `:5174`; `docs/LEGACY_SHELL_SPEC.md` and
+`docs/LEGACY_TO_REACT_PARITY.md` are classified historical in the map, and the purge is
+recorded there. `README.md`'s inventory and suite table were already rebuilt this round,
+so `check_doc_routes.py` — which found the README lie an hour ago — exits 0 with `static/`
+gone.
+
+**Verified:** `./verify.sh` against the lab → `ran 16 tier(s), skipped 1, failing 0`,
+`ui-react PASS`, `All sections clean … zero console errors`. `smoke.py`'s graph check now
+proves the redirect rather than a followed 200.
+
 ## Harness round 2: the gates that could not fail, and a contract that routed agents into a crash
 
 Re-ran the Better Harness review after today's changes (CI real and green, 16 tiers,
@@ -141,6 +251,13 @@ and `shell.css`/`shell.js`/`ui.js`/`auth.js` are that page's assets — 4 of the
 `smoke.py` tests `/graph` today. Only `static/index.html` was genuinely unreachable, and
 `verify.sh` had a comment implying the whole directory was dormant, which is the kind of
 comment that gets a working surface deleted.
+
+> **Superseded the same day, one entry up.** That is exactly why it was kept: the
+> reasoning was correct at the time, and acting on the old comment would have broken a
+> primary nav item. The graph's force layout, camera, node disclosure and inspector have
+> since been ported into React's `GraphView`, `/graph` is a 307 redirect, and `static/` is
+> deleted — so this paragraph now describes a decision that no longer holds. Read the entry
+> above it for the current state.
 
 **The real finding was three security gates that nothing invoked.**
 `tests/test_route_authz.py` (brain-scoped allow/deny plus source path traversal, 6

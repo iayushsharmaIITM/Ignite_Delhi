@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 
 from playwright.sync_api import Page, sync_playwright
@@ -627,6 +628,35 @@ def section_deep_links_history(suite: Suite, base: str) -> None:
     else:
         suite.check("chat rows exist to click", False, "none in the sidebar")
 
+    # The owner's report, one step further along than CH-4: from ANY other
+    # section, "New chat" must take you back to the composer. It did not.
+    # `newChat` (App.tsx:1046) deletes ?chat and sets ?new=1 but never leaves the
+    # view — no setView("chat"), no searchParams.delete("view") — so the click
+    # rewrote the URL into the contradiction `?view=brains&new=1` and the screen
+    # stayed on Brains. This is the same defect CH-4 fixed in `openChat`, still
+    # present in its sibling, which is why the CH-4 gate above passed while the
+    # button kept doing nothing. Every non-chat view is asserted, and each jump is
+    # re-checked after a reload: a URL that still says view=brains reloads back to
+    # Brains even if the click had appeared to work.
+    for other in ("brains", "connectors", "graph"):
+        page.goto(base + f"/?view={other}", wait_until="networkidle")
+        page.wait_for_timeout(1200)
+        newchat = page.locator("a.nav-item", has_text="New chat").first
+        if newchat.count() == 0:
+            suite.check(f"'New chat' is reachable from {other}", False, "no such nav item")
+            continue
+        newchat.click()
+        page.wait_for_timeout(1200)
+        suite.check(f"'New chat' from {other} drops the {other} view",
+                    f"view={other}" not in page.url, page.url)
+        suite.check(f"'New chat' from {other} shows the composer",
+                    page.locator("textarea#q").count() == 1,
+                    f"url={page.url} composers={page.locator('textarea#q').count()}")
+        page.reload(wait_until="networkidle")
+        page.wait_for_timeout(1500)
+        suite.check(f"the fresh chat started from {other} survives a reload",
+                    page.locator("textarea#q").count() == 1, page.url)
+
     # CH-14: switching brain mid-stream must ABANDON the old conversation, not
     # carry it into the new brain (it used to stay visible, and the next save
     # filed brain A's history under brain B). Needs two brains; skipped if this
@@ -866,6 +896,97 @@ def section_stale_bundle(suite: Suite, base: str) -> None:
         suite.console.clear()
 
 
+def section_graph_view(suite: Suite, base: str) -> None:
+    """The graph surface, ported from static/graph.html — which this run deletes.
+
+    The legacy page was the last hand-written UI, and it was richer than the
+    in-app view that replaced it: a canvas force layout, camera zoom and pan,
+    click-to-open sub-nodes over twelve core nodes, and a node inspector carrying
+    properties and typed relationships. Purging it was only defensible once each
+    of those four is proven here, plus the redirect that keeps old bookmarks and
+    the sidebar's `/graph` href landing in the app.
+    """
+    page = suite.page
+    suite.section("graph view")
+
+    # The URL that used to serve a second copy of this screen must now land in
+    # the app, and must keep the brain it was asked for.
+    page.goto(base + "/graph?brain=company_brain", wait_until="networkidle")
+    page.wait_for_timeout(1000)
+    suite.check("/graph redirects into the app", "view=graph" in page.url, page.url)
+    suite.check("the redirect preserves ?brain=", "brain=company_brain" in page.url, page.url)
+    suite.check("/graph no longer serves a hand-written page",
+                page.locator("canvas").count() >= 1, page.url)
+
+    reset(suite, base + "/?view=graph")
+    stats = (page.locator("#graph-stats").text_content() or "").strip()
+    suite.check("the canvas renders", page.locator("canvas").count() == 1)
+    m = re.search(r"(\d+) nodes · (\d+) edges", stats)
+    suite.check("stats report real counts, not a blank canvas", bool(m) and int(m.group(1)) > 0, stats)
+    node_total = int(m.group(1)) if m else 0
+    # Match on the section HEADERs case-insensitively: both are rendered through
+    # `text-transform: uppercase`, and inner_text() returns the transformed text,
+    # so a literal "Connections (" can never match even when the panel is perfect.
+    suite.check("the legend lists node types with counts",
+                page.locator('[aria-label="Node types"] li').count() >= 1,
+                "no legend rows")
+    chips = page.locator('[aria-label^="Open "]')
+    suite.check("the core nodes are reachable without a pointer",
+                chips.count() >= 1, f"{chips.count()} chips")
+
+    # Open a core node: the inspector is the whole reason clicking a node is the
+    # product's answer to a 200-node graph, so it must show what the node IS.
+    if chips.count():
+        chips.first.click()
+        page.wait_for_timeout(900)
+        panel = page.locator('aside[aria-label="Node details"]')
+        suite.check("opening a node shows its inspector", panel.count() == 1)
+        body = (panel.first.inner_text() if panel.count() else "")
+        suite.check("the inspector lists the node's connections",
+                    re.search(r"connections \(\d+\)", body, re.I) is not None, body[:120])
+        suite.check("opening a node counts as disclosure",
+                    " opened" in (page.locator("#graph-stats").text_content() or ""),
+                    (page.locator("#graph-stats").text_content() or ""))
+
+        # A relationship row walks to the other node rather than doing nothing.
+        rel = panel.locator("li button")
+        if rel.count():
+            rel.first.click()
+            page.wait_for_timeout(900)
+            suite.check("clicking a relationship walks to that node",
+                        page.locator('aside[aria-label="Node details"]').count() == 1)
+
+    zoomed = page.locator("[data-zoom]").get_attribute("data-zoom")
+    page.locator('[aria-label="Zoom in"]').click()
+    page.wait_for_timeout(500)
+    after = page.locator("[data-zoom]").get_attribute("data-zoom")
+    suite.check("zoom in changes the camera", (zoomed or "") != (after or ""), f"{zoomed} -> {after}")
+
+    page.locator('[aria-label="Expand everything"]').click()
+    page.wait_for_timeout(900)
+    allstats = (page.locator("#graph-stats").text_content() or "")
+    mm = re.search(r"(\d+) opened", allstats)
+    suite.check("expand everything opens every node",
+                bool(mm) and node_total and int(mm.group(1)) == node_total, allstats)
+
+    page.locator('[aria-label="Collapse to core nodes"]').click()
+    page.wait_for_timeout(900)
+    back = (page.locator("#graph-stats").text_content() or "")
+    suite.check("collapse returns to the core view", " opened" not in back, back)
+    suite.check("collapse closes the inspector",
+                page.locator('aside[aria-label="Node details"]').count() == 0)
+
+    # The honesty rule: an unreachable graph must say so. It must never render as
+    # an empty graph, which is the same lie A-storage-surfacing-as-empty-list is.
+    page.goto(base + "/?view=graph&brain=no_such_brain_zz", wait_until="networkidle")
+    page.wait_for_timeout(1200)
+    err = (page.locator("#graph-stats").text_content() or "").strip()
+    explained = ("Could not load" in err) or (
+        page.locator("text=/graph is empty/").count() >= 1)
+    suite.check("a graph it cannot fetch is explained, not shown as blank",
+                explained, err[:160])
+
+
 SECTIONS = [
     ("chat / ask", section_chat),
     ("source modal", section_source_modal),
@@ -874,6 +995,7 @@ SECTIONS = [
     ("composer menus / keyboard", section_composer_menus_keyboard),
     ("settings", section_settings),
     ("brains page", section_brains_page),
+    ("graph view", section_graph_view),
     ("deep links / history", section_deep_links_history),
     ("sidebar hover rail", section_sidebar_hover_rail),
     ("sidebar retract motion", section_sidebar_motion),

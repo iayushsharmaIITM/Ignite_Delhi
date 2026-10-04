@@ -78,7 +78,7 @@
 
 /* --------------------------------------------------------------------------
  * Only the tokens the Deck stylesheets do NOT define live here. Everything
- * else is owned by legacy/deck.css (imported after this file, so it wins any
+ * else is owned by design/deck.css (imported after this file, so it wins any
  * tie) — re-declaring --bg/--panel/--fg here is how `--warn` ended up defined
  * twice with two different hues, one of which could never render.
  * -------------------------------------------------------------------------- */

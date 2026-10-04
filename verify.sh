@@ -335,12 +335,13 @@ fi
 # menus/keyboard/deep links/history, with the model calls intercepted. This is
 # the suite that proves the frontend the product hands a browser actually works.
 # check_ui.py (the pre-port legacy suite) was retired here: it depended on a
-# playwright-cli binary that no longer exists, drove webkit, and the legacy CHAT
-# shell is now reachable only via KESTREL_UI=legacy — smoke.py still covers its
-# pages. Careful with that sentence: it does NOT mean static/ is dead. /graph is
-# served from static/graph.html regardless of UI_MODE, the React sidebar's Graph nav
-# item links straight to it, and shell.css/shell.js/ui.js/auth.js are loaded by that
-# page. Deleting static/ would break a primary nav item in the shipping app.
+# playwright-cli binary that no longer exists and drove the legacy chat shell.
+# CORRECTED on this pass: the comment used to warn "deleting static/ would break a
+# primary nav item, because /graph serves static/graph.html regardless of UI_MODE".
+# That was true, and it was the reason the last legacy page survived the chat
+# shell. It no longer is: the graph's force layout, camera, node disclosure and
+# inspector were ported into React's GraphView, gated in the section below, and
+# static/ is gone. /graph now redirects into the app like /brains and /upload.
 # over HTTP. See docs/FRONTEND_FIX_PLAN.md D2.
 if [ "$QUICK" -eq 1 ]; then
   note ui-react "SKIP  (--quick)"

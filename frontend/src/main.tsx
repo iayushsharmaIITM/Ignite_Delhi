@@ -1,15 +1,20 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import "./index.css"
-// Path 1 port — the legacy stylesheets ARE the polish. Cascade order must
-// match :8000 exactly: tokens/tailwind scaffold → Deck v4 (static/shell.css,
-// linked by every legacy page) → the inline <style> from static/index.html
-// (loaded last there, so it wins ties here too). bridge.css dissolves #root.
-import "./legacy/deck.css"
-import "./legacy/shell.css"
-// Inter (self-hosted) must beat deck.css's --sans, which shell.css uses directly
-import "./legacy/fonts.css"
-import "./legacy/bridge.css"
+// The design system. These four files ARE the product's visual language — they
+// began as the legacy shell's stylesheets and are where its polish lives — so
+// they were renamed out of `legacy/`, a directory name that repeatedly read as
+// dead code to everyone from a first pass to a review agent.
+//
+// Cascade order is load-bearing and must not be reordered: tokens/tailwind
+// scaffold → deck.css (the palette and shell) → shell.css → the typography
+// override (fonts.css, which has to beat deck.css's --sans) → bridge.css, which
+// dissolves #root so the shell lays out from body exactly as it did when the
+// markup was hand-written.
+import "./design/deck.css"
+import "./design/shell.css"
+import "./design/fonts.css"
+import "./design/bridge.css"
 import "./theme"
 import App from "./App"
 

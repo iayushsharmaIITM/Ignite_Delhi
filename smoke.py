@@ -57,9 +57,28 @@ def graph_has_nodes():
     print(f"        {data['nodes']} nodes, {data['edges']} edges")
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def graph_page():
-    status, _ = get("/graph", timeout=30)
-    assert status == 200, f"status {status}"
+    # /graph is a redirect, not a page: the graph renders inside the React bundle
+    # and static/graph.html is gone. Checking only that urlopen ends at 200 would
+    # also pass if the redirect were removed, so assert the hop itself, the brain
+    # it carries, and that the destination really serves the app.
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        resp = opener.open(BASE + "/graph?brain=company_brain", timeout=30)
+        code, loc = resp.status, resp.headers.get("Location", "")
+    except urllib.error.HTTPError as exc:
+        code, loc = exc.code, exc.headers.get("Location", "")
+    assert code in (301, 302, 303, 307, 308), f"/graph returned {code}, not a redirect"
+    assert "view=graph" in loc, f"/graph redirected to {loc!r}, not the in-app graph"
+    assert "company_brain" in loc, f"the redirect dropped ?brain=: {loc!r}"
+    status, body = get("/?view=graph&brain=company_brain", timeout=30)
+    assert status == 200, f"graph view status {status}"
+    assert 'id="root"' in body, "the app shell did not render at the graph URL"
 
 
 def answer_streams_with_citations():
@@ -128,7 +147,7 @@ if __name__ == "__main__":
     print(f"Smoke test — demo path against {BASE}\n")
     check("GET /health returns 200 and upstream is healthy", health)
     check("graph has nodes", graph_has_nodes)
-    check("GET /graph returns 200", graph_page)
+    check("GET /graph redirects into the in-app graph", graph_page)
     check("GET /api/ask streams an answer with citations", answer_streams_with_citations)
     check("brain-create capability in /api/config matches the route",
           create_capability_is_truthful)

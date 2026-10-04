@@ -239,30 +239,19 @@ def _check_rate(request: Request, scope: str) -> None:
         raise HTTPException(status_code=429,
                             detail="Rate limit exceeded — slow down and retry.")
 
-# One shared stylesheet and sidebar for every page. Serving them from /static
-# means the shell is written once instead of pasted into four HTML files.
-class NoCacheStaticFiles(StaticFiles):
-    """Static assets that the browser may not cache stale.
-
-    Without a Cache-Control header, browsers heuristic-cache these files —
-    which is exactly how a redesigned shell.css kept appearing as the OLD
-    dark theme (the HTML revalidated, the stylesheet didn't). These are
-    hand-edited files with no content hash, so revalidate always.
-    """
-
-    def file_response(self, *args, **kwargs):
-        resp = super().file_response(*args, **kwargs)
-        resp.headers["Cache-Control"] = "no-cache"
-        return resp
-
-
-app.mount("/static", NoCacheStaticFiles(directory=os.path.join(HERE, "static")), name="static")
+# /static is gone. It served the hand-written shell's assets to the legacy pages,
+# and the last of those pages now lives in the React bundle; the built frontend
+# references nothing under /static (verified: no "/static/" string in
+# frontend/dist). Anything that still asks for it gets a 404 rather than a stale
+# hand-edited file with no content hash.
 
 # --------------------------------------------------------------------------
 # The React frontend (docs/FRONTEND_FIX_PLAN.md Phase A)
 # --------------------------------------------------------------------------
 # frontend/ is a Vite + React app that renders the same DOM the legacy shell
-# did, styled by the legacy stylesheets. It is a built artifact (frontend/dist,
+# did, styled by the stylesheets under frontend/src/design (which began life as
+# a copy of that shell's CSS — it is the product's design system, not dead code).
+# It is a built artifact (frontend/dist,
 # committed — the app tier has no Node), and it is served from the ORIGIN ROOT
 # because its index.html references /assets/... absolutely and it has no path
 # routes: every deep link is a query param on / (?brain= ?chat= ?view= ?new=).
@@ -274,11 +263,9 @@ app.mount("/static", NoCacheStaticFiles(directory=os.path.join(HERE, "static")),
 # mode (with a no-token control run) and that asks stream, carry conversation
 # context and report failures honestly.
 #
-# The legacy chat shell was retired on 2026-10-04 and KESTREL_UI no longer accepts
-# "legacy": static/index.html is gone, so the value could only ever promise a page
-# that does not exist. What did NOT go away is the rest of static/ — /graph serves
-# static/graph.html regardless of this setting, and shell.css/shell.js/ui.js/auth.js
-# are its assets, with the React sidebar's Graph nav item linking straight to it.
+# The legacy UI was retired on 2026-10-04 (chat shell) and completed on this pass:
+# static/graph.html was the last hand-written page, and the graph now renders in
+# the React bundle, so static/ no longer exists and KESTREL_UI has one valid value.
 DIST_DIR = os.path.join(HERE, "frontend", "dist")
 UI_MODE = (os.getenv("KESTREL_UI") or "react").strip().lower()
 if UI_MODE != "react":
@@ -286,10 +273,9 @@ if UI_MODE != "react":
     # rollback flag that no longer exists must say so at boot rather than 500 on
     # the first request.
     raise SystemExit(
-        f"KESTREL_UI={UI_MODE!r} is not supported. The legacy chat shell was retired "
-        "(static/index.html deleted); the React bundle in frontend/dist is the only "
-        "UI. Unset KESTREL_UI, and run ops/build_frontend.sh if the bundle is stale. "
-        "/graph is unaffected — it still serves static/graph.html.")
+        f"KESTREL_UI={UI_MODE!r} is not supported. The legacy UI was retired "
+        "(static/ deleted); the React bundle in frontend/dist is the only "
+        "UI. Unset KESTREL_UI, and run ops/build_frontend.sh if the bundle is stale.")
 
 
 def _dist_file(name: str) -> str:
@@ -303,11 +289,11 @@ def react_available() -> bool:
 class ImmutableStaticFiles(StaticFiles):
     """Content-hashed build assets (index-CAqIOa5l.js): cache them forever.
 
-    The opposite policy to NoCacheStaticFiles above, and for the same reason:
-    those files have no content hash and heuristically cache stale; these have
-    a hash in the name, so a new build is a new URL and the old one can never
-    be served by mistake. Without an explicit header, browsers revalidate every
-    asset on every load.
+    The opposite policy to `index()`'s no-cache on index.html, and for the same
+    reason: index.html is unhashed and names the bundle, so it must revalidate or
+    it pins an old build; these carry a hash in the name, so a new build is a new
+    URL and the old one can never be served by mistake. Without an explicit
+    header, browsers revalidate every asset on every load.
     """
 
     def file_response(self, *args, **kwargs):
@@ -317,8 +303,8 @@ class ImmutableStaticFiles(StaticFiles):
 
 
 # Mount only dist/assets — never frontend/ itself, which would publish src/,
-# package.json and node_modules. Skipped (with a loud line) when the bundle is
-# absent so the legacy UI still boots from a source-only checkout.
+# package.json and node_modules. Skipped when the bundle is absent, which is the
+# state where `index()` answers 503 and names the command that fixes it.
 if os.path.isdir(os.path.join(DIST_DIR, "assets")):
     app.mount(
         "/assets",
@@ -2177,23 +2163,9 @@ def source(request: Request, name: str, dataset: str | None = None):
 # --------------------------------------------------------------------------
 # pages
 # --------------------------------------------------------------------------
-
-def _page(filename: str) -> FileResponse:
-    """Serve a page with revalidation forced.
-
-    These are hand-edited files with no build step and no content hash, so a
-    browser that caches them will happily keep serving a version from before the
-    last change — which looks exactly like "the feature was never built". Making
-    the browser revalidate costs one conditional request and removes that whole
-    class of confusion.
-    """
-    return FileResponse(
-        os.path.join(HERE, "static", filename),
-        headers={
-            "Cache-Control": "no-cache, must-revalidate",
-            "Pragma": "no-cache",
-        },
-    )
+# There is one page: the React bundle served at /. The URLs below exist so that
+# bookmarks, links written before the port, and the `/graph` page that used to be
+# hand-written all land inside the app instead of 404ing.
 
 
 @app.get("/")
@@ -2206,8 +2178,8 @@ def index():
     different UI is how a deploy ships something nobody reviewed.
     """
     if react_available():
-        # Same no-cache rule as _page(): index.html is unhashed and names
-        # the hashed bundle, so a cached copy pins an old build.
+        # index.html is unhashed and names the hashed bundle, so a cached copy
+        # pins an old build. Revalidate always.
         return FileResponse(
             _dist_file("index.html"),
             headers={
@@ -2240,18 +2212,18 @@ def icons_sprite():
     raise HTTPException(status_code=404, detail="No icon sprite.")
 
 
+# Every remaining page URL redirects into the app. /graph was the last
+# hand-written page (static/graph.html: a canvas force layout, camera zoom/pan,
+# click-to-expand disclosure and a node inspector) and all four of those
+# behaviours now live in React's GraphView, so the file is gone rather than kept
+# as a fallback. The redirect is 307 so a bookmark or an old link still lands the
+# user on the same brain's graph — with the query preserved, not dropped.
 @app.get("/graph")
-def graph_page():
-    return _page("graph.html")
+def graph_page(brain: str | None = None):
+    target = "/?view=graph" + (f"&brain={urllib.parse.quote(brain)}" if brain else "")
+    return RedirectResponse(target, status_code=307)
 
 
-# The brains and upload pages have React equivalents (BrainsPage, and the
-# create-brain dialog + files sheet), so those two legacy pages are retired:
-# the HTML files are gone and the URLs redirect into the app. Nothing links to
-# them any more except old bookmarks and the legacy shell's own nav, which the
-# redirect keeps working. /graph stays until the in-app graph is equivalent —
-# it is a genuinely richer surface (force layout, expansion, inspector) and the
-# React view labels it as the full version.
 @app.get("/brains")
 def brains_page():
     return RedirectResponse("/?view=brains", status_code=307)

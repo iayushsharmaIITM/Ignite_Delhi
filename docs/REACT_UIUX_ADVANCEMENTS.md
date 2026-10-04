@@ -30,7 +30,7 @@ understand §2 first; everything else follows from it.
 | Layer | What's real |
 |---|---|
 | Web frontend | `frontend/` — React 19, Vite, Tailwind v4 (`@tailwindcss/vite`), shadcn-style primitives in `frontend/src/components/ui/`, sonner toasts, custom i18n (`lib/i18n.ts`, 6 languages), Clerk auth via CDN loader (`lib/clerk.ts`), self-hosted Inter (`@fontsource-variable/inter`). Served from the backend at `/` (`KESTREL_UI`, default `react`); `frontend/dist` is committed and CI rebuilds+diffs it |
-| Legacy stylesheets | `frontend/src/legacy/deck.css` (= `static/shell.css` verbatim) and `frontend/src/legacy/shell.css` (= the inline `<style>` of `static/index.html` verbatim) — imported globally, they style the React DOM |
+| Design system | `frontend/src/design/deck.css` and `frontend/src/design/shell.css` — imported globally, they style the React DOM. **Corrected 2026-10-04:** this row read "Legacy stylesheets … `frontend/src/legacy/…` (= `static/shell.css` verbatim)". The directory was renamed to `design/` because `legacy/` read as dead code to every reviewer while being the product's whole visual language, and the `static/` files it was copied from are now deleted, so "verbatim" had no referent left. Their provenance is unchanged: deck.css is the old shell's stylesheet, shell.css is the old chat page's inline `<style>` |
 | Backend | Same-origin `app.py` (FastAPI): `/api/ask` NDJSON stream, `/api/source`, `/api/brains` (+v2 jobs, `/events`), `/api/chats`, `/api/actions/draft`, `/api/actions/send`, `/api/graph`, `/api/stats`, `/api/extract` (+OCR ladder) |
 | Verification **`[fixed]`** | `check_ui_react.py` is an acceptance suite over the **served** bundle (ask/stream/citations/files/draft/menus/keyboard/deep links/history, model calls intercepted); `tests/test_react_clerk.py` proves the Clerk-mode path with a no-token control; `tests/test_frontend_api_transport.py` and `tests/test_frontend_css_utilities.py` are static invariants. Those four run from `verify.sh` and the CI `ui` job. **Corrected 2026-10-04:** this row used to end "All of it runs from `verify.sh` and the CI `ui` job", which swept in `parity_gate.py` — a real pixel gate against the committed baselines in `docs/ui-review/baselines/`, and one that **no entrypoint runs** (`parity_gate` appears zero times in both `verify.sh` and `.github/workflows/ci.yml`; `docs/INDEX.md` records the same and leaves wiring-or-retiring as an owner decision). `parity_shots.py`/`parity_states.py` are capture helpers, also manual. Treat the pixel gate as something a human runs, not as coverage |
 
@@ -51,7 +51,8 @@ classes — so the original stylesheets apply unmodified:
 frontend/src/main.tsx import order (mirrors :8000's cascade):
   1. index.css              — Tailwind v4 + token scaffold (@theme inline maps
                              shadcn color roles onto the legacy vars)
-  2. legacy/deck.css        — verbatim static/shell.css ("Deck v4"):
+  2. design/deck.css        — the "Deck v4" layer (from the deleted
+                             static/shell.css):
                              :root tokens, .shell sidebar, .app-main, .pop,
                              .settings-pop, scrollbars, light theme
   3. legacy/shell.css       — verbatim inline <style> from static/index.html:

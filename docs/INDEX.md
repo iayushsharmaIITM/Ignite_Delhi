@@ -30,6 +30,9 @@ record, a historical record, or a business document.
 
 `CLAUDE_CONTEXT.md` (6 refs; superseded by `AGENTS.md`, kept because it is the only
 narrative of the hackathon build), `PROJECT_TIMELINE_AND_STATUS.md` (through 28 Sep),
+`docs/LEGACY_SHELL_SPEC.md` and `docs/LEGACY_TO_REACT_PARITY.md` (the spec and the parity
+ledger for the shell that was deleted on 2026-10-04 — kept as the record of what the React
+port had to reproduce, not as a description of anything that still exists),
 `BUGS.md` (370 lines, pre-audit ledger; `BUGS_AUDIT.md` is the ledger now),
 `STACK_REVIEW.md`, `IMPROVEMENTS.md`, `CHATBAR_DESIGN.md`, `DEMO_DAY.md` (one
 event's runbook), `REALITY_CHECK.md`, `UPGRADE_REPORT.md` +
@@ -57,6 +60,18 @@ code references, wired into no entrypoint), and `STACK_AUDIT_PROMPT.md` (a one-t
 prompt whose output, `STACK_REVIEW.md`, is the artefact). Deleted files remain
 recoverable from git history; the battery was re-run afterwards to prove nothing
 depended on them.
+
+**The legacy UI is gone as of the same day.** `static/` was deleted whole: `graph.html`
+(the last hand-written page) with `shell.js`, `ui.js`, `auth.js` and `shell.css`. Its
+canvas force layout, camera zoom/pan, click-to-open disclosure over the twelve core nodes
+and the node inspector were ported into React's `GraphView` first, and each behaviour is
+gated in `check_ui_react.py`'s "graph view" section — sixteen checks, all passing, before
+the file went. `/graph`, `/brains` and `/upload` are 307 redirects into the app and
+`app.py` no longer mounts `/static`. `frontend/src/legacy/` was **renamed, not deleted**:
+it is the design system the React app imports, and the directory name had already fooled
+two reviews into proposing its removal. Older documents that cite `static/…` paths
+(`BUGS.md`, Round 1 of `BUGS_AUDIT.md`, `docs/ui-review/`, `docs/LEGACY_*`) are historical
+records; they now describe deleted files and must not be read as current.
 
 ## Still clutter — decisions left to the owner, not acted on
 

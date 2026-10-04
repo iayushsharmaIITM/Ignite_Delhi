@@ -39,8 +39,12 @@ soon". When those connectors ship or the product enters a real beta, update:
 Per the phase brief, the marketing site has no auth buttons — the app's
 Clerk integration stays separate. When the app has production deployment
 settings, the nav gains "Sign in" pointing at the app domain, with the
-branded Clerk appearance already prepared in the app's `static/auth.js` and
-`frontend/`. No second password database exists or will exist.
+branded Clerk appearance already prepared in the app — since 2026-10-04 that is
+`appearanceProps()` in `frontend/src/components/Animations.tsx`, which themes the
+sign-in from the same tokens as the rest of the product. (This bullet used to name
+`static/auth.js`; that file was deleted with the rest of the legacy UI, so the
+claim would have sent someone looking for a surface that no longer exists.)
+No second password database exists or will exist.
 
 ## 6. Social cards need a final domain
 
