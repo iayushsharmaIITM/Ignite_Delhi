@@ -2286,6 +2286,11 @@ if __name__ == "__main__":
     # 127.0.0.1. Same file works in both places with these two defaults.
     uvicorn.run(
         app,
+        # Loopback IPv4 only, deliberately. Tried `localhost` here to also answer ::1,
+        # measured it, and uvicorn binds a single socket — the IPv6 half still refused,
+        # so the change bought nothing and the comment claiming otherwise was removed.
+        # Browsers fall back from ::1 to 127.0.0.1 on connection refusal, which is why
+        # `localhost:8000` works in practice; HOST overrides this for real deployments.
         host=os.getenv("HOST", "127.0.0.1"),
         port=int(os.getenv("PORT", "8000")),
     )
