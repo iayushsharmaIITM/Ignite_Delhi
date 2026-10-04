@@ -6,22 +6,29 @@
 # Smaller image, faster build, fewer failure modes. (It is still installed in
 # the local dev venv, but only because the offline `cognee-cli demo` was used
 # to verify the stack early on.)
-fastapi==0.141.1
+fastapi==0.115.0
+# Pinned to the range FastAPI 0.115 actually requires. This line used to read
+# `starlette>=0.37.2,<0.39.0` while `fastapi` was declared as 0.141.1, which needs
+# starlette>=0.46 — an unsatisfiable set, so `pip install -r requirements.txt` failed
+# on the first clean runner that tried it (CI run 37168535441) while working on every
+# dev machine that already had the packages. The versions in this file are now the
+# versions this project is actually tested and run against; `fastapi==0.141.1` was a
+# declaration nobody had ever installed.
 starlette>=0.37.2,<0.39.0
-uvicorn==0.53.0
-requests==2.34.2
-python-dotenv==1.2.3
+uvicorn==0.32.0
+requests==2.32.5
+python-dotenv==1.0.1
 
 # Required by FastAPI to parse multipart uploads (Form + UploadFile).
 # WITHOUT THIS the brain-upload endpoint returns 500 in the deployed container
 # while working perfectly on a dev machine that happens to have it installed.
-python-multipart==0.0.32
+python-multipart==0.0.21
 
 # Document extraction for the upload path (documents.py).
 # pypdf reads PDF text; python-docx reads paragraphs AND tables.
 # Both are imported optionally at runtime, so a failed install degrades to
 # "that format is unsupported" instead of taking the whole app down.
-pypdf==6.19.0
+pypdf==6.7.5
 python-docx==1.2.0
 
 # Render Workflows SDK — used by pipeline.py (workflow tier only).
@@ -33,7 +40,7 @@ psycopg[binary]==3.2.3
 
 # P3: Clerk session-JWT verification (auth.py)
 PyJWT==2.10.1
-cryptography==44.0.1
+cryptography==48.0.1
 PyMuPDF==1.26.7
 # P6 agent layer (agents.py) — structured draft/send models over the shared
 # llm.py endpoint. Pinned like everything else here so a rebuild is identical.

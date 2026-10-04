@@ -72,7 +72,23 @@ carry a schema. An intermediate pass that rewrote `operationId` measured zero ga
 (FastAPI already emits 39 unique, method-qualified ids) and lost information, so it was
 reverted rather than kept because it looked like work.
 
-**Battery:** `./verify.sh` → 13 tiers, 0 failing suites, `EXIT=0`.
+**CI ran for the first time, on the 175th commit, and immediately out-voted every local
+green.** `24a2308..6e96fb6` pushed to `main`; run `37168535441` failed **both** jobs at
+`pip install -r requirements.txt`, and the reason was in the file the whole time:
+`fastapi==0.141.1` requires `starlette>=0.46` while line 10 pinned
+`starlette>=0.37.2,<0.39.0` — an unsatisfiable set, so a clean install could never have
+worked. Six more pins had drifted identically (`uvicorn`, `requests`, `python-dotenv`,
+`python-multipart`, `pypdf`, `cryptography` all declared versions no machine here has
+ever installed). Corrected to what live actually runs — measured from the running
+process: `fastapi 0.115.0` + `starlette 0.38.6` — and verified by resolving the whole
+file from scratch (`pip install --dry-run --ignore-installed` → 59 packages, exit 0)
+rather than by asserting it looks right now. This is exactly the M-delivery.1 bet: the
+dependency file had been validated only by inherited local state.
+
+**Battery:** `./verify.sh` → 13 tiers, 0 failing suites, `EXIT=0`; `./verify.sh --quick`
+(the CI lane) → `EXIT=0`. Live `:8000` restarted on the committed build and verified in a
+browser: new hashes served (`index-of6ZiLeY.js`), recovery script present, 15 mounted
+nodes, composer and 4 chips, zero page errors.
 
 ## Structure pass: dead code out, document map in, and a scanner that sees ignored files 2026-10-04
 
