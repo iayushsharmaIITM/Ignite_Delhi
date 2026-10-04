@@ -1278,11 +1278,16 @@ proved it rather than the intention behind it.
 `bash ops/check_secrets.sh --all` exited **1** with one hit: line 36, the literal
 `sk-` followed by thirty lowercase alphanumerics that exists to prove the pattern
 works. `--all` scans every tracked file, including that script. So the Round-2 claim
-that "the tracked repo scans clean today" was **false**, and CI was red on every
-push — which is the worst possible state for a guard, because a permanently failing
-check teaches everyone to ignore it. (This paragraph deliberately does not quote the
-literal: it would trip the detector it describes, which is exactly how the failure
-was reproduced — a doc that breaks its own CI is still a doc that breaks its own CI.)
+that "the tracked repo scans clean today" was **false**, and a permanently failing
+guard teaches everyone to ignore it.
+
+*(Corrected during Round 4: this section said CI was "red on every push". It never
+ran at all — `git ls-tree origin/main` has no `.github/workflows`, the repository
+reports 0 Actions workflows, and `main` is 172 commits ahead of its remote. The
+detector defect was observed directly (`--all` exit 1, locally, every time) and the
+fix is real; the CI consequence was inferred from a pipeline that has never executed.
+Round 3 mistook "the file says it would fail" for "it was failing", which is the same
+error this round exists to catch.)*
 
 **Fix** the probe is built at runtime (`sk-` plus 24 generated characters), so no
 literal in the file matches the pattern while the self-test still exercises the same

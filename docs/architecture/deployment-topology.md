@@ -44,7 +44,7 @@ Storage nodes (the ones a backup has to be right about):
 | Path | Definition | State | Evidence |
 |---|---|---|---|
 | Render | `render.yaml` — web `ignite-web` + workflow service, region singapore, free plan, `startCommand: python app.py`, `healthCheckPath: /health` | **dormant**: it targets the Cognee **Cloud tenant** ("no LLM key and no database password below: the tenant owns the model"), which is not what runs today | `render.yaml` header comments; today's `.env` uses `COGNEE_FLAVOR=oss` |
-| GitHub Actions | `.github/workflows/ci.yml` — `fast` + `ui` jobs | **active**, and it stops at CI: no deploy step anywhere in the file | `ci.yml` |
+| GitHub Actions | `.github/workflows/ci.yml` — `fast` + `ui` jobs | **never executed anywhere**: `git ls-tree origin/main` has no `.github/workflows`, `gh api …/actions/workflows` returns 0, and local `main` is 172 commits ahead of the remote. The file is a well-formed intention, not a control — see BLOCKERS **M-delivery.1** | `ci.yml`, `gh`, `git status -sb` |
 | Heroku (PLAN P4) | not yet defined | **missing**: no `Procfile`, no `app.json`, no `system.properties`, no release-phase command | `ls Procfile` → not found |
 | Vercel | `DEPLOY_VERCEL.md` documents a static/snapshot deploy | describes an earlier demo architecture | that file |
 | launchd | `com.kestrel.backup` nightly 03:17 → `~/Kestrel_backups`; `com.kestrel.stackup` login self-heal | backup half **working and drift-checked**; stack-up half **cannot execute** (launchd cannot read `~/Desktop`, exit 126) | `ops/install_agents.sh`, `BLOCKERS.md` M-ops.1 |

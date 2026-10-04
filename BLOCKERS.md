@@ -10,7 +10,41 @@ One entry per blocker, newest first. Format:
 
 ---
 
-## M-ops.1 — launchd cannot read ~/Desktop, so the "self-healing" stack job never runs — 2026-10-04 — **OPEN: owner's machine decision**
+## M-delivery.1 — the repository has no delivery boundary and no second copy — 2026-10-04 — **OPEN: owner action**
+
+**Measured 2026-10-04 while checking whether the new CI steps could be verified.**
+
+- `git status -sb` → `main...origin/main [ahead 172]`.
+- `git ls-tree -r --name-only origin/main | grep workflows` → nothing. The workflow
+  file exists only in the working tree.
+- `gh api repos/…/actions/workflows` → **0** workflows; `gh run list` → empty.
+
+So every claim this repo has made about CI ("fails on every push", "the battery is
+what CI runs", "dist sync is enforced") describes a pipeline that has never executed.
+`ci.yml` is a well-formed intention, not a control. The delivery-acceptance dimension
+of the harness review scored 48 partly because it could not observe a boundary; the
+real answer is that there isn't one.
+
+**The bigger exposure is not CI, it is that the work exists in one place.** 172 commits
+plus the live database plus the nightly backups are all on this laptop. `~/Kestrel_backups`
+sits on the same disk as `~/Desktop/Kestrel_brains`, and the Git history has no remote
+copy. One dead SSD takes the code, the data and the backups together — which is exactly
+the failure the backup script exists to prevent, defeated by location rather than by
+logic.
+
+**What unblocks it (in order, all owner decisions):**
+1. `git push` the 172 commits (first push publishes the workflow → CI runs → H-2 and
+   the `dist`-sync and secret-scan gates start existing). `gh` is installed and
+   authenticated with `repo` + `workflow` scopes, so nothing needs installing for this.
+   Expect the **first** run to be the real test of everything assumed about CI.
+2. Add a branch protection / required-check step once runs exist, or the acceptance
+   boundary stays advisory.
+3. Copy the backups off-disk (any object storage, or a second machine). The backup
+   job is honest and the artefacts restore; they just are not *elsewhere*.
+
+**Not done here deliberately:** pushing is a shared-state write with 172 commits behind
+one command, and the first CI run may fail in ways only visible on the hosted runner.
+That is a decision to make awake, not an agent convenience.
 
 **Diagnosis.** `com.kestrel.stackup` (the login job the handover documents rely
 on: "logging into the Mac should bring everything up") is loaded and fires, and
