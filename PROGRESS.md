@@ -1,3 +1,30 @@
+## Driving the real engine found two more bugs in my own guard
+
+Installing WebKit (`python3 -m playwright install webkit`, owner-approved) and running a
+six-cell matrix — WebKit and Chrome × healthy/true-404/aborted — turned up two defects that
+reasoning from Chrome could not:
+
+- **The evidence check was Chrome-only.** It read `PerformanceResourceTiming.responseStatus`,
+  measured `false` in WebKit 26.0 — the engine family Qoder's preview actually uses. So on
+  Safari the guard could never see a 4xx: the false alarm was gone, and the genuine
+  stale-bundle recovery had gone with it. Evidence now comes from a same-origin `fetch()`
+  and its real `response.status`, which every engine reports.
+- **`.some(s => isMissing(s.src))` returned a Promise, and a Promise is always truthy.**
+  `proven` was therefore unconditionally true: every visible tab with a ~10s slow mount spent
+  a reload, and the explain-without-reloading branch was dead code. Two rounds of thinking
+  about the guard missed it; the abort scenario still writing a retry stamp is what exposed
+  it, and patching `Storage.prototype.setItem` from the test side to print the call stack
+  pointed straight at `tick`.
+
+Final matrix: healthy mounts with no stamp, a true 404 recovers with a reload, an abort
+explains **without** reloading (one navigation) — identically in WebKit and Chrome.
+Battery 13/13 `EXIT=0`. Logged as A-22 and A-23.
+
+The lesson is the same one the whole session keeps teaching: an assertion verified in one
+environment is not verified. Installing the engine the user actually runs turned two
+confident, wrong "fixed"s into measurements.
+
+
 ## The guard I wrote to kill a blank page was causing one 2026-10-04
 
 The owner's built-in browser showed "Kestrel could not load its interface" while the

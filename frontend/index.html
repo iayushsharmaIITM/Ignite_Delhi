@@ -63,37 +63,43 @@
         // index-*.js served with 200, React mounted and set the title, and the tab
         // still landed on the failure panel because the guard reloaded it mid-flight.
         //
-        // So require evidence: only a response that actually arrived with a 4xx/5xx
-        // counts as missing. An aborted or never-completed request does not, and we
-        // never guess — an older engine without responseStatus gets no verdict.
-        function statusOf(url) {
-          try {
-            var list = performance.getEntriesByName(new URL(url, location.href).href);
-            if (!list.length) {
-              list = performance.getEntriesByType("resource").filter(function (e) {
-                return e.name === new URL(url, location.href).href;
-              });
-            }
-            if (!list.length) return null;
-            var e = list[list.length - 1];
-            return typeof e.responseStatus === "number" && e.responseStatus ? e.responseStatus : 0;
-          } catch (err) { return null; }
-        }
+        // Evidence comes from asking the server, not from timing data:
+        // `PerformanceResourceTiming.responseStatus` is Chrome-only — measured absent in
+        // WebKit 26.0 — so relying on it would silently disable recovery in Safari while
+        // looking correct in Chrome. A same-origin GET returns a real status in every
+        // engine, and it only runs after a script error, so the cost is one extra request
+        // on a page that is already broken.
         function isMissing(url) {
-          var s = statusOf(url);
-          return s !== null && s >= 400;
+          var abs;
+          try { abs = new URL(url, location.href).href; } catch (e) { return Promise.resolve(false); }
+          if (abs.indexOf(location.origin) !== 0) return Promise.resolve(false);
+          return fetch(abs, {method: "GET", cache: "no-store", credentials: "same-origin"})
+            .then(function (r) { return r.status >= 400; },
+                  function () { return false; });   // unreachable is not "stale"
         }
         // Resource errors do not bubble; capture them at the window instead.
         window.addEventListener("error", function (e) {
           var t = e.target;
           if (!t || t.tagName !== "SCRIPT" || !/\.js(\?|$)/.test(t.src || "")) return;
-          // Defer one task: the timing entry for the failed request is not always
-          // committed by the time the error event fires.
-          setTimeout(function () { if (isMissing(t.src)) failed(); }, 0);
+          // Defer one task: the request has to finish failing before it can be asked.
+          setTimeout(function () {
+            isMissing(t.src).then(function (gone) { if (gone) failed(); });
+          }, 0);
         }, true);
         window.addEventListener("vite:preloadError", function (e) {
           e.preventDefault();
-          failed();
+          // A rejected dynamic import is the classic stale-deploy signal, but it also
+          // fires when a navigation aborts the chunk mid-flight — measured: an aborted
+          // bundle spent a reload through THIS branch after the error listener was made
+          // evidence-based. Same rule applies: name a URL, ask the server, reload only
+          // on a real 4xx/5xx. With no URL to check, say nothing and let the empty-root
+          // tick decide, because an unproven reload is the bug this whole block exists
+          // to remove.
+          var msg = String((e.error && (e.error.message || e.error)) || "");
+          var m = msg.match(/\/assets\/[A-Za-z0-9._-]+\.js/);
+          if (m) {
+            isMissing(m[0]).then(function (gone) { if (gone) failed(); });
+          }
         }, true);
         window.addEventListener("load", function () {
           var tries = 0;
@@ -109,12 +115,18 @@
             // Reloading it would have the guard manufacture the outage it reports.
             if (document.hidden) return;
             if (++tries < 4) { setTimeout(tick, 2500); return; }
-            // Still empty after ~10s in a visible tab. Reload ONLY if a bundle
-            // request actually came back 4xx/5xx; otherwise just explain, with a
-            // button, and let the user decide. No blind reload loop.
-            var proven = [].slice.call(document.querySelectorAll("script[src]"))
-              .some(function (s) { return isMissing(s.src); });
-            if (proven) { failed(); } else { explain(); }
+            // Still empty after ~10s in a visible tab. Reload ONLY if a bundle request
+            // actually came back 4xx/5xx. The await matters: `.some(s => isMissing(...))`
+            // returned a Promise, and a Promise is always truthy — so every visible tab
+            // with a slow mount spent a reload, and the explain-without-reloading branch
+            // below was dead code. The WebKit gate caught it as an abort that still wrote
+            // a retry stamp.
+            var srcs = [].slice.call(document.querySelectorAll("script[src]")).map(function (s) {
+              return isMissing(s.src);
+            });
+            Promise.all(srcs).then(function (verdicts) {
+              if (verdicts.some(Boolean)) { failed(); } else { explain(); }
+            });
           };
           setTimeout(tick, 2500);
         });
