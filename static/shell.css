@@ -127,6 +127,19 @@ h1, .display {
 
 :focus { outline: none; }
 :focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--radius-xs); }
+/* Same fix as frontend/src/legacy/deck.css: the global rule is outranked by the
+   button reset, so chip/mini/delete controls had no focus indicator. Mirrored
+   because this sheet is the KESTREL_UI=legacy rollback path, and a rollback that
+   loses the accessibility contract is not a rollback. */
+.chip:focus-visible, .mini:focus-visible, .row-del:focus-visible,
+.head-btn:focus-visible, .nav-item:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+  box-shadow: var(--focus); border-radius: var(--radius-xs);
+}
+@media (pointer: coarse) {
+  .nav-item, .chip, .mini { min-height: 44px; align-items: center; }
+  .chip { padding-top: 10px; padding-bottom: 10px; }
+}
 
 /* the small-caps label used across the product */
 .overline, .label {

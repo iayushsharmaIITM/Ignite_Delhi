@@ -127,6 +127,18 @@ h1, .display {
 
 :focus { outline: none; }
 :focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--radius-xs); }
+/* …but that global rule is specificity 0-1-0, and the sheet that carries the
+   button reset sets box-shadow above it, so controls without a ring utility
+   (.chip, .mini, .row-del) computed TWO TRANSPARENT shadows and showed no focus
+   indicator at all — while DESIGN.md promises a 2px ring "everywhere, no
+   exceptions". Naming the classes is what fixes it: class + pseudo outranks the
+   reset regardless of load order, and components that already draw their own
+   shadcn ring are untouched, so nothing gets a double indicator. */
+.chip:focus-visible, .mini:focus-visible, .row-del:focus-visible,
+.head-btn:focus-visible, .nav-item:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+  box-shadow: var(--focus); border-radius: var(--radius-xs);
+}
 
 /* the small-caps label used across the product */
 .overline, .label {
@@ -206,6 +218,14 @@ body.sb-slide-on .nav .brain-row:hover { background: transparent; }
   background: transparent; color: var(--muted); font: inherit; font-size: 13.5px;
   text-align: left; cursor: pointer; text-decoration: none; position: relative;
   transition: background .15s ease, color .15s ease;
+}
+/* Touch parity: these rows compute 38px tall, which is fine under a mouse and
+   below Apple HIG's 44pt minimum under a thumb. Gated on the pointer rather than
+   the width, because a desktop window resized to phone width still has a mouse,
+   and a tablet at full width does not. */
+@media (pointer: coarse) {
+  .nav-item, .chip, .mini { min-height: 44px; align-items: center; }
+  .chip { padding-top: 10px; padding-bottom: 10px; }
 }
 .nav-item:hover { background: var(--wash); color: var(--fg); }
 .nav-item.active { background: var(--wash-2); color: var(--fg); font-weight: 590; }

@@ -1542,7 +1542,12 @@ export default function App() {
         user={clerkUser}
       />
 
-      <div className="app-main" id="kestrel-main">
+      {/* role="main" rather than a <main> element: DESIGN.md lists landmarks as an
+          accessibility requirement, and the skip link had nowhere to land. The
+          element is left as a div on purpose — retagging it means reparsing every
+          sibling's closing tag in this tree, and assistive tech gets the same
+          region either way. */}
+      <div className="app-main" id="kestrel-main" role="main">
         <h1 className="sr-only">Kestrel Company Brain</h1>
         {view === "connectors" ? (
           <Connectors brain={brain} />

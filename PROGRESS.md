@@ -1,3 +1,79 @@
+## Contract, focus rings and the blank page: a round that included my own breakage 2026-10-04
+
+This entry has an unusual shape: most of it is recovery from damage I did, and the
+parts worth keeping are the two gates that caught it and the three product defects that
+only appeared once the gates were honest.
+
+**I deleted 35 route decorators with a regex sweep.** The intent was to extend the error
+contract across `app.py`; the script dropped the `i = j; continue` branch that appends
+the scanned handler, so every bare `@app.get(...)` line vanished while the functions
+under them stayed. `python3 -c "import ast; ast.parse(...)"` passed — a file with no
+routes is still syntactically perfect Python. What caught it was `check_ui_react.py`
+reporting **25 FAILED: react shell served, composer present, …**, i.e. the browser gate
+built last round earning its keep on the first edit that broke the app. Recovered by
+restoring `app.py` from `3f011d9` and re-applying the five decorators by hand. The
+lesson is written into `ops/api_readiness.py` and `_annotate_common_errors`: anything
+that has to touch 39 decorators gets done in schema post-processing instead, where the
+worst it can do is misdescribe the contract, which is measurable, rather than delete the
+product, which is not.
+
+**The error contract, with codes read out of the handlers.** `POST /api/chats` (400,
+401, 403, 404, 409, 410, 413, 422, 503), `GET /api/chats`, `GET`/`DELETE
+/api/chats/{chat_id}`, `POST /api/brains`, one shared `ApiError` schema, `500` on all 39
+operations and `401` on the 31 `/api/*` routes that actually gate. Two claims died in
+the checking: `403` is **not** on `POST /api/brains` (nothing there raises it — my draft
+list said it was), and `404` **is** on `POST /api/chats` (the ownership error), which the
+draft omitted. Codes that mean different things on different routes take a per-route
+`notes=` description, because a shared 409 about chat trimming would be a lie on brain
+creation.
+
+**A 500 the client could not read.** Starlette answers an unhandled crash as plain text
+`Internal Server Error`, while `frontend/src/lib/api.ts:111` parses failures with
+`res.json().catch(() => null)` — so the one error class with no `detail` was the one the
+user most needed a sentence for. Now `@app.exception_handler(Exception)` logs the
+traceback and returns `{detail}`; `HTTPException` still reaches FastAPI's handler first,
+so the deliberate 409/410/413/503 bodies are untouched. Verified through the ASGI app:
+`500`, `application/json`, traceback in the log.
+
+**The owner's blank page, reproduced from the server's own log.** Live `:8000` rendered
+nothing, and the reason was in `/tmp/kestrel_app.log`: three 404s for
+`index-SSCQYO2q.js`, `index-m876h3li.css`, `Markdown-anNGsjxq.js` — the hashes the
+*previous* build shipped, which `ops/build_frontend.sh` had just deleted. `/` already
+sends `no-cache, must-revalidate`, so this is not a header bug; a tab restored from
+bfcache still asks for the files it was handed. `frontend/index.html` now reloads once
+on a failed chunk and, if that does not fix it, shows a `role="alert"` panel with a
+Reload button instead of a dark empty screen. Gated by a `stale bundle` section that 404s
+`/assets/index-*.js` and asserts the message appears; healthy loads measured one
+navigation, no loop, flag cleared.
+
+**Three false accusations, all mine, all caught before they were committed.** (1) A
+"`--accent`/`--focus` token collision" — I had sampled the ring at 0ms, mid-transition;
+settled, it is exactly `2px solid rgb(180,83,9)`, which is what `DESIGN.md:46` asks for.
+(2) "Six controls have no focus indicator" — asserted on `outlineStyle` alone, and those
+controls draw their ring with `box-shadow`, which is how this sheet works. (3) "19 raw
+hex literals violate rule 1" — 16 of them are Clerk `appearance.variables`, which must be
+literal; migrating them would break sign-in, not fix it. The corrected focus gate is now
+checked **in the failing direction**: injecting `:focus-visible{outline:none!important;
+box-shadow:none!important}` drops it to 0 of 12, and as shipped it passes 11 of 11.
+
+**What the corrected gate then found for real:** `#rail .tick.here` carries a resting
+glow at specificity 1-2-0 that outranks the global `:focus-visible` rule, so tabbing to
+a rail tick changed nothing on screen — a WCAG 2.4.7 failure on a control no one had
+ever tabbed to. Fixed with an explicit `#rail .tick:focus-visible` outline.
+
+**The readiness number, re-derived rather than re-asserted.** `ops/api_readiness.py` is
+committed; the earlier `/tmp` version had hardcoded verdicts, which is why the score had
+been moving by amounts nobody could attribute. Same scorer, same 45 checks: **56.6%**
+with the error contract ablated, **59.7%** with it. Not agent-ready — the bar is ≥70% and
+zero criticals, and E1 still fails. Last round's doc estimated this work at "+8 to +10
+points and it clears the only critical"; the measured answer was **+3.1 and it cleared
+nothing**, because E1 is one binary and the real gap is now P1: 0 of 39 success responses
+carry a schema. An intermediate pass that rewrote `operationId` measured zero gain
+(FastAPI already emits 39 unique, method-qualified ids) and lost information, so it was
+reverted rather than kept because it looked like work.
+
+**Battery:** `./verify.sh` → 13 tiers, 0 failing suites, `EXIT=0`.
+
 ## Structure pass: dead code out, document map in, and a scanner that sees ignored files 2026-10-04
 
 Three installed capabilities were added by the owner for this pass — Better Harness's

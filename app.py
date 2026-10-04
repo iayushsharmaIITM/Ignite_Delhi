@@ -107,8 +107,55 @@ def _custom_openapi() -> dict:
         },
     }
     schema["security"] = [{"ClerkBearer": []}]
+    # One error shape for every non-2xx, so a client can parse a failure without
+    # guessing. get_openapi() only knows the response models that are declared on
+    # the routes (there are none here — the handlers return hand-built dicts), so
+    # this schema would otherwise be referenced but never defined.
+    components = schema.setdefault("components", {})
+    schemas = components.setdefault("schemas", {})
+    schemas.setdefault("ApiError", {
+        "type": "object",
+        "description": ("Body of every non-2xx answer. `detail` is written for a "
+                        "human AND read by the client, which branches on the status "
+                        "code, not on this string."),
+        "properties": {"detail": {"type": "string"}},
+        "required": ["detail"],
+        "example": {"detail": "This chat was deleted. Start a new chat."},
+    })
+    _annotate_common_errors(schema)
     app.openapi_schema = schema
     return schema
+
+
+# Every /api route funnels through require_tenant() — verified by reading each
+# handler's body, not assumed — so 401 is part of its contract. These two are the
+# exceptions: /api/config is how a client learns WHICH mode is live, and the OAuth
+# callback is the third party's browser arriving without our bearer token.
+_PUBLIC_API_PATHS = {"/api/config", "/api/connectors/oauth/{provider}/callback"}
+
+
+def _annotate_common_errors(schema: dict) -> None:
+    """Add the responses every operation can produce, in place.
+
+    Done here rather than as 39 hand-written `responses=` decorators for two
+    reasons: these two codes are properties of the app (an auth gate, a crash handler)
+    rather than of one route, and a scripted edit of 34 decorators is exactly the shape
+    of the mistake that deleted them once — this touches no handler, so the worst it can
+    do is misdescribe the contract, which ops/api_readiness.py measures against the
+    served document. (operationId is deliberately NOT touched: FastAPI already emits a
+    unique, method-and-path-qualified id per route, and an earlier pass here that
+    replaced those with bare handler names measured no gain and lost the disambiguation.)
+    """
+    for path, ops in (schema.get("paths") or {}).items():
+        for method, op in (ops or {}).items():
+            if method not in ("get", "post", "put", "patch", "delete"):
+                continue
+            responses = op.setdefault("responses", {})
+            if "500" not in responses:
+                responses.update(_error_docs(500))
+            if path.startswith("/api/") and path not in _PUBLIC_API_PATHS \
+                    and "401" not in responses:
+                responses.update(_error_docs(401))
 
 
 app.openapi = _custom_openapi
@@ -125,6 +172,29 @@ async def _security_headers(request: Request, call_next):
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "same-origin")
     return resp
+
+
+@app.exception_handler(Exception)
+async def _unhandled_is_json(request: Request, exc: Exception):
+    """An unexpected crash answers as JSON too, in the shape the client parses.
+
+    Starlette's default is a plain-text `500 Internal Server Error`, and the React
+    client reads failures with `res.json().catch(() => null)` (lib/api.ts:111) — so a
+    crash produced no server message at all, only the bare "HTTP 500" fallback, while
+    every deliberate error in this file says something useful. Same body shape for
+    both, and the traceback goes to the log, never to the response.
+
+    HTTPException is NOT caught here: FastAPI's own handler answers those first, so
+    the 409/410/413/503 contract stays exactly as the routes wrote it.
+    """
+    import logging
+    import traceback
+    logging.getLogger("kestrel").error(
+        "unhandled %s on %s %s\n%s", type(exc).__name__, request.method,
+        request.url.path, traceback.format_exc())
+    return JSONResponse(status_code=500,
+                        content={"detail": "Something went wrong on our side. "
+                                           "The error was logged; please try again."})
 
 
 # S5: per-identity cost guard. llm_calls metering can count spend, but nothing
@@ -669,7 +739,51 @@ def config():
     }
 
 
-@app.post("/api/chats")
+# What each non-2xx means on the routes that validate by hand. These handlers
+# already answer 401/409/410/413/503 with FastAPI's {"detail": ...} shape, but the
+# generated contract advertised only a 200 — so a client, an agent, or the next
+# engineer could not learn that 409 means "send trim=true", 410 means "start a new
+# id", and 503 means "an outage, not an empty history". Declared as `responses=`,
+# never as response_model: a response model FILTERS fields, and these routes return
+# hand-built dicts the React client reads key by key. Codes whose meaning differs
+# between two routes are overridden per route in `notes=` — a shared 409 that
+# describes chat trimming would be a lie on brain creation.
+_ERROR_MEANING = {
+    400: "Request body could not be understood.",
+    401: "Missing, expired, or invalid credential — see the ClerkBearer scheme "
+         "and `authMode` from GET /api/config.",
+    403: "That brain is not yours to read or write.",
+    404: "Not visible to this account. Someone else's id and a genuinely missing "
+         "one answer the same way, so the API cannot enumerate.",
+    409: "Conflict: the request needs an explicit second choice to proceed.",
+    410: "This chat was deleted. Start a new conversation; it will not come back.",
+    413: "Over a documented limit: turns per chat, turn text or metadata, files "
+         "per upload, or bytes per file.",
+    422: "A required field is missing or of the wrong type.",
+    429: "Rate limit exceeded. Back off and retry.",
+    500: "Unhandled server error. The traceback goes to the log and never to the "
+         "response; the body keeps this same {detail} shape.",
+    502: "Nothing could be ingested. The brain was not created.",
+    503: "Storage or the brain service is unavailable. This is NOT an empty list.",
+}
+
+
+def _error_docs(*codes: int, notes: dict | None = None) -> dict:
+    """`responses=` entries for codes this handler is measured to actually raise."""
+    notes = notes or {}
+    return {code: {
+        "description": notes[code] if code in notes else _ERROR_MEANING[code],
+        "content": {"application/json": {
+            "schema": {"$ref": "#/components/schemas/ApiError"}}},
+    } for code in codes}
+
+
+@app.post("/api/chats", responses=_error_docs(
+    400, 401, 403, 404, 409, 410, 413, 422, 503,
+    notes={400: "Request body was not a JSON object.",
+           403: "The `brain` this chat is filed under is not yours to write to.",
+           409: "The save carries less history than the server holds. Send "
+                "trim=true to overwrite deliberately, or re-read and retry."}))
 async def chats_upsert(request: Request):
     identity = require_tenant(request)
     # LOW-6: malformed JSON must be 400, not 500.
@@ -741,7 +855,8 @@ async def chats_upsert(request: Request):
         raise HTTPException(status_code=503, detail="storage unavailable")
 
 
-@app.get("/api/chats")
+@app.get("/api/chats", responses=_error_docs(401, 403, 503,
+    notes={403: "The `brain` filter asked for is not yours to read."}))
 def chats_list(request: Request, brain: str | None = None, limit: int = 200):
     identity = require_tenant(request)
     if not storage.available():
@@ -770,7 +885,7 @@ def chats_list(request: Request, brain: str | None = None, limit: int = 200):
             "total": total, "truncated": total > len(chats), "limit": limit}
 
 
-@app.get("/api/chats/{chat_id}")
+@app.get("/api/chats/{chat_id}", responses=_error_docs(401, 404, 503))
 def chats_get(request: Request, chat_id: str):
     identity = require_tenant(request)
     if not storage.available():
@@ -798,7 +913,7 @@ def chats_get(request: Request, chat_id: str):
     return {"chat": chat}
 
 
-@app.delete("/api/chats/{chat_id}")
+@app.delete("/api/chats/{chat_id}", responses=_error_docs(401, 404, 503))
 def chats_delete(request: Request, chat_id: str):
     identity = require_tenant(request)
     if not storage.available():
@@ -1622,7 +1737,11 @@ def list_brains(request: Request):
         }
 
 
-@app.post("/api/brains")
+@app.post("/api/brains", responses=_error_docs(
+    400, 401, 409, 413, 429, 502, 503,
+    notes={409: "That brain name already exists. Creating over it is refused unless append=true opts in.",
+           413: "Too many files, or a file over the per-file byte cap.",
+           503: "The brain service is unreachable, so existing cannot be told from new. Fails closed."}))
 async def create_brain(
     request: Request,
     name: str = Form(...),

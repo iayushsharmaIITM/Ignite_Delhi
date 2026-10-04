@@ -1464,3 +1464,42 @@ and the public API contract is formally **not agent-ready** — 57.6% weighted a
 the 8-pillar rubric with one Critical failure still open
 (`docs/api-analysis/agent-readiness.md`; auth is now declared, error/response schemas
 are not).
+
+*(Corrected during Round 5, same day. Of those four UI rules, **two were never defects
+and one was already fixed**: the suggestion chips do show the ring (the measurement that
+said otherwise was `el.focus()`, which is not a keyboard transition), the "19 raw hex
+literals" are 16 Clerk `appearance.variables` that must stay literal plus 3 real ones,
+and the `main` landmark had been added in between. The score cited here, 57.6%, came from
+a scorer with hardcoded verdicts and is not comparable to the re-derived one below. What
+survives of this paragraph is the touch-target item, which is an owner decision.)*
+
+## Round 5 — the round that broke the app itself (2026-10-04)
+
+Named for its most instructive defect, which was mine. Work: the OpenAPI error contract,
+the UI/UX gates from Round 4's audit, and the harness items the owner authorised.
+
+| ID | Sev | Defect | Status |
+|----|-----|--------|--------|
+| A-1 | **CRITICAL (self-inflicted)** | A regex sweep intended to extend `responses=` across `app.py` **deleted 35 route decorators** (`@app.get("/api/chats/{chat_id}")` and 34 others), leaving the handler functions in place with nothing registering them. `ast.parse` passed — a route-less module is still valid Python — so the damage was invisible to the obvious check | CLOSED — restored from `3f011d9`, five decorators re-applied by hand, the two app-wide codes moved into `_custom_openapi` post-processing. **Detected by** `check_ui_react.py` reporting 25 failures starting at "react shell served" |
+| A-2 | HIGH | A deploy deletes the previous hashed bundle, so a tab holding the old `index.html` requests 404s and renders a **silent blank page**. Reproduced from the live server's own log (three 404s for `index-SSCQYO2q.js` / `index-m876h3li.css` / `Markdown-anNGsjxq.js`) | CLOSED — `frontend/index.html` reloads once on a failed chunk, then shows a `role="alert"` panel with a Reload button; gated by the `stale bundle` section, which asserts the message and that a healthy load makes exactly one navigation |
+| A-3 | MED | An unhandled crash answered as Starlette's plain-text `Internal Server Error` while `lib/api.ts:111` parses failures with `res.json().catch(() => null)` — the one error class with no `detail` was the one where the user most needed a sentence | CLOSED — `@app.exception_handler(Exception)` logs the traceback and returns `{detail}`; `HTTPException` still routes through FastAPI's handler, so 409/410/413/503 bodies are untouched. Verified through the ASGI app |
+| A-4 | MED | `#rail .tick.here` carries a resting glow at specificity 1-2-0 that outranks the sheet's global `:focus-visible` rule, so keyboard focus on a rail tick changed **nothing** on screen (WCAG 2.4.7) | CLOSED — explicit `#rail .tick:focus-visible` outline; found only because the focus gate stopped asserting a single property |
+| A-5 | MED | **Three false findings of my own**, each recorded before being measured properly: an `--accent`/`--focus` "token collision" that was a mid-transition sample (settled ring is `2px solid rgb(180,83,9)`, exactly `DESIGN.md:46`); "six controls with no focus indicator" that were drawing theirs via `box-shadow`, asserted on `outlineStyle` alone; and the Clerk-hex item inherited from Round 4 | CLOSED — all three corrected in `docs/ui-review/UX-AUDIT-2026-10-04.md`, and the focus gate is now checked in the **failing** direction (injecting `:focus-visible{outline:none!important;box-shadow:none!important}` → 0 of 12 pass; as shipped → 11 of 11) |
+| A-6 | LOW | The readiness evaluator lived in `/tmp` with several **hardcoded** verdicts, so the score moved between runs without any attributable cause | CLOSED — `ops/api_readiness.py` committed, every check computed from the served document, unassessable checks reported `n/a` and removed from the denominator. Re-derived: **56.6%** ablated → **59.7%** with the error contract, E1 still Critical |
+| A-7 | LOW | An intermediate pass rewrote `operationId` from FastAPI's generated values to bare handler names: **zero** measured gain (M1 already passed on 39/39 unique ids) and a real loss (the generated ids encode method and path) | CLOSED — reverted, with the reason recorded in `_annotate_common_errors` so it is not re-attempted as "visible work" |
+
+**Contract work delivered (A-1's replacement, done safely).** `responses=` on the five
+routes whose guarantees Rounds 2–3 hardened, with every code read out of the handler
+bodies rather than assumed — which is how the draft's `403` on `POST /api/brains` was
+found to be false and its missing `404` on `POST /api/chats` true. Codes that mean
+different things per route take a `notes=` override, so the shared 409 never describes
+chat trimming on brain creation. Plus one `ApiError` schema, `500` on all 39 operations,
+and `401` on the 31 `/api/*` operations that gate (exclusions: `/api/config`, which is
+how a client learns the mode, and the OAuth callback, which arrives from a third party's
+browser).
+
+**Still open after this round:** P1 (Critical) — 0 of 39 success responses carry a
+schema, which is now the real blocker to ≥70%; E3 — no machine-readable error `code`;
+PF1 — `X-RateLimit-*` not declared though the app rate-limits and answers 429; and the
+touch-target item from the UI audit, which is a density decision for the owner.
+

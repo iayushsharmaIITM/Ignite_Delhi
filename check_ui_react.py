@@ -287,6 +287,68 @@ def section_composer_menus_keyboard(suite: Suite, base: str) -> None:
     reset(suite, base)
     page = suite.page
     # ---------------------------------------------------------------- menus + keyboard
+    # DESIGN.md promises a visible focus indicator on every control, "no exceptions".
+    # What "visible" means took three attempts to get right, and each wrong version
+    # produced a verdict that described the test rather than the product:
+    #   * el.focus() is not a keyboard transition. Chromium decides :focus-visible from
+    #     the modality of the PREVIOUS interaction, so a JS focus measured the UA
+    #     default and the result depended on whether an earlier section had clicked.
+    #   * the sheet animates (`transition: all`), so a sample at 0ms reads the UA
+    #     default (3px #45413A) and only settles on the token after ~150ms. Every
+    #     measurement below waits for it to settle.
+    #   * asserting outlineStyle specifically called six controls failures when they
+    #     draw their ring with box-shadow — which is how this sheet actually does it
+    #     (:focus-visible { box-shadow: var(--focus) }), with an outline added only on
+    #     the classes whose own reset outranked it. So: an indicator counts if EITHER
+    #     channel is real, and it must be the accent token either way.
+    seen, offenders = [], []
+    for _ in range(14):
+        page.keyboard.press("Tab")
+        page.wait_for_timeout(320)
+        focus = page.evaluate("""() => {
+            const a = document.activeElement;
+            if (!a || a === document.body) return null;
+            const s = getComputedStyle(a);
+            const probe = document.createElement('span');
+            probe.style.color = 'var(--accent)';
+            a.appendChild(probe);
+            const want = getComputedStyle(probe).color;      // e.g. rgb(180, 83, 9)
+            probe.remove();
+            const nums = (t) => (t.match(/[0-9.]+/g) || []).map(parseFloat);
+            // rgba(r,g,b,0) is a transparent shadow: present in the cascade, invisible
+            // on screen. Only a non-zero alpha over the accent counts.
+            const accentShadow = (s.boxShadow || 'none').split('),').some(part => {
+                const n = nums(part);
+                return n.length >= 4 && n[3] > 0 && Math.round(n[0]) === nums(want)[0]
+                       && Math.round(n[1]) === nums(want)[1] && Math.round(n[2]) === nums(want)[2];
+            }) || (s.boxShadow || '').includes(want);
+            const outline = s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0
+                            && s.outlineColor === want;
+            return {where: a.tagName + '.' + String(a.className).slice(0, 26) + (a.id ? '#' + a.id : ''),
+                    fv: a.matches(':focus-visible'), outline, accentShadow,
+                    os: s.outlineStyle, ow: s.outlineWidth, shadow: (s.boxShadow || '').slice(0, 34)};
+        }""")
+        if focus is None:
+            continue
+        if seen and focus["where"] == seen[0]["where"]:
+            break                                   # the tab order wrapped: full cycle
+        seen.append(focus)
+        if not (focus["fv"] and (focus["outline"] or focus["accentShadow"])):
+            offenders.append(focus)
+    suite.check("the keyboard reaches a meaningful number of controls", len(seen) >= 5,
+                f"{len(seen)} focused: {[f['where'] for f in seen]}")
+    suite.check("every keyboard-focused control shows an accent focus indicator",
+                not offenders,
+                f"{len(offenders)} of {len(seen)} show nothing: {offenders[:3]}")
+
+    suite.check("the skip link points at a real landmark",
+                page.evaluate("""() => {
+                    const a = document.querySelector('a[href^="#"]');
+                    if (!a) return false;
+                    const t = document.querySelector(a.getAttribute("href"));
+                    return !!t && (t.tagName === "MAIN" || t.getAttribute("role") === "main");
+                }"""))
+
     suite.section("composer menus / keyboard")
     page.click("#brainswitch")
     page.wait_for_timeout(300)
@@ -601,6 +663,38 @@ def section_deep_links_history(suite: Suite, base: str) -> None:
         print("  note  only one brain in this fixture set — CH-14 switch not exercised")
     suite.console_clean("deep links")
 
+def section_stale_bundle(suite: Suite, base: str) -> None:
+    """A deploy replaces the hashed bundle and deletes the previous one, so a tab
+    still holding the old index.html asks for files that no longer exist. That used
+    to answer as a completely BLANK page — measured live on 2026-10-04, where the
+    browser requested /assets/index-SSCQYO2q.js and got a 404 with nothing on screen
+    to explain it. The shell must reload once, and if that does not fix it, say so.
+    """
+    page = suite.page
+    suite.section("stale bundle after a deploy")
+
+    def missing(route):
+        route.fulfill(status=404, body="", headers={"content-type": "text/javascript"})
+
+    page.route("**/assets/index-*.js", missing)
+    try:
+        page.goto(base, wait_until="load")
+        page.wait_for_timeout(6000)
+        box = page.evaluate("""() => {
+            const d = document.getElementById('stale-bundle');
+            return d ? {role: d.getAttribute('role'),
+                        text: (d.innerText || '').trim(),
+                        button: !!document.getElementById('stale-reload')} : null;
+        }""")
+        suite.check("a missing bundle explains itself instead of rendering blank",
+                    bool(box) and box.get("role") == "alert"
+                    and "could not load" in (box.get("text") or "").lower()
+                    and box.get("button") is True, str(box))
+    finally:
+        page.unroute("**/assets/index-*.js", missing)
+        suite.console.clear()
+
+
 SECTIONS = [
     ("chat / ask", section_chat),
     ("source modal", section_source_modal),
@@ -610,6 +704,7 @@ SECTIONS = [
     ("settings", section_settings),
     ("brains page", section_brains_page),
     ("deep links / history", section_deep_links_history),
+    ("stale bundle", section_stale_bundle),
 ]
 
 

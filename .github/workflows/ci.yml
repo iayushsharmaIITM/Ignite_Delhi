@@ -99,6 +99,12 @@ jobs:
         run: |
           npm ci
           npm run lint
+      - name: Fresh-schema bootstrap (migrations over a bootstrapped database)
+        # The two schema authorities (storage.init() and migrations/versions/*) have
+        # to converge in either order, because a release phase migrates before the
+        # app has booted once. This spins a throwaway Postgres on 5435 and touches
+        # neither the live nor the lab database.
+        run: bash ops/test_fresh_bootstrap.sh
       - name: React UI acceptance suite (served bundle)
         run: |
           python3 app.py > /tmp/app.log 2>&1 &
@@ -111,11 +117,14 @@ jobs:
         # ever reachable through the local battery: the fast job has no database, and
         # this job — which DOES provide Postgres on 5434 — never called verify.sh. So a
         # regression in either class could land with no automated check seeing it.
-        # test_auth_isolation.py is deliberately absent: it needs pytest, which
-        # requirements-dev.txt does not carry, and adding a dependency is the owner's call.
+        # test_auth_isolation.py runs here too: it is pytest-only (fixtures and
+        # pytest.raises), and pytest is now declared in requirements-dev.txt, which
+        # this job installs. Its DATABASE_URL contains 5434, so the suite's own
+        # refusal guard lets it create its scratch database on this service.
         run: |
           python3 tests/test_chat_integrity.py
           python3 tests/test_brain_claim.py
+          python3 test_auth_isolation.py
       - name: Clerk-mode gate (auth on, token + control)
         run: python3 tests/test_react_clerk.py
       - name: Application log on failure
