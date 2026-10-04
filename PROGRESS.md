@@ -31,6 +31,21 @@ not assumed: `KESTREL_UI=legacy` exits at import, and hiding `dist/index.html` p
 503 with the fix in the body. The old fallback "served the legacy dashboard" — a silently
 different UI, which is the thing the file's own docstring warned about.
 
+**Wiring them proved they were not ready to be wired.** The first hosted run of the new
+gates failed twice over: `test_route_authz.py` SELECTed an org owning `company_brain` —
+the A-10 seeded-data disease in a file I had just called "runs clean" — and the other two
+died on `relation "workspaces" does not exist`, because those tables come from alembic and
+CI's database only ever received `storage.init()`. "Ran clean standalone" was measured
+against a lab that had been migrated years of rounds ago; it was not a claim about a clean
+machine, and I wrote it as if it were.
+
+Fixed by using the real owner row when one exists and minting a temporary one otherwise
+(removed in `atexit`, so a failed assert cannot leak ownership of the demo brain), and by
+having CI run `alembic upgrade head` before the invariant step — which also means CI now
+exercises the real migration path instead of only the boot-time DDL. All three verified
+green against a genuinely empty database bootstrapped and migrated the way CI does it, and
+against the populated lab with its real owner row untouched.
+
 **Battery: 16 tiers, 0 failing, `EXIT=0`.** Logged as A-24, A-25, A-26.
 
 

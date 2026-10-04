@@ -126,6 +126,13 @@ jobs:
         # the lab port, and the fast job has no database at all. Running it here means
         # the vault/OAuth contract is actually exercised on a hosted runner.
         run: |
+          # Bring this job's throwaway database to the migration head first.
+          # storage.init() creates only the chat-tier tables; `workspaces`,
+          # `brain_jobs` and the rest come from alembic. Two of the gates below are
+          # migration-dependent and died with `relation "workspaces" does not exist`
+          # on the first hosted run that tried them. Side benefit: CI now exercises
+          # the real upgrade path, not just the boot-time DDL.
+          python3 -m alembic upgrade head
           python3 tests/test_chat_integrity.py
           python3 tests/test_brain_claim.py
           python3 test_auth_isolation.py

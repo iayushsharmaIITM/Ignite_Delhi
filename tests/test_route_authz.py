@@ -40,11 +40,44 @@ def token(org_id, user_id):
 import app as app_module
 client = TestClient(app_module.app)
 
-# org A: the workspace that owns company_brain (from the live backfill rows)
+# org A: the workspace that owns company_brain.
+#
+# This used to SELECT the owner and assume one exists — true on a populated lab
+# database, and a `TypeError: 'NoneType' object is not subscriptable` on the first
+# hosted CI run, whose Postgres starts empty (the same seeded-data disease as
+# chat-integrity, A-10, which this gate was wired in alongside). Now: use the real
+# row when there is one, and only mint a temporary owner when there is not, so the
+# lab's actual company_brain ownership is never rewritten or deleted by a test.
+# The document itself needs no seed data — /api/source reads corpus/ from disk.
+org_a = None
+minted_owner = False
 with psycopg.connect(URL, row_factory=psycopg.rows.dict_row) as conn, conn.cursor() as cur:
-    org_a = cur.execute(
+    row = cur.execute(
         "select org_id from brain_access where brain='company_brain' and org_id is not null limit 1"
-    ).fetchone()["org_id"]
+    ).fetchone()
+    if row:
+        org_a = row["org_id"]
+    else:
+        org_a = f"itest_org_{uuid.uuid4().hex[:8]}"
+        cur.execute("INSERT INTO brain_access (brain, org_id, created_by) "
+                    "VALUES ('company_brain', %s, 'itest-route-authz') "
+                    "ON CONFLICT (brain) DO NOTHING", (org_a,))
+        conn.commit()
+        minted_owner = True
+        # Remove the temporary owner even if an assert below fails — a leaked
+        # brain_access row would silently change who can read the demo brain.
+        import atexit
+
+        def _drop_minted_owner():
+            try:
+                with psycopg.connect(URL, autocommit=True) as c, c.cursor() as k:
+                    k.execute("DELETE FROM brain_access WHERE brain='company_brain' "
+                              "AND org_id=%s", (org_a,))
+            except Exception:  # noqa: BLE001 - cleanup must not mask the real failure
+                pass
+
+        atexit.register(_drop_minted_owner)
+print(f"  [fixture] company_brain owner: {'pre-existing row' if not minted_owner else 'minted for this run'}")
 org_b = f"other_{uuid.uuid4().hex[:8]}"
 hA = {"Authorization": f"Bearer {token(org_a, 'uA')}"}
 hB = {"Authorization": f"Bearer {token(org_b, 'uB')}"}
