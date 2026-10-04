@@ -39,6 +39,34 @@ the AWS key if that folder is or was iCloud-synced. A key that has sat in plaint
 copies needs rotating at the provider, not just deleting from disk — and rotation is
 explicitly the owner's call.
 
+### Amendment, same day — a second credential, and one the comment does not remove
+
+Re-checking this with the architect pass found that the entry above named only the
+`AKIA…` id. Measured now, and the shapes were characterised without ever printing a
+value:
+
+- **`.env:73` `BEDROCK_API_KEY`** — a 131-character mixed-case literal beginning
+  `ABSK`, i.e. an AWS Bedrock API key, not a placeholder.
+- **`.env.oss:81`** carries a same-shaped literal of its own on a line that *starts
+  with `#`* (`# AWS_BEARER_TOKEN_BEDROCK=…`). Commenting a key out does not remove
+  the plaintext, and the class counts differ between the two files (upper/lower/digit
+  split 71/43/17 vs 61/54/16), so these are **two distinct keys**, not one copy.
+- Both spread through `ops/backup.sh` the same way: **7 files** on disk carry an
+  `ABSK…`-shaped literal — the two `.env*` files plus `env.app`/`env.oss` inside five
+  retention snapshots under `var/backups/`.
+- A lowercased variant of the same string also sits inside
+  `cognee_oss_state/uploads.json:8`, embedded in *ingested document text* rather than
+  a config field. That means a key-shaped value has been through the brain as content,
+  which is a different exposure from a config file: it can surface in retrieval.
+- Every one of those paths is gitignored (`var/` at `.gitignore:44`,
+  `cognee_oss_state/` at `:41`), and `git ls-files` returns none of them, so
+  `ops/check_secrets.sh --all` — which iterates `git ls-files` (`ops/check_secrets.sh:82`)
+  — is structurally blind to all seven. **Tracked-file hits remain zero: git is clean.**
+
+Rotation scope for this blocker is therefore two Bedrock keys plus the `AKIA…` id, and
+optionally a re-ingest question about the brain content that absorbed the key-shaped
+text — all owner calls, none taken.
+
 ---
 
 ## M-delivery.1 — the repository has no delivery boundary and no second copy — 2026-10-04 — **PARTLY CLOSED: CI is real; branch protection and an off-disk copy still open**

@@ -48,6 +48,9 @@ if (exec 3<>"/dev/tcp/127.0.0.1/${PORT}") 2>/dev/null; then
 fi
 SERVER_PID=""
 FAILS=0
+RAN=0
+SKIPPED=0
+SKIPLIST=""
 
 # One port is the managed surface: :8000, brought up and idempotently by
 # ops_stack_up.sh. Everything else that answers HTTP here is either this battery's
@@ -68,6 +71,15 @@ fi
 
 note() {
   echo "[$1] $2"
+  # Count the verdicts, not just the failures. Until now a run could print SKIP
+  # six times, exit 0, and read as a clean battery; the exit code only ever
+  # tracked FAILS, so "half the tiers stood down" and "everything passed" were
+  # the same green. The tally goes in the closing line so the number of tiers
+  # that actually guarded the change is visible next to the verdict.
+  case "$2" in
+    PASS*|FAIL*) RAN=$((RAN + 1)) ;;
+    SKIP*) SKIPPED=$((SKIPPED + 1)); SKIPLIST="$SKIPLIST $1" ;;
+  esac
   # The first hosted CI run failed two suites and said only
   # "FAIL — see /tmp/kestrel_verify_docs.log" — a pointer to a file that exists on a
   # GitHub runner and nowhere else. Print the tail inline so the reason survives the
@@ -129,12 +141,28 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
        && [[ "${KESTREL_ALLOW_LIVE_DB:-0}" != "1" ]]; then
     echo "ABORT: the only reachable database is the LIVE one (5433), and this"
     echo "       battery writes test rows into it."
-    echo "       bring up the lab (ops/restore_lab.sh), or insist with"
-    echo "       KESTREL_ALLOW_LIVE_DB=1 ./verify.sh"
+    echo "       Bring up the lab (ops/restore_lab.sh). KESTREL_ALLOW_LIVE_DB=1"
+    echo "       overrides this, and per AGENTS.md setting it is the owner's call,"
+    echo "       in the same terms as deleting or re-ingesting — not a retry flag."
     exit 2
   else
     echo "db: none reachable - storage-backed suites degrade, which is what CI expects"
   fi
+fi
+
+# The same refusal, applied to a URL the CALLER exported. It used to live only
+# inside the branch above, so `DATABASE_URL=<live 5433> ./verify.sh` skipped the
+# check entirely and the documents / pipeline-states / tenants / smoke / frontend
+# tiers wrote straight into the production database — while AGENTS.md said this
+# battery "refuses to run against the live database". Right hazard, half-implemented:
+# the guard has to judge the URL that is actually in effect, whoever set it.
+if [[ "${DATABASE_URL:-}" == *5433* && "${KESTREL_ALLOW_LIVE_DB:-0}" != "1" ]]; then
+  echo "ABORT: DATABASE_URL names the LIVE database (5433) and this battery writes"
+  echo "       test rows. That is true whether this script chose the URL or the"
+  echo "       caller exported it."
+  echo "       Point it at the lab: DATABASE_URL=<lab 5434> ./verify.sh"
+  echo "       KESTREL_ALLOW_LIVE_DB=1 overrides, and is the owner's call to make."
+  exit 2
 fi
 
 # --- 1. document extraction (no server needed) ------------------------------
@@ -278,7 +306,12 @@ if [[ "${DATABASE_URL:-}" == *5434* ]]; then
   #   route-authz          brain-scoped allow/deny + source path traversal (6 asserts)
   #   lifecycle-identity   Phase 0 regression: identity carried through the lifecycle
   #   lease-recovery       orphaned/uncertain jobs are not blindly retried
-  for gate in tests/test_route_authz.py tests/test_lifecycle_identity.py tests/test_lease_recovery.py; do
+  #   v2-authz             the durable /api/brains/v2 job path, allow AND deny
+  # v2-authz joined this round: it was in the tree, set its own KESTREL_JOBS_V2
+  # flag, proved the allow/deny/404 directions and cleaned up after itself, and
+  # nothing ran it — while UPGRADE_COMPLETION_REPORT.md listed it as delivered
+  # coverage. The v2 path is now genuinely covered rather than believed.
+  for gate in tests/test_route_authz.py tests/test_lifecycle_identity.py tests/test_lease_recovery.py tests/test_v2_authz.py; do
     name=$(basename "$gate" .py | sed 's/^test_//' | tr '_' '-')
     log="/tmp/kestrel_verify_${name}.log"
     if python3 "$gate" > "$log" 2>&1; then
@@ -292,7 +325,7 @@ else
   note chat-integrity "SKIP  (needs DATABASE_URL=<lab 5434> — it writes rows)"
   note brain-claim "SKIP  (needs DATABASE_URL=<lab 5434> — it writes rows)"
   note auth-isolation "SKIP  (needs DATABASE_URL=<lab 5434> — it creates a database)"
-  for name in route-authz lifecycle-identity lease-recovery; do
+  for name in route-authz lifecycle-identity lease-recovery v2-authz; do
     note "$(echo $name | tr '_' '-')" "SKIP  (needs DATABASE_URL=<lab 5434> — it writes rows)"
   done
 fi
@@ -335,5 +368,12 @@ else
   note clerk-gate "SKIP  (set KESTREL_CLERK_GATE=1 with DATABASE_URL=<lab> to run)"
 fi
 
-echo "== done: $FAILS failing suite(s) =="
+echo "== done: ran $RAN tier(s), skipped $SKIPPED, failing $FAILS =="
+if [ "$SKIPPED" -gt 0 ]; then
+  echo "   did not run:$SKIPLIST"
+  echo "   Green here means the tiers that ran found nothing. It does not mean the"
+  echo "   skipped ones agree: they stood down for want of a lab database, a browser"
+  echo "   or an opt-in flag. Widen the lane with DATABASE_URL=<lab 5434>"
+  echo "   (and KESTREL_CLERK_GATE=1) and read this line before believing a PASS."
+fi
 exit $((FAILS > 0))

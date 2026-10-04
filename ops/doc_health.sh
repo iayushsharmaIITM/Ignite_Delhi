@@ -61,6 +61,16 @@ check progress-is-newest-first \
   'head -1 PROGRESS.md | grep -q "^## "' \
   "PROGRESS.md no longer starts with a dated entry"
 
+# 5. Every command a living document tells the reader to run must resolve to a file.
+# This gate was written because a stale document is not cosmetic — an agent obeys
+# it — and then could not see the one class it existed for. Three rounds of
+# deletions (battery.py, check_ui.py, contract_test.py) each left a document route
+# behind, and a hand-written assertion can only test what its author thought to ask.
+# The scope comes from docs/INDEX.md's Living table, so the map stays the authority.
+check living-doc-routes-resolve \
+  'python3 ops/check_doc_routes.py' \
+  "a living document routes to a script that is not in the tree — see the list printed above"
+
 # Owner-decision divergences: real, reported, not this script's to resolve.
 warn n3-compose-oss-tracked \
   'git ls-files --error-unmatch compose.oss.yml >/dev/null 2>&1' \

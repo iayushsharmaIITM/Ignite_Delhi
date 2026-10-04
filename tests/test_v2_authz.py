@@ -57,13 +57,20 @@ client = TestClient(app_module.app)
 org_a, org_b = f"org_{uuid.uuid4().hex[:8]}", f"org_{uuid.uuid4().hex[:8]}"
 files = [("authz.txt", b"Workspace authz probe content.")]
 
-r = client.post("/api/brains/v2",
-                data={"name": f"authz_{uuid.uuid4().hex[:6]}", "idempotency_key": f"az-{uuid.uuid4()}"},
-                files=[("files", files[0])],
-                headers={"Authorization": f"Bearer {token(org_a, 'userA')}"})
-assert r.status_code == 202, f"create failed: {r.status_code} {r.text[:200]}"
-job_id = r.json()["job_id"]
-print("  org A created job:", job_id[:8])
+# The job is reserved through lifecycle directly, not through POST /api/brains/v2.
+# That route answers 400 "Uploads need the cloud provider" unless
+# memory_layer.PROVIDER is cloud (app.py:1626), and the battery exports
+# PROVIDER=mock on purpose — so taking the route here would test the provider
+# gate, not the thing this suite is about. create_brain_v2 is the same
+# reservation the route performs (workspace + job + staging in one transaction,
+# tenant-free until the worker), so the authorization seam below is exercised
+# against a genuine v2 job in any lane, CI included.
+import lifecycle
+reserved = lifecycle.create_brain_v2(
+    {"user_id": "userA", "org_id": org_a},
+    f"authz_{uuid.uuid4().hex[:6]}", files, f"az-{uuid.uuid4()}")
+job_id = reserved["job_id"]
+print("  org A reserved job:", job_id[:8])
 
 r = client.get(f"/api/jobs/{job_id}", headers={"Authorization": f"Bearer {token(org_a, 'userA')}"})
 assert r.status_code == 200, f"ALLOW direction failed: {r.status_code}"

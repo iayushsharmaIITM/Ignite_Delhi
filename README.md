@@ -317,28 +317,58 @@ snapshot.py        Exports per-brain snapshots into fixtures/ for offline runs
 test_documents.py  Extraction tests: 25 cases, including every refusal path
 test_pipeline_states.py Pytest coverage for pipeline terminal state machines
 smoke.py           Web-tier check: health, graph, streamed answer with citations
-check_ui.py        Automated headless UI smoke test verifying 16/16 interactive controls
 wf_smoke.py        Workflow-tier check: fan-out + chained ctx.run (scratch dataset only)
 warmup.py          Pre-demo rehearsal — every component, all 4 questions timed
+verify.sh          The battery: every suite in one lane, on its own mock tier
+AGENTS.md          Operating contract for coding agents — read this first
+frontend/          The React UI (Vite + Tailwind): src/ is source, dist/ is the
+                   committed build the Python tier serves on the one port
+check_ui_react.py  Browser acceptance over the served bundle (run via verify.sh)
 fixtures/          Offline answers + per-brain graph snapshots for no-network path
 corpus/            12 synthetic company documents & code assets
-static/            UI: index.html (ask), graph.html, brains.html, upload.html
+static/            Legacy remnants: graph.html for /graph, plus the retired
+                   shell's js/css kept only while /graph depends on them
 api/index.py       Vercel serverless ASGI entrypoint
 vercel.json        Vercel deployment configuration & routing
 ```
+
+Retired 2026-10-04: `check_ui.py` (the legacy browser smoke suite, superseded by
+`check_ui_react.py`) and `static/index.html`, `static/brains.html`,
+`static/upload.html` (the pages the React build replaced). Older entries in
+`PROGRESS.md` still name them; that is a log, not a route.
 
 ---
 
 ## Automated Verification & Test Suites
 
-The project enforces quality at multiple levels:
+`./verify.sh` is the one route. It starts its own mock app tier, runs every suite
+against it, and prints a tally per tier plus a closing `ran / skipped / failing`
+line — so the numbers below are deliberately not repeated here. A hand-typed
+denominator in a document goes stale the day a check is added, and this README
+used to do exactly that.
 
-| Suite | Runner | Checks | Result |
-|---|---|---|---|
-| **Document Processing** | `python3 test_documents.py` | 25 tests covering PDF, DOCX, TXT, CSV, JSON, and all refusal paths | **25/25 PASS** |
-| **State Machine Guard** | `pytest test_pipeline_states.py` | Terminal status transitions, failure vs success classification | **2/2 PASS** |
-| **Live Smoke Probe** | `python3 smoke.py` | Upstream `/health` check (`auth=ok`), graph node count, streaming citations | **4/4 PASS** |
-| **Interactive UI Smoke** | `python3 check_ui.py` | Drives real browser through all 4 pages, clicks every control, zero JS errors | **16/16 PASS** |
+| Tier | What it guards | Run by |
+|---|---|---|
+| `documents` | PDF/DOCX/TXT/CSV/JSON extraction and every refusal path | `./verify.sh` |
+| `pipe-states` | Pipeline terminal-state transitions | `./verify.sh` |
+| `connectors` | OAuth vault state — lab only, it deletes rows | `./verify.sh` with `DATABASE_URL=<lab 5434>` |
+| `tenants` | Cross-workspace isolation over the served tier | `./verify.sh` |
+| `smoke` | `/health`, graph node count, streamed answer with citations | `./verify.sh` |
+| `frontend-transport`, `frontend-css` | Static invariants of the React bundle | `./verify.sh` |
+| `doc-health` | The instruction documents agree with the tree | `./verify.sh` |
+| `chat-integrity`, `brain-claim` | History cannot be silently rewritten; brain creation is exclusive | `./verify.sh` with the lab |
+| `auth-isolation`, `route-authz`, `v2-authz` | Clerk identity and the allow/deny direction on every scoped route | `./verify.sh` with the lab |
+| `lifecycle-identity`, `lease-recovery` | Identity survives the job lifecycle; an orphaned job is never retried blindly | `./verify.sh` with the lab |
+| `ui-react` | Browser acceptance over the **served** bundle: ask, stream, citations, files, draft, menus, keyboard, deep links, history | `./verify.sh` (skipped by `--quick`) |
+| `clerk-gate` | The app in the live auth configuration, with a no-token control that must 401 | `KESTREL_CLERK_GATE=1 ./verify.sh` |
+
+Read `AGENTS.md` before running any of it: it states which lanes may write, and the
+battery refuses a live database rather than testing somebody else's process.
+
+`parity_gate.py` is a real pixel gate against the committed baselines, and **no
+entrypoint runs it** — it is a manual check, and `docs/INDEX.md` records wiring or
+retiring it as an owner decision. `check_ui.py`, the legacy browser suite, was
+retired on 2026-10-04 along with the pages it drove.
 
 
 ### Traps documented in the code

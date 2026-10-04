@@ -59,28 +59,48 @@ def main():
     assert row["state"] == "RECONCILIATION_REQUIRED" and row["error_code"] == "LEASE_EXPIRED", row
     print("T2 expired-lease-reclaimed: PASS")
 
-    # --- 3. THE REAL ORPHANED JOB -> honest FAILED --------------------------
-    # the stuck production experiment: VERIFYING, lease expired, upstream
-    # pipeline actually ERRORED. reclaim -> recover must land it on FAILED.
-    lifecycle.reclaim_expired_leases()
+    # --- 3. an orphaned job whose upstream ERRORED lands honestly FAILED ----
+    # The invariant: recovery never turns an uncertain job into a success, and
+    # never leaves it stuck. This case used to search the lab for a leftover
+    # 'itest3%' row from one historical production experiment. When the
+    # wipe-and-restore cycle removed that row it printed PASS with no assertion,
+    # and when the row was still VERIFYING it re-fetched the state and then
+    # checked nothing at all — two of four paths were vacuous while CI recorded
+    # the tier as green. It now owns its fixture: the job T2 just reclaimed is
+    # already RECONCILIATION_REQUIRED on an expired lease, and the upstream
+    # answer is injected at the one seam recovery actually calls.
+    #
+    # The stub raises for any dataset but ours on purpose. recover_reconciliation
+    # processes up to five pending jobs per pass, so treating "tenant down" as
+    # the answer for foreign rows leaves them exactly where they were instead of
+    # failing somebody else's job with an injected error code.
+    import cognee_cloud
     with psycopg.connect(URL, row_factory=psycopg.rows.dict_row) as conn, conn.cursor() as cur:
-        real = cur.execute(
-            """select id, state, error_code from brain_jobs
-               where idempotency_key like 'itest3%'""").fetchone()
-    if real is None:
-        # the wipe-and-restore cycle removed the historical orphan; its honest
-        # resolution is recorded in var/evidence/phase1/lease-recovery.log
-        print("T3 real-orphan->honest-FAILED: PASS (pre-resolved; evidence persisted)")
-    elif real["state"] == "VERIFYING":
+        our_ds = cur.execute(
+            """select g.backend_dataset_name as n from brain_generations g
+               join brain_jobs j on j.generation_id = g.id where j.id=%s""",
+            (jid,)).fetchone()["n"]
+
+    def _stub_status(name=None, *a, **k):
+        if name != our_ds:
+            raise RuntimeError(f"not this test's dataset: {name}")
+        return {"stubbed-dataset": {"status": "DATASET_PROCESSING_ERRORED",
+                                    "error": "injected by test_lease_recovery T3"}}
+
+    _real_status = cognee_cloud.status
+    _recover_error = None
+    try:
+        cognee_cloud.status = _stub_status
         lifecycle.recover_reconciliation()
-        with psycopg.connect(URL, row_factory=psycopg.rows.dict_row) as conn, conn.cursor() as cur:
-            real = cur.execute(
-                """select state, error_code from brain_jobs
-                   where idempotency_key like 'itest3%'""").fetchone()
-    elif not (real["state"] == "FAILED" and "PIPELINE_ERRORED" in (real["error_code"] or "")):
-        raise AssertionError(f"real orphan not honestly failed: {real}")
-    else:
-        print("T3 real-orphan->honest-FAILED: PASS (%s)" % real["error_code"])
+    except Exception as exc:  # noqa: BLE001 - reported below, never swallowed
+        _recover_error = exc
+    finally:
+        cognee_cloud.status = _real_status
+    with psycopg.connect(URL, row_factory=psycopg.rows.dict_row) as conn, conn.cursor() as cur:
+        row = cur.execute("select state, error_code from brain_jobs where id=%s", (jid,)).fetchone()
+    assert row["state"] == "FAILED" and "PIPELINE_ERRORED" in (row["error_code"] or ""), \
+        f"recovery did not land the orphan on honest FAILED: {row} (recovery raised {_recover_error!r})"
+    print("T3 orphaned-job->honest-FAILED: PASS (%s)" % row["error_code"])
 
     # --- 4. worker restart creates no duplicate processing ------------------
     # recovery never calls remember (no submission): assert by checking that a

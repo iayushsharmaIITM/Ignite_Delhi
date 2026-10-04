@@ -117,10 +117,13 @@ jobs:
         # ever reachable through the local battery: the fast job has no database, and
         # this job — which DOES provide Postgres on 5434 — never called verify.sh. So a
         # regression in either class could land with no automated check seeing it.
-        # test_auth_isolation.py runs here too: it is pytest-only (fixtures and
-        # pytest.raises), and pytest is now declared in requirements-dev.txt, which
-        # this job installs. Its DATABASE_URL contains 5434, so the suite's own
-        # refusal guard lets it create its scratch database on this service.
+        # test_auth_isolation.py runs here via its standalone runner, below. The
+        # comment here used to call it "pytest-only", which was wrong twice over:
+        # pytest --collect-only on it ABORTS, because the suite refuses any database
+        # that is not the lab port at import time, and the file gained a real
+        # __main__ runner that prints one PASS/FAIL line per check. Its DATABASE_URL
+        # contains 5434, so the guard lets it create its scratch database on this
+        # service. AGENTS.md carries the same correction.
         # connectors_test.py moved here from the fast lane for the same reason: it
         # deletes connector_credentials rows, so it refuses any database that is not
         # the lab port, and the fast job has no database at all. Running it here means
@@ -137,13 +140,16 @@ jobs:
           python3 tests/test_brain_claim.py
           python3 test_auth_isolation.py
           python3 connectors_test.py
-          # Three security gates that used to be invocable only by a human who knew
+          # Security gates that used to be invocable only by a human who knew
           # they existed. Each asserts a real invariant and ran clean standalone, and
           # none of them was in any harness — route authorization in particular is
-          # the last thing to leave unenforced.
+          # the last thing to leave unenforced. v2-authz joined this round: the
+          # durable /api/brains/v2 job path had a suite proving allow, deny and the
+          # 404 contract that nothing invoked, while a report counted it as coverage.
           python3 tests/test_route_authz.py
           python3 tests/test_lifecycle_identity.py
           python3 tests/test_lease_recovery.py
+          python3 tests/test_v2_authz.py
       - name: Clerk-mode gate (auth on, token + control)
         run: python3 tests/test_react_clerk.py
       - name: Application log on failure

@@ -221,7 +221,7 @@ jobs=0/docs=0/chats=5/brain_access=2/graph_node=93).
 | 7 | Backfill/reconciliation | done | rehearsal ×2 + live run | yes | yes | yes | — |
 | 8 | Pagination/inventory | done | 120 items, 5-page drain, stable (N14 closed) | yes | yes | yes | — |
 | 9 | Citations + /api/source | done (doc-level) | durable refs + source-open w/o manifest; per-chunk offsets deferred | yes | yes | yes | offsets later |
-| 10 | Auth/workspace isolation | done | tests/test_v2_authz.py + tests/test_route_authz.py (allow/deny/traversal) | yes | Clerk live | yes | — |
+| 10 | Auth/workspace isolation | done | tests/test_v2_authz.py + tests/test_route_authz.py (allow/deny/traversal) | yes | Clerk live | yes | CORRECTED 2026-10-04: this row claimed coverage that no lane ran — test_v2_authz.py was in the tree but invoked by nothing. It is now wired into verify.sh and the CI ui job, so the claim became true rather than being quietly asserted. |
 | 11 | LLM routing/token policy | done | APP_ENV gate tested; container route documented | yes | yes | yes | founder funds route |
 | 12 | React frontend | partial | history round-trip PASS; create UI (API-proven); browser ask blocked on provider latency | yes | partial | yes (partial) | capture full flow post-provider |
 | 13 | Legacy fallback | done | still functional; Graph hand-off labeled | yes | yes | yes | retire after parity |

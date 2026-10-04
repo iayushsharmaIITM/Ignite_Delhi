@@ -1,4 +1,136 @@
-## Dead code audit: three security gates nobody ran, and the legacy shell was not the dead thing
+## Harness round 2: the gates that could not fail, and a contract that routed agents into a crash
+
+Re-ran the Better Harness review after today's changes (CI real and green, 16 tiers,
+three security gates wired, auth default flipped to clerk, legacy shell retired, dead
+files deleted), and put the architect pass against the permission-aware-citations idea
+in the same sitting. Eleven evidence-supported candidates came back from the three
+lanes; the asset renderer accepts at most ten findings, so one Low — that `AGENTS.md`
+described linked context while containing zero links — is fixed and recorded here rather
+than in the report. Ten findings: `.qoder/better-harness-runs/2026-10-04-postci/`.
+
+**The uncomfortable pattern was verification that reports success without checking
+anything.** Three separate mechanisms did it:
+
+- `ops/test_fresh_bootstrap.sh` — the route `AGENTS.md` names for proving *every* schema
+  change — ran a psql count, piped it to `xargs echo` under the label "expect 11", and
+  then printed `PASS` unconditionally. The query behind the label named five tables. It
+  could not have failed. Now it compares the **named set** (17 tables: `storage.init()`'s
+  five plus everything 0002-0006 create; a bare count would pass on a wrong set of the
+  same size) and exits 1 on any miss. Proven in both directions: 18-of-17 on the current
+  tree (the extra is `alembic_version`), and exit 1 with the missing table named when one
+  expectation is ablated.
+- `tests/test_lease_recovery.py` T3 searched the lab for a leftover `itest3%` row from one
+  historical production experiment. No row → printed PASS with no assertion; row still
+  `VERIFYING` → re-fetched the state and then checked nothing. Two of four paths were
+  vacuous while CI recorded the tier as green. It now owns its fixture: the job T2 just
+  reclaimed is already `RECONCILIATION_REQUIRED` on an expired lease, and the upstream
+  answer is injected at the one seam recovery calls (`cognee_cloud.status`). The stub
+  raises for every dataset **but** ours, on purpose — recovery processes up to five pending
+  jobs, so "tenant down" leaves somebody else's job exactly where it was instead of failing
+  it with an injected code. Ablating the injected state to `COMPLETED` now produces a
+  verdict, not a crash: `AssertionError: recovery did not land the orphan on honest FAILED:
+  {'state': 'RECONCILIATION_REQUIRED', ...} (recovery raised ConnectionError...)`.
+- `verify.sh` ended with `exit $((FAILS > 0))`, and `SKIP` never touched `FAILS`. A run
+  with no lab database exited 0 having executed half the battery, and the output said
+  nothing that distinguished it from a full pass. It now closes with
+  `ran 16 tier(s), skipped 1, failing 0` plus the names and the reason. Failing tiers count
+  as ran — a first attempt at this counted only `PASS`, which would have read as "14 of 17"
+  while two tiers had actually executed and caught fire.
+
+**The live-database refusal was right and half-implemented.** `AGENTS.md` says the battery
+"refuses to run against the live database"; the refusal lived inside
+`if [[ -z "${DATABASE_URL:-}" ]]`, so a caller that exported a live URL skipped the check
+entirely and the storage-backed tiers wrote into production. And `grep -c ALLOW_LIVE
+AGENTS.md` was **0** — the contract never named the override, while both `verify.sh`'s and
+`test_auth_isolation.py`'s own abort text told the reader to set it. The guard now judges
+the URL in effect whoever set it (verified: `DATABASE_URL=<live> ./verify.sh --quick`
+aborts with exit 2 before any tier starts, and prints no credential), and `AGENTS.md` names
+`KESTREL_ALLOW_LIVE_DB=1` in the same terms as deletion and re-ingest.
+
+**An entrypoint that mis-routes one suite.** `AGENTS.md` named pytest as the single allowed
+exception for `test_auth_isolation.py` and said the standalone form "prints nothing and
+exits 0". Both halves are false: the file grew a real `__main__` runner that prints one
+`PASS`/`FAIL` line per check, and `pytest --collect-only` on it **aborts with an
+INTERNALERROR** because the suite refuses a non-lab database at import time. Measured, not
+argued. The doc and the CI comment that copied it now say what actually happens. The same
+correction went to `--quick`, described as skipping lab-write suites when `QUICK` is read
+at exactly one place — the browser tier — and what writes is decided by the database, not
+the flag.
+
+**The doc-freshness gate could not see the class it was written for.** It held eight
+hand-written assertions, and its only statement about `AGENTS.md` was that the file exists
+and contains the string `./verify.sh`. Three rounds of deletions had each left a document
+route behind — `battery.py`, `contract_test.py`, and today `check_ui.py` plus three `static/`
+pages — and the gate stayed green every time. Added `ops/check_doc_routes.py`: it takes its
+scope from `docs/INDEX.md`'s Living table, so the map stays the authority, extracts
+command-shaped references, and fails when one does not resolve. It found the defect it was
+written for on its first run — `README.md:341` advertising `python3 check_ui.py` at
+**16/16 PASS** for a file deleted that morning — which is the failing-direction proof, and
+`doc health: all documented routes agree with the repo (9 checks)` after. `PROGRESS.md` is
+treated as a log: only its newest entry counts as advice, because rewriting dated records to
+match today's tree would destroy the record they are.
+
+**A fourth case of the seeded-data disease, caught by my own change.** Wiring
+`tests/test_v2_authz.py` into the battery made it fail with `400 Uploads need the cloud
+provider`: `POST /api/brains/v2` requires `PROVIDER=cloud` (`app.py:1626`) and the battery
+exports `PROVIDER=mock` deliberately. It had "passed" standalone only because my shell
+inherited cloud from `.env` — the same ambient-environment trap as A-10 and A-27. The fix is
+not to loosen the battery: the suite reserves its job through `lifecycle.create_brain_v2()`
+directly, which is the same workspace + job + staging transaction the route performs and is
+tenant-free until the worker, so the allow/deny/404 assertions hold in any lane, CI
+included. It is now genuinely covered — `UPGRADE_COMPLETION_REPORT.md:224` had been
+claiming it as delivered coverage while nothing invoked it, and that row carries a visible
+correction instead of a quiet rewrite.
+
+**Two claims about verification that were not true of the wiring.**
+`docs/REACT_UIUX_ADVANCEMENTS.md:35` ended "All of it runs from `verify.sh` and the CI `ui`
+job", which swept in `parity_gate.py` — a real pixel gate against committed baselines that
+appears **0** times in both entrypoints, and that `docs/INDEX.md:61-64` correctly records as
+unwired. Corrected to say which four suites run and that the pixel gate is manual, leaving
+wiring-or-retiring as the owner decision it is. The same file told an auditor to point
+`check_ui_react.py` at `:5174`; that suite **saves chats**, so the row now routes it through
+the battery's own mock tier and says explicitly not to point it at live `:8000`.
+
+`README.md`'s suite table hand-typed denominators (25/25, 2/2, 4/4, 16/16) — the exact
+staleness this round built a gate to catch. Replaced with a tier-to-what-it-guards table
+that points at the battery for numbers, and its repo inventory corrected: `check_ui.py`,
+`static/index.html`, `static/brains.html` and `static/upload.html` removed, `frontend/`,
+`verify.sh`, `AGENTS.md` and `check_ui_react.py` added, with a visible retirement note.
+
+**Verified state.** Full battery against the lab: `ran 16, skipped 1, failing 0`. CI lane
+(`--quick`, spare port): `ran 15, skipped 2, failing 0`, naming `ui-react` and `clerk-gate`.
+`ops/doc_health.sh` 9 checks green. New `AGENTS.md` routes: the document map,
+`docs/architecture/`, the blueprint, and the standing caveat that `README.md`'s architecture
+section is hackathon-era.
+
+**Architect pass, written down rather than half-remembered:**
+`docs/ACL_AND_MCP_BLUEPRINT.md`. It corrected four of my premises and I re-verified each
+against the tree: `brain_grants` is created by no `storage.init()` and read by nothing (dead,
+migration-only); the 0002 control-plane tables hold zero rows, so a policy keyed on
+`documents.id` has nothing to key against and the design keys on `(brain name, doc filename)`
+instead; there is **no Drive ingest** (`connectors.py:52` asks for `drive.readonly` and no
+code calls the API); and two enumeration oracles are live now — `app.py:418` vs `:426`
+distinguish "Unknown brain" from "belongs to another workspace" by wording, and
+`GET /api/brains` (`:1726-1739`) returns every dataset from `cognee_cloud.datasets()` with no
+`brain_access` filter after only `require_tenant`. Neither reads content today, which is why
+Phase 1A closes both before any document-level ACL or the MCP surface ships on top of them.
+
+**Owner decision found and disclosed, not acted on:** the Bedrock key. `BLOCKERS.md`
+M-sec.1 named one `AKIA…` id in the backup copies. Re-measured, there are two more
+credentials and one of them is in the **active** config: `.env:73` carries a 131-character
+`ABSK…` value as `BEDROCK_API_KEY`, and `.env.oss:81` carries a same-shaped literal of its
+own on a line that begins with `#` — commenting a key out does not remove the plaintext, and
+the character-class split differs between the two files (71/43/17 vs 61/54/16 upper/lower/
+digit), so these are two distinct keys. Seven files on disk hold one, including five
+retention snapshots, and a lowercased variant has been through the brain as *ingested
+document content* in `cognee_oss_state/uploads.json:8`, where retrieval could surface it.
+All paths are gitignored and `git ls-files` returns none of them, so
+`ops/check_secrets.sh --all` — which iterates `git ls-files` at `:82` — is structurally
+blind to every one. **Tracked-file hits remain zero: git is clean.** No value was printed
+anywhere in this round. Rotation and the re-ingest question are the owner's, per the
+standing rule.
+
+
 
 Asked to clean up dead code "such as the legacy UI", the answer turned out to be the
 opposite of the premise — and the interesting defect was elsewhere.
