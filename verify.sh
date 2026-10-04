@@ -49,6 +49,23 @@ fi
 SERVER_PID=""
 FAILS=0
 
+# One port is the managed surface: :8000, brought up and idempotently by
+# ops_stack_up.sh. Everything else that answers HTTP here is either this battery's
+# own short-lived fixture or a leftover somebody forgot to stop — and leftovers are
+# how a "preview" ends up being a second app tier with different auth, on a different
+# database, that nobody is managing. Report them instead of letting them accumulate.
+STRAYS=""
+for P in 8010 8011 8021 8022 8025 8028 8030 8031; do
+  PID=$(lsof -nP -iTCP:$P -sTCP:LISTEN -t 2>/dev/null | head -1)
+  [ -n "$PID" ] && STRAYS="$STRAYS $P(pid$PID)"
+done
+if [ -n "$STRAYS" ]; then
+  echo "note: app tiers listening besides :8000 and this fixture on :$PORT ->$STRAYS"
+  echo "      :8000 is the one managed port (ops_stack_up.sh). Stop leftovers rather"
+  echo "      than adding ports; a stray tier has different auth and often a different"
+  echo "      database, which is how previews start lying."
+fi
+
 note() {
   echo "[$1] $2"
   # The first hosted CI run failed two suites and said only

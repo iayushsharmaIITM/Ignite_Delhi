@@ -409,7 +409,18 @@ export function Sidebar({
               <div className="em">{t("set.signed_out_em", "Settings are still available")}</div>
             </button>
           )
-        ) : null}
+        ) : (
+          // The verification seam (AUTH_MODE=off, what the battery boots) gets the
+          // same row, pointed at the surface that actually works there. The row is
+          // never dropped: it used to read "Local mode - No account required", which
+          // advertised a no-sign-in path, and deleting the whole block instead was
+          // the other wrong answer - the section is the door to settings, usage and
+          // connectors in every mode.
+          <button type="button" className="who" onClick={() => onOpenSettings?.()}>
+            <div className="nm">{t("set.title", "Settings")}</div>
+            <div className="em">{t("set.off_em", "Language, theme, usage, connectors")}</div>
+          </button>
+        )}
         <button
           type="button"
           className="gear"

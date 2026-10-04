@@ -743,6 +743,50 @@ def section_sidebar_motion(suite: Suite, base: str) -> None:
     page.wait_for_timeout(400)
 
 
+def section_sidebar_hover_rail(suite: Suite, base: str) -> None:
+    """The gliding rail must land on the row under the cursor — every row type.
+
+    It did not. `.chat-item` is a DIV.nav-item wrapping an A.chat-link, and the
+    selector `closest(".nav-item, .brain-row, button, a")` matched the inner LINK,
+    whose offsetParent is the row rather than the nav. Position came from
+    `row.offsetTop`, which is relative to whichever element happens to be the
+    offsetParent — so hovering the chats list parked the rail 8px into the nav,
+    284-362px above the row it was supposed to highlight. Nav items and brain rows
+    were unaffected, which is why it survived review: the broken case was the one
+    list in the sidebar that is always populated.
+
+    Asserted per row type, with the chat rows required, because a gate that only
+    checked nav items would have passed the whole time it was broken.
+    """
+    page = suite.page
+    suite.section("sidebar hover rail")
+    reset(suite, base)
+    page.wait_for_timeout(600)
+    worst = {}
+    for sel, label in ((".nav-item", "nav"), (".brain-row", "brain"), (".chat-item", "chat")):
+        n = page.locator(sel).count()
+        if not n:
+            suite.check(f"{label} rows exist to hover", False, f"0 matches for {sel}")
+            continue
+        errs = []
+        for idx in range(min(3, n)):
+            page.locator(sel).nth(idx).hover()
+            page.wait_for_timeout(180)
+            errs.append(page.evaluate("""(a) => {
+                const rail = document.querySelector('.sb-slide');
+                const row  = document.querySelectorAll(a.s)[a.i];
+                const rr = rail.getBoundingClientRect(), br = row.getBoundingClientRect();
+                return {top: Math.abs(Math.round(rr.top - br.top)),
+                        h:   Math.abs(Math.round(rr.height - br.height)),
+                        tick: rail.classList.contains('tick')};
+            }""", {"s": sel, "i": idx}))
+        worst[label] = max(max(e["top"] for e in errs), max(e["h"] for e in errs))
+        suite.check(f"{label}: the rail lands on the hovered row ({n} present)",
+                    worst[label] <= 2 and not any(e["tick"] for e in errs),
+                    f"worst offset {worst[label]}px, {errs}")
+    suite.check("all three row types were measured", len(worst) == 3, str(worst))
+
+
 def section_stale_bundle(suite: Suite, base: str) -> None:
     """A deploy replaces the hashed bundle and deletes the previous one, so a tab
     still holding the old index.html asks for files that no longer exist. That used
@@ -812,6 +856,7 @@ SECTIONS = [
     ("settings", section_settings),
     ("brains page", section_brains_page),
     ("deep links / history", section_deep_links_history),
+    ("sidebar hover rail", section_sidebar_hover_rail),
     ("sidebar retract motion", section_sidebar_motion),
     ("stale bundle", section_stale_bundle),
 ]

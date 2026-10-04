@@ -53,22 +53,34 @@ export function SlideRail({ containerRef }: { containerRef: React.RefObject<HTML
       if (rafRef.current) return
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = 0
-        const rect = container.getBoundingClientRect()
-        const y = e.clientY - rect.top + container.scrollTop
+        // Measure against the rail's own containing block with rects, not
+        // `row.offsetTop`: offsetTop is relative to whichever element happens to be
+        // that row's offsetParent, which is not the rail's parent. A chat row is a
+        // DIV.nav-item wrapping an A.chat-link, and the old `closest(".nav-item,
+        // .brain-row, button, a")` matched the LINK — whose offsetParent is the row —
+        // so hovering the chats list parked the rail 8px into the nav at 21px tall
+        // while the row it was meant to highlight sat 292px down. That is the "stuck in
+        // the upper-left while hovering the chat section" defect.
+        const block = (rail.offsetParent ?? container) as HTMLElement
+        const blockTop = block.getBoundingClientRect().top
         const under = document.elementFromPoint(e.clientX, e.clientY)
-        const row = under?.closest<HTMLElement>(".nav-item, .brain-row, button, a")
+        // Outer row first, so the rail sizes to the row and not to a link inside it.
+        const row = under?.closest<HTMLElement>(".nav-item, .brain-row")
+          ?? under?.closest<HTMLElement>("button, a") ?? null
         if (row && container.contains(row)) {
+          const rr = row.getBoundingClientRect()
           rail.classList.remove("tick")
           rail.style.left = ""
           rail.style.width = ""
-          rail.style.top = row.offsetTop + "px"
-          rail.style.height = row.offsetHeight + "px"
+          rail.style.top = Math.round(rr.top - blockTop) + "px"
+          rail.style.height = Math.round(rr.height) + "px"
           rail.style.opacity = "1"
         } else {
+          const y = e.clientY - blockTop
           rail.classList.add("tick")
           rail.style.left = "10px"
           rail.style.width = "46px"
-          rail.style.top = y - 1 + "px"
+          rail.style.top = Math.round(y - 1) + "px"
           rail.style.height = "2px"
           rail.style.opacity = ".8"
         }

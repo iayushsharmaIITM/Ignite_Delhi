@@ -1,3 +1,45 @@
+## Two corrections and one port 2026-10-04
+
+The owner came back with three things, two of which were about my own work.
+
+**"The animation sticks to the upper left even when hovered on the chat section" was
+precise and correct**, and it was a different defect from the retract clock fixed earlier
+the same day. The gliding rail matched the wrong element: `.chat-item` is a
+`DIV.nav-item` wrapping an `A.chat-link`, `closest(".nav-item, .brain-row, button, a")`
+took the **link**, and `row.offsetTop` is relative to whichever element happens to be the
+offsetParent — for the link that is the row, not the nav. Measured: hovering chat rows
+placed the rail at top=81 while the row sat at 364/442, a 284–362px error, sized 21px
+instead of 38px. Nav items and brain rows were pixel-perfect, which is exactly why no
+review caught it — the broken case was the one list in the sidebar that is always
+populated. Fixed by preferring the outer row and measuring with
+`getBoundingClientRect()` against the rail's own containing block, which also drops a
+latent `container.scrollTop` double-count. Now 0–1px across 11 nav, 3 brain and 7 chat
+rows. The gate asserts each row type with chat **required**, and was checked in the
+failing direction by re-injecting the old selector and `offsetTop` maths: it fails on chat
+alone, at 285/323/362px — the owner's sentence, turned into numbers.
+
+**"The user section was to be made live and you just completely removed it" was also
+right, and it was my scope error.** Asked to make sign-in the only way in, I deleted the
+sidebar's whole non-clerk user block. Removing an affordance is a bigger change than
+relabelling it, and that one was the door to settings, usage and connectors in every mode.
+The row renders everywhere again — signed-in → Clerk profile, signed-out → "Sign in", the
+verification seam → "Settings / Language, theme, usage, connectors" pointing at the sheet
+that actually works there. What stays deleted is only the "Local mode · No account
+required" **label**, which advertised a no-sign-in product path. Strings added to all six
+locales, not the two I first assumed existed.
+
+**One port, managed by the thing that already managed one.** I had been running `:8028` as
+a preview beside the managed `:8000` all session — two app tiers with different auth modes
+and different databases, which is how a preview starts lying about the product.
+`ops_stack_up.sh` already brings up exactly one port idempotently; the gap was that nothing
+said so. Strays stopped, `:8000` restarted on committed code and verified (new bundle,
+account section present, zero page errors), and `verify.sh` now reports any app tier
+listening on the known stray ports before it runs. The battery's `:8020` stays on purpose:
+it is created and destroyed inside one run, not a service anyone manages.
+
+**Battery:** 13 tiers, 0 failing suites, `EXIT=0`.
+
+
 ## Sign-in becomes the only way in, and the sidebar gets one clock 2026-10-04
 
 The owner's two instructions were "the animation in the side panel is not correct" and
