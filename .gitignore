@@ -46,3 +46,7 @@ var/
 
 # stale playwright-cli session dumps
 .playwright-cli/
+
+# generated diagram renders (sources: .dot/.mmd are canonical; `dot -Tsvg` reproduces these)
+docs/architecture/*.svg
+docs/architecture/*.png

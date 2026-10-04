@@ -1,3 +1,51 @@
+## Structure pass: dead code out, document map in, and a scanner that sees ignored files 2026-10-04
+
+Three installed capabilities were added by the owner for this pass — Better Harness's
+`init` aside, that meant the Postman MCP connector, the CodeRabbit CLI and graphviz.
+Two are usable, one is not yet, and the interesting result was not from any of them.
+
+**Installed and used.** `graphviz 16.1.0` rendered `docs/architecture/deployment-topology.{svg,png}`
+from the `.dot` source, and generated renders are now gitignored so the canonical text
+sources stay reviewable. `coderabbit 0.8.2` came from the official Homebrew **cask** —
+the npm name `coderabbit` is a `0.0.1-security.1` placeholder, i.e. a squat, so
+`npm i -g coderabbit` would have been the wrong install; the CLI is signed out and
+`coderabbit auth login` is interactive, so the review it enables is still the owner's.
+The Postman MCP installed and reports `runtimeReady`, but its tools are not in this
+session's catalog yet — it needs a reload, so the hosted readiness analyzer is still
+unverified and the local 48-check score stands.
+
+**Dead code removed on evidence, not on vibes.** An import/invocation scan (not the
+filename grep that initially lied to me and had to be redone) found four root modules
+with zero importers and zero invokers: `battery.py` (superseded by `verify.sh`),
+`contract_test.py`, `provider_check.py`, `slack_scopes_test.py`, plus
+`STACK_AUDIT_PROMPT.md`, a one-time prompt whose output already exists. 880 lines out;
+`./verify.sh` re-run afterwards → exit 0, 0 failing suites, so nothing depended on them.
+
+**`docs/INDEX.md`** now classifies all 32 root documents as living / historical /
+business, with inbound-reference counts and last-touch dates, and lists five clutter
+items deliberately left alone because removing them is a decision, not a finding:
+the unwired `parity_*` trio, two screenshot trees (3.1 MB of it referenced by
+`README.md`), the one-time v1.6.2 cutover kit, three near-duplicate doc pairs, and the
+owner's untracked files.
+
+**The scanner found what our own gate structurally cannot.** `secrun scan --all` looks
+at ignored files; `ops/check_secrets.sh --all` scans tracked files only. On that first
+look: a real `AKIA…` AWS access-key id in `var/backups/20261003T211935Z/env.app`,
+one of 8 plaintext copies of `.env`/`.env.oss` that `ops/backup.sh` takes on purpose
+with `0600` (verified), sitting on the same disk as the data they restore and inside
+the `~/Desktop` path that iCloud and TCC both reach. Nothing is in git — `var/` is
+ignored, and all 12 tracked-file hits are false positives, including a minified React
+warning and the detector's own regex text; `--env` and `--context` came back clean.
+Recorded as **M-sec.1** with rotation as the owner's call, because a key that has sat
+in plaintext copies needs rotating at the provider, not deleting on disk.
+
+**One self-capture worth the space.** My own edit that inserted `M-delivery.1` consumed
+the `M-ops.1` heading and orphaned its body — the third time this session an edit to a
+markdown file ate a neighbour. `M-ops.1` is restored and the file's six headings are
+verified in order. The later `M-sec.1` insert was checked with `grep -c` before being
+believed, because the first attempt silently did nothing and my script still printed
+success.
+
 ## The harness itself got reviewed, and it failed three ways 2026-10-04
 
 Ran the installed plugin set over the project in dependency order — Better Harness

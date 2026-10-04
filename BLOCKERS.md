@@ -10,6 +10,37 @@ One entry per blocker, newest first. Format:
 
 ---
 
+## M-sec.1 — backup snapshots hold plaintext key material, and no gate can see them — 2026-10-04 — **OPEN: owner decision**
+
+Found with the independent scanner (`secrun scan --all`) — the first check here that
+looks at **ignored** files. `ops/backup.sh:26-28` deliberately copies `.env` and
+`.env.oss` into every backup directory ("key recovery material") and sets them `0600`
+(verified: all 8 copies are `-rw-------`). The intent is sound — a restore needs the
+config — but the consequence is measured, not assumed:
+
+- `var/backups/20261003T211935Z/env.app:70` matches the `aws-ak` rule: a real `AKIA…`
+  access-key id sits in plaintext there, next to the Clerk secret key, Langfuse keys
+  and model-provider keys from the same file.
+- `var/` is gitignored (`.gitignore:44`) and `git ls-files var` is empty, so **nothing
+  in git carries this** — and `ops/check_secrets.sh --all` scans tracked files only, so
+  it cannot see these by design. The `--env` and `--context` surfaces came back clean.
+- The copies sit under `~/Desktop/Kestrel_brains` — the same iCloud/TCC-exposed path
+  that makes M-ops.1 impossible — on the same disk as the database they restore, so
+  they buy no separation while adding a sync surface. Retention keeps 14 such dirs.
+- The same scan's 12 tracked-file hits were reviewed and are **false positives**:
+  `${POSTGRES_PASSWORD}`-style interpolation, the detector's own regex text, the
+  `KESTREL_ALLOW_SECRETS` advice string, and a minified React warning ("…but you
+  passed …") in the committed bundle. **No credential is in git.**
+
+**Options, not a plan:** (1) accept it as at-rest risk on an encrypted volume;
+(2) move the repo off `~/Desktop`, which also fixes M-ops.1; (3) keep key material
+out of backups and reference it instead (the `secret-fetch` / KMS route); (4) rotate
+the AWS key if that folder is or was iCloud-synced. A key that has sat in plaintext
+copies needs rotating at the provider, not just deleting from disk — and rotation is
+explicitly the owner's call.
+
+---
+
 ## M-delivery.1 — the repository has no delivery boundary and no second copy — 2026-10-04 — **OPEN: owner action**
 
 **Measured 2026-10-04 while checking whether the new CI steps could be verified.**
@@ -45,6 +76,10 @@ logic.
 **Not done here deliberately:** pushing is a shared-state write with 172 commits behind
 one command, and the first CI run may fail in ways only visible on the hosted runner.
 That is a decision to make awake, not an agent convenience.
+
+---
+
+## M-ops.1 — launchd cannot read ~/Desktop, so the "self-healing" stack job never runs — 2026-10-04 — **OPEN: owner's machine decision**
 
 **Diagnosis.** `com.kestrel.stackup` (the login job the handover documents rely
 on: "logging into the Mac should bring everything up") is loaded and fires, and
