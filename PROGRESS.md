@@ -1,3 +1,42 @@
+## Sign-in becomes the only way in, and the sidebar gets one clock 2026-10-04
+
+The owner's two instructions were "the animation in the side panel is not correct" and
+"the only way to the app shall be the sign in, remove the local version". Both turned out
+to be bigger than they sounded, and in opposite directions.
+
+**The animation was five motions pretending to be one.** `.shell` animated
+`transform .2s ease` while the four offsets that have to move with it — `body`
+padding-left, `.app-main` margin-left, `#f` left, `#rail` left — declared no transition
+at all. Measured at +50ms: the panel still spanned 0–114px while the content had already
+teleported to 0, so they overlapped for ~150ms in both modes. One `--sb-dur`/`--sb-ease`
+token now drives all five, verified frame by frame (home mode holds a constant 24px
+gutter: 249→273, 158→182, 53→77, 20→44; chat mode keeps `mainLeft == sbRight == fLeft`
+on every sampled frame). The gate asserts the resolved `transitionDuration` of each
+element rather than sampling frames, because a timing-based gate is a coin flip on a
+shared runner — and it was checked in the failing direction by stripping the home rule
+out of the built CSS, where it fails on exactly one check and nothing else.
+
+**"Remove the local version" was a fail-open default.** `auth.py:39` returned `off` when
+`AUTH_MODE` was unset, so a deploy that simply forgot the variable served every tenant's
+chats, brains and graph to anyone who could reach the port — and because `active()` was
+`mode() == "clerk"`, any typo (`clerrk`, `none`, `false`) meant the same thing silently.
+The UI was honest about it: `Sidebar.tsx` advertised "Local mode · No account required".
+Default is now `clerk`, an unrecognised value refuses to start rather than falling
+through, and the local-mode block and its two i18n keys are gone. `off` survives purely as
+the verification seam that `verify.sh`, both CI jobs and `restore_lab.sh` already name
+explicitly — which is why the owner's option choice mattered: deleting it outright would
+have taken 13 suites and both CI jobs with it. Measured six directions: unset→clerk,
+`clerk`→clerk, `off`→off, `CLERK`→clerk, `none`→RuntimeError, empty→clerk.
+
+Two follow-on effects, both found by asking "what breaks now that the default flipped":
+`check_ui_react.py` against a normally-booted app produced ~25 failures that all really
+meant one thing, so it now preflights `/api/config` and exits 2 with the command to run
+instead; and the startup guard at `app.py:2263` means a clerk-mode boot with no
+`CLERK_JWKS_URL` refuses to start rather than serving an app where everything 401s.
+`.env.example` gained an authentication section saying all of this, and the two living
+docs that described `off` as a product mode were corrected — the historical ones were
+left alone, per the doc trust map.
+
 ## Contract, focus rings and the blank page: a round that included my own breakage 2026-10-04
 
 This entry has an unusual shape: most of it is recovery from damage I did, and the
@@ -165,6 +204,8 @@ bogus-token requests to `/api/chats` and `/api/ask` both answer
 `401 {"detail":"A valid Clerk session token is required."}`.
 
 ## Structure pass: dead code out, document map in, and a scanner that sees ignored files 2026-10-04
+
+
 
 Three installed capabilities were added by the owner for this pass — Better Harness's
 `init` aside, that meant the Postman MCP connector, the CodeRabbit CLI and graphviz.

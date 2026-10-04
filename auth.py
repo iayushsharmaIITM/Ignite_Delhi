@@ -1,8 +1,11 @@
 """Authentication (P3): Clerk-verified identities, env-gated.
 
 MODES (AUTH_MODE env)
-    off    (default) — no auth; every caller is the single local user. The
-           product behaves exactly as before this module existed.
+    clerk  (DEFAULT) — see below. Absence of the variable means clerk, not off:
+           a deploy that forgets to decide must not end up public.
+    off    (explicit only) — no auth; every caller is the single local user. This
+           is the verification seam: verify.sh, both CI jobs and restore_lab.sh
+           name it deliberately. It is never the fallback.
     clerk  — requests must carry a Clerk session JWT
            (`Authorization: Bearer <token>`). The token is verified against
            Clerk's published JWKS; the identity (user id + active organization)
@@ -32,11 +35,32 @@ import urllib.request
 
 import jwt
 
-_STATUS = {"auth": os.getenv("AUTH_MODE", "off")}
+_ALLOWED_MODES = ("clerk", "off")
 
 
 def mode() -> str:
-    return os.getenv("AUTH_MODE", "off")
+    """`clerk` unless `off` is asked for EXPLICITLY.
+
+    The default used to be "off", which meant a deploy that forgot to set AUTH_MODE
+    served every tenant's chats, brains and graph to anyone who could reach the port —
+    the failure this module exists to prevent, arriving by omission rather than by
+    attack. Sign-in is now the product's only entry, so the absence of a decision
+    means auth is ON.
+
+    `off` stays as a deliberate, explicit seam: verify.sh, both CI jobs and
+    ops/restore_lab.sh each set it by name, and the battery cannot run without it.
+
+    An unrecognised value raises instead of falling through. `AUTH_MODE=clerrk` used to
+    mean "no authentication", which is the wrong thing for a typo to mean.
+    """
+    raw = (os.getenv("AUTH_MODE") or "").strip().lower()
+    if not raw:
+        return "clerk"
+    if raw not in _ALLOWED_MODES:
+        raise RuntimeError(
+            f"AUTH_MODE={raw!r} is not one of {list(_ALLOWED_MODES)}. Refusing to "
+            "start rather than silently disabling authentication.")
+    return raw
 
 
 def active() -> bool:

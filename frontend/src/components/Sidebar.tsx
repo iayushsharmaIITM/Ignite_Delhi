@@ -384,13 +384,13 @@ export function Sidebar({
         </div>
       </nav>
 
-      {/* The settings area exists in EVERY mode.
-          Legacy only rendered it in clerk mode (shell.js renderUser hides the
-          box otherwise), which left an auth-off deployment — the local/self-host
-          case, and every lab instance — with no way to reach language, theme,
-          usage, upgrade or connectors at all. The gear is the only door to
-          those surfaces, so it stays; what changes with the mode is what sits
-          next to it, not whether you can configure the app. */}
+      {/* The gear is the only door to language, theme, usage, upgrade and
+          connectors, so it renders in every mode — but the ACCOUNT area does not.
+          This used to carry a "Local mode · No account required" block for
+          AUTH_MODE=off, which advertised a no-sign-in path to anyone who reached a
+          server booted that way. Sign-in is the product's only entry now; `off`
+          survives purely as the verification seam that verify.sh and CI name
+          explicitly, and a seam should not come with a label. */}
       <div className="sb-user" id="sb-user">
         {authMode === "clerk" ? (
           signedIn ? (
@@ -409,15 +409,7 @@ export function Sidebar({
               <div className="em">{t("set.signed_out_em", "Settings are still available")}</div>
             </button>
           )
-        ) : (
-          <>
-            <div className="avatar" aria-hidden="true" title={t("set.local", "Local mode")}>◆</div>
-            <div className="who">
-              <div className="nm">{t("set.local", "Local mode")}</div>
-              <div className="em">{t("set.local_em", "No account required")}</div>
-            </div>
-          </>
-        )}
+        ) : null}
         <button
           type="button"
           className="gear"

@@ -177,6 +177,38 @@ def test_chat_isolation():
         storage.upsert_chat(record, org="org_A", brain="acme_isolated")
 
 
+def test_default_mode_is_clerk():
+    """Sign-in is the product's only entry, so forgetting to decide must not mean open.
+
+    Run in a SUBPROCESS because this module pins AUTH_MODE=clerk at import, and the
+    thing under test is precisely what a process with no AUTH_MODE at all does.
+    """
+    import subprocess
+    import sys
+
+    def probe(value):
+        env = {k: v for k, v in os.environ.items() if k != "AUTH_MODE"}
+        if value is not None:
+            env["AUTH_MODE"] = value
+        out = subprocess.run([sys.executable, "-c", "import auth; print(auth.mode())"],
+                             capture_output=True, text=True, env=env, cwd=os.getcwd())
+        return out
+
+    unset = probe(None)
+    assert unset.returncode == 0, unset.stderr[-300:]
+    assert unset.stdout.strip() == "clerk", \
+        f"an unset AUTH_MODE resolved to {unset.stdout.strip()!r}, not 'clerk'"
+
+    explicit_off = probe("off")
+    assert explicit_off.stdout.strip() == "off", \
+        "the verification seam must still be selectable explicitly"
+
+    # A typo must not become "no authentication".
+    garbage = probe("clerrk")
+    assert garbage.returncode != 0, "AUTH_MODE=clerrk was accepted"
+    assert "not one of" in garbage.stderr, garbage.stderr[-300:]
+
+
 def _run_all() -> int:
     """Standalone entrypoint, so `python3 test_auth_isolation.py` runs the checks
     instead of importing them. Reports in the format verify.sh's tally counts."""

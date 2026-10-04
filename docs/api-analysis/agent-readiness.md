@@ -85,7 +85,9 @@ server requires it" to a contract an agent can read:
 
 1. **`ClerkBearer`** (HTTP bearer, JWT) with a description that states the honest
    conditionality: required while the server runs clerk mode, not required while it runs
-   `AUTH_MODE=off`, and `GET /api/config` says which mode is live. Declaring it does
+   `AUTH_MODE=off` — which must be named explicitly, since an unset `AUTH_MODE` now
+   means clerk and a value that is neither `clerk` nor `off` refuses to start — and
+   `GET /api/config` says which mode is live. Declaring it does
    **not** change enforcement — that stays in `require_tenant()`/`auth.active()`.
 2. **`servers`**, derived from `PUBLIC_BASE_URL`, which `.env` already carries.
 3. **An info description** pointing an agent at `GET /api/config` and `GET /health` as

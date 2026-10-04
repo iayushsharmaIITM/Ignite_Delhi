@@ -663,6 +663,86 @@ def section_deep_links_history(suite: Suite, base: str) -> None:
         print("  note  only one brain in this fixture set — CH-14 switch not exercised")
     suite.console_clean("deep links")
 
+def section_sidebar_motion(suite: Suite, base: str) -> None:
+    """The sidebar retract is ONE motion, not five.
+
+    Measured before the fix: `.shell` animated `transform .2s ease` while body
+    padding-left, `.app-main` margin-left, `#f` left and `#rail` left declared no
+    transition at all — so at +50ms the panel still spanned 0-114px while the content
+    had already teleported to 0, and the two overlapped for ~150ms.
+
+    Asserted by reading each element's resolved transition rather than by sampling
+    wall-clock frames during the animation: a frame-sampling gate would be a coin flip
+    on a slow CI runner, and the defect is a missing declaration, not a missing frame.
+    Each mode is measured IN that mode, because home mode moves body padding-left while
+    chat mode moves .app-main margin-left — asking a body in chat mode for a padding
+    transition just returns 0, which an earlier version of this gate did and then
+    reported as a failure of the stylesheet rather than of itself.
+    """
+    page = suite.page
+    suite.section("sidebar retract motion")
+
+    def durations() -> dict:
+        return page.evaluate("""() => {
+            const dur = (el, prop) => {
+                if (!el) return null;
+                const s = getComputedStyle(el);
+                const props = s.transitionProperty.split(', ');
+                const durs  = s.transitionDuration.split(', ');
+                const i = props.indexOf(prop);
+                return i >= 0 ? parseFloat(durs[i]) : (props.includes('all') ? parseFloat(durs[0]) : 0);
+            };
+            return {
+                panel:    dur(document.querySelector('.shell'), 'transform'),
+                bodyPad:  dur(document.body, 'padding-left'),
+                main:     dur(document.querySelector('.app-main'), 'margin-left'),
+                composer: dur(document.querySelector('#f'), 'left'),
+                rail:     dur(document.querySelector('#rail'), 'left'),
+            };
+        }""")
+
+    # --- home mode: the stack is centred by BODY padding-left -------------------
+    # `?new=1`, not reset(): a plain load restores the last thread and opens in CHAT
+    # mode, where `body:not(.chatting)` does not match and body padding-left is simply
+    # not the moving offset. Inside the battery an earlier section always leaves a
+    # thread behind, so reset() here measured 0 and the gate failed on its own
+    # precondition rather than on the stylesheet.
+    page.goto(base + "/?new=1", wait_until="networkidle")
+    page.wait_for_timeout(1400)
+    assert page.evaluate("()=>document.body.classList.contains('chatting')") is False, \
+        "expected home mode to measure the body padding clock"
+    home = durations()
+    suite.check("home: the panel declares a transform duration to match",
+                bool(home.get("panel")), str(home))
+    suite.check("home: the stack moves on the panel's clock",
+                home.get("bodyPad") == home.get("panel") and home["panel"] > 0, str(home))
+
+    # --- chat mode: .app-main margin, the composer and the rail -----------------
+    page.locator(".chat-item").first.click(timeout=6000)
+    page.wait_for_timeout(1200)
+    chat = durations()
+    suite.check("chat: content, composer and rail move on the panel's clock",
+                all(chat.get(k) == chat.get("panel") and chat["panel"] > 0
+                    for k in ("main", "composer", "rail")), str(chat))
+
+    # And the motion must be shared at runtime, not merely declared: sample frames and
+    # require the content edge to sit ON the panel edge while it is actually moving.
+    page.click(".sb-collapse")
+    offsets = []
+    for _ in range(4):
+        page.wait_for_timeout(45)
+        offsets.append(page.evaluate("""() => {
+            const sb = document.querySelector('.shell').getBoundingClientRect().right;
+            const m = document.querySelector('.app-main').getBoundingClientRect().left;
+            return {sb: Math.round(sb), m: Math.round(m)};
+        }"""))
+    moving = [o for o in offsets if 0 < o["sb"] < 268]
+    suite.check("mid-retract the content edge tracks the panel edge",
+                bool(moving) and all(abs(o["m"] - o["sb"]) <= 2 for o in moving), str(offsets))
+    page.click(".sb-toggle")
+    page.wait_for_timeout(400)
+
+
 def section_stale_bundle(suite: Suite, base: str) -> None:
     """A deploy replaces the hashed bundle and deletes the previous one, so a tab
     still holding the old index.html asks for files that no longer exist. That used
@@ -732,6 +812,7 @@ SECTIONS = [
     ("settings", section_settings),
     ("brains page", section_brains_page),
     ("deep links / history", section_deep_links_history),
+    ("sidebar retract motion", section_sidebar_motion),
     ("stale bundle", section_stale_bundle),
 ]
 
@@ -768,7 +849,27 @@ def main() -> int:
               "(KESTREL_UI=react) or `cd frontend && npm run dev`, or pass --base.")
         return 1
 
-    print(f"React UI acceptance suite — {base}\n")
+    # Preflight: this suite drives the product unauthenticated, because the browser
+    # gates assert on chat and brain surfaces that a signed-out Clerk session cannot
+    # reach. Since AUTH_MODE now defaults to clerk, running this against a normally
+    # booted app used to produce ~25 failures that all really meant one thing. Say
+    # the one thing instead.
+    try:
+        import urllib.request
+        with urllib.request.urlopen(base.rstrip("/") + "/api/config", timeout=8) as r:
+            mode = json.loads(r.read()).get("authMode")
+    except Exception as exc:  # noqa: BLE001 - the suite's own gates report a dead server
+        print(f"could not read {base}/api/config: {type(exc).__name__}: {str(exc)[:120]}")
+        return 1
+    if mode != "off":
+        print(f"{base} is running AUTH_MODE={mode!r} — every request this suite makes "
+              "would 401.\n"
+              "Run the battery instead, which boots its own unauthenticated tier:\n"
+              "    ./verify.sh\n"
+              "Or point this at a tier started with:\n"
+              "    PROVIDER=mock AUTH_MODE=off PORT=8028 python3 app.py")
+        return 2
+    print(f"React UI acceptance suite — {base} (authMode=off)\n")
     with sync_playwright() as p:
         browser = launch(p, headless=not args.headful)
         page = browser.new_page(viewport={"width": VIEW_SIZES["desktop"][0],

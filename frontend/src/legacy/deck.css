@@ -9,6 +9,14 @@
 
 :root {
   --sb-w: 268px;
+  /* One motion spec for the sidebar retract. The panel itself animates
+     transform, but FOUR other offsets move with it — body padding-left,
+     .app-main margin-left, #f left, #rail left — and each used to declare
+     no transition at all, so the content teleported into the space the panel
+     was still sliding out of (measured: 150ms of overlap). Naming the timing
+     once is what keeps the five from drifting apart again. */
+  --sb-dur: .2s;
+  --sb-ease: ease;
 
   /* ZCode palette (sampled from the reference UI) */
   --bg:        #1a1a1a;
@@ -174,7 +182,7 @@ h1, .display {
 body.sb-collapsed .shell { transform: translateX(calc(-1 * var(--sb-w))); }
 body.sb-collapsed .app-main { margin-left: 0; }
 body.sb-collapsed .sb-toggle { display: block; }
-.shell { transition: transform .2s ease; }
+.shell { transition: transform var(--sb-dur) var(--sb-ease); }
 .brand .mark {
   width: 34px; height: 34px; border-radius: 9px; flex: none;
   background: linear-gradient(155deg, #f49d54, #d96f1f 78%);
@@ -329,7 +337,8 @@ body.sb-slide-on .nav .brain-row:hover { background: transparent; }
 }
 
 /* ------------------------------------------------------------------ main */
-.app-main { margin-left: var(--sb-w); min-height: 100vh; display: flex; flex-direction: column; }
+.app-main { margin-left: var(--sb-w); min-height: 100vh; display: flex; flex-direction: column;
+  transition: margin-left var(--sb-dur) var(--sb-ease); }
 
 .wrap { width: 100%; max-width: 820px; margin: 0 auto; padding: 0 24px; }
 .wrap.wide { max-width: 1200px; }

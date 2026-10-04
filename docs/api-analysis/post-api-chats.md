@@ -12,7 +12,7 @@
 |---|---|
 | 路径 | `POST /api/chats`（无类级前缀；`app.py:627`） |
 | 入口 | `chats_upsert(request)` — `app.py:628`（`async def`，仅此处 await 请求体） |
-| 鉴权 | `require_tenant(request)`（`app.py:243`）：`AUTH_MODE=clerk` 时校验 `Authorization: Bearer <Clerk JWT>`；`AUTH_MODE=off` 时放行（单机/电池测试模式） |
+| 鉴权 | `require_tenant(request)`（`app.py:243`）：`AUTH_MODE=clerk` 时校验 `Authorization: Bearer <Clerk JWT>`；`AUTH_MODE=off` 时放行（仅限显式指定的测试通道；未设置时默认为 clerk） |
 | 数据集授权 | `require_dataset_access(request, brain)`（`app.py:299`）→ 内部走 `brain_allowed`（`app.py:272`） |
 | 入参 | 请求体 JSON：`{id, title, turns[], trim?, created?}`；`brain` 取自 query `?brain=` 否则取 body 的 `brain`（`app.py:645`）；隐式入参 = 登录态 `identity.org_id / identity.user_id`（`app.py:643-644`） |
 | 返回 | `dict`（`storage.upsert_chat` 原样透出：`{"ok": true, "id": ..., "turns": N}`） |

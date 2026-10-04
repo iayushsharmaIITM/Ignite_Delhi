@@ -87,9 +87,9 @@ def _custom_openapi() -> dict:
     agent reading /openapi.json could only discover auth by failing.
 
     This documents the requirement; it does not enforce or change it. Enforcement
-    stays in require_tenant()/auth.active(), and AUTH_MODE=off (the verification
-    battery, single-user installs) genuinely needs no token — which is what the
-    scheme's description says, rather than pretending auth is always on.
+    stays in require_tenant()/auth.active(), and AUTH_MODE=off — named explicitly by
+    the verification battery, never a fallback — genuinely needs no token, which is
+    what the scheme's description says rather than pretending auth is always on.
     """
     if app.openapi_schema:
         return app.openapi_schema
@@ -101,9 +101,12 @@ def _custom_openapi() -> dict:
         "ClerkBearer": {
             "type": "http", "scheme": "bearer", "bearerFormat": "JWT",
             "description": ("Clerk session token as `Authorization: Bearer <jwt>`. "
-                            "Required while the server runs AUTH_MODE=clerk; not "
-                            "required while it runs AUTH_MODE=off. GET /api/config "
-                            "reports which mode is live."),
+                            "Required — this is the only way into the API. A server "
+                            "boots without it ONLY when AUTH_MODE=off is set "
+                            "explicitly, which is the verification seam the test "
+                            "battery uses, not a deployment mode; the default when "
+                            "AUTH_MODE is unset is clerk. GET /api/config reports "
+                            "which mode is live."),
         },
     }
     schema["security"] = [{"ClerkBearer": []}]
@@ -356,8 +359,10 @@ def current_tenant(request: Request):
 
 
 def require_tenant(request: Request):
-    """P3 identity gate. AUTH_MODE=off → single local user (as before).
-    AUTH_MODE=clerk → a valid Clerk session JWT is required; the identity is
+    """P3 identity gate. Default is clerk: a valid Clerk session JWT is required and
+    the identity is attached to the request. AUTH_MODE=off (explicit only) → single
+    local user, which exists for the verification battery.
+    The identity is
     stored on the request state for the brain-authorization check. The legacy
     X-API-Key tenants gate still applies when Clerk is off and tenants are
     configured."""

@@ -26,6 +26,9 @@
      the content column starts after it, so the same sidebar width pads the
      left. Collapsed (or narrow screens) need no offset. */
   body:not(.chatting):not(.sb-collapsed) { padding-left:calc(24px + var(--sb-w)); }
+  /* Moves on the panel's clock, not its own: without this the home stack snaps to
+     full width on the first frame of a retract while .shell is still sliding. */
+  body:not(.chatting) { transition:padding-left var(--sb-dur) var(--sb-ease); }
   body:not(.chatting) .app-main { display:contents; }
   body:not(.chatting) #home { display:flex; flex-direction:column; align-items:center;
     width:100%; max-width:680px; order:1; }
@@ -47,6 +50,7 @@
   /* ==== the composer card ====================================================
      top row: [brain] ..... [⋯]   ·   input   ·   bottom row: [+ …] [send]    */
   #f { position:fixed; left:var(--sb-w); right:0; bottom:0; z-index:35;
+       transition:left var(--sb-dur) var(--sb-ease);
        margin:0; padding:22px 44px 18px;
        background:linear-gradient(180deg, rgba(22,22,22,0), var(--bg) 40%);
        backdrop-filter:blur(10px); }
@@ -150,6 +154,7 @@
   /* ---------- left rail: jump to user message (ZCode scrubber) --------------- */
   #rail { position:fixed; left:calc(var(--sb-w) + 8px); top:50%;
           transform:translateY(-50%); z-index:30;
+          transition:left var(--sb-dur) var(--sb-ease);
           display:none; flex-direction:column; gap:10px; }
   body.chatting #rail { display:flex; }
   #rail .tick { width:16px; height:2.5px; border-radius:2px; border:0;
