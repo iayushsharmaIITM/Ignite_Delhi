@@ -50,26 +50,33 @@ type Turn = {
 
 // Same fields the legacy sidebar's userLabel() derives from the Clerk user
 // (static/shell.js renderUser): display name, email, avatar initials.
+// Every field is coerced to a string on purpose: newer Clerk builds return
+// resource OBJECTS for email fields (an EmailAddress with verification/
+// prepareVerification methods), and rendering one as JSX was React error #31
+// — the whole app unmounted on sign-in. Only strings may cross this line.
 function readClerkUser(): SidebarUser {
   const w = window as unknown as {
     Clerk?: {
       user?: {
-        firstName?: string
-        lastName?: string
-        primaryEmailAddress?: string
-        emailAddresses?: { emailAddress?: string }[]
-        imageUrl?: string
+        firstName?: unknown
+        lastName?: unknown
+        primaryEmailAddress?: unknown
+        emailAddresses?: { emailAddress?: unknown }[]
+        imageUrl?: unknown
       } | null
     }
   }
   const u = w.Clerk?.user
   if (!u) return null
-  const nm = [u.firstName, u.lastName].filter(Boolean).join(" ")
-  const em = u.primaryEmailAddress || (u.emailAddresses && u.emailAddresses[0] && u.emailAddresses[0].emailAddress) || ""
-  const initials = ((u.firstName || "") + (u.lastName || "")).trim()
-    ? (u.firstName || " ")[0] + (u.lastName || u.firstName || " ")[0]
+  const str = (v: unknown): string => (typeof v === "string" ? v : "")
+  const nm = [str(u.firstName), str(u.lastName)].filter(Boolean).join(" ")
+  const em =
+    str(u.primaryEmailAddress) ||
+    (Array.isArray(u.emailAddresses) ? str(u.emailAddresses[0]?.emailAddress) : "")
+  const initials = nm.trim()
+    ? nm.trim()[0] + (str(u.lastName) || str(u.firstName) || " ")[0]
     : (em || "K").slice(0, 2).toUpperCase()
-  return { nm: nm || em || "Kestrel user", em, initials: initials.toUpperCase(), imageUrl: u.imageUrl }
+  return { nm: nm || em || "Kestrel user", em, initials: initials.toUpperCase(), imageUrl: str(u.imageUrl) }
 }
 
 // Legacy starter chips carry icons (static/index.html CHIP_ICON); the label
