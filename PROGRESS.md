@@ -110,10 +110,27 @@ started by reading source and guessing. `note()` now tails the log inline; self-
 three directions (FAIL with a log prints it, PASS prints nothing, FAIL with a missing log
 degrades instead of crashing the battery).
 
+**The third CI run found the one thing I should have found first.** With the inline tails
+in place, `[connectors]` reported its own reason immediately — and following it led to a
+**data-loss hazard**: `connectors_test.py` deletes `connector_credentials` rows for
+`OWNER = "|"`, which is the key a single-user install stores its *own* connected accounts
+under, and it resolved `storage.DATABASE_URL` with no guard — standalone that is
+`storage.py:37`'s hardcoded default, **`localhost:5433`, live**. The live tier already has
+the table this suite creates, so it has been running there. The live vault held **0 rows**:
+nothing was destroyed, and that is luck rather than a control. The suite now refuses any
+database that is not the lab port (verified — run with no `DATABASE_URL` it prints
+`REFUSED: … localhost:5433/kestrel` and exits 2), the battery treats it as lab-only, and
+CI's `ui` job runs it so the vault/OAuth contract is exercised on a hosted runner rather
+than only on a Mac. The underlying default — a live connection string with its password in
+source, which the live app currently depends on because `.env` sets no `DATABASE_URL` — is
+recorded as **A-14** and left open: guarding it changes boot behaviour for `:8000`, so it
+is the owner's call, not a thing to slip in while fixing CI.
+
 **Battery:** `./verify.sh` → 13 tiers, 0 failing suites, `EXIT=0`; `./verify.sh --quick`
 (the CI lane) → `EXIT=0`. Live `:8000` restarted on the committed build and verified in a
 browser: new hashes served (`index-of6ZiLeY.js`), recovery script present, 15 mounted
-nodes, composer and 4 chips, zero page errors.
+nodes, composer and 4 chips, zero page errors. The live `/openapi.json` scores identically
+to the committed one (59.7%), so what is documented is what is served.
 
 ## Structure pass: dead code out, document map in, and a scanner that sees ignored files 2026-10-04
 

@@ -126,6 +126,16 @@ useful part.)*
    `app.py:_check_rate`.
 5. **PF3 (Medium): the server sends `Cache-Control`/`ETag` and the contract says
    nothing** — `NoCacheStaticFiles` is real behaviour that a caching agent could use.
+5b. **10 of 12 POST operations declare no `requestBody` at all** (`POST /api/chats`,
+   `/api/summarize`, `/api/extract`, `/api/actions/draft`, `/api/actions/send`,
+   `/api/connectors/slack/{team_id}/post`, `…/disconnect`, `/api/connectors/disconnect`,
+   `/api/connectors/import`, `/api/jobs/{job_id}/cancel`). Only `/api/brains` and
+   `/api/brains/v2` have one, because those are the two that use `Form`/`UploadFile`; the
+   rest call `await request.json()` by hand, so FastAPI has nothing to generate from. This
+   is the request-side twin of P1 and it was **found by generating the Postman collection**
+   — the generator produced 39 requests and only 2 with a body, which is a measurement
+   rather than an opinion. It is also why `POST /api/chats` answers 400 with
+   "Request body must be a JSON object": the shape is validated in code, not declared.
 6. **M4 (Medium): 0 of 39 operations are tagged.**
 7. **DC4/DC5 (Low): no contact or license.** Not invented here — a license field is a
    legal statement and contact details belong to the owner.
@@ -135,6 +145,10 @@ useful part.)*
 - Full endpoint logic for the chat persistence path: `post-api-chats.md` (this
   directory).
 - **`ops/api_readiness.py`** — the scorer that produced every number above.
+- **`kestrel.postman_collection.json`** (this directory) — 39 requests generated from the
+  served document, bearer auth on a `{{bearer_token}}` variable, and a test script on every
+  request asserting the status codes the contract documents plus the `{detail}` shape on
+  4xx. Import it into Postman; run it against a lab tier, not live.
 - Contract truthfulness gates that already exist: `ops/check_secrets.sh`,
   `ops/doc_health.sh`, and CI's `frontend/dist` sync check.
 - What the API *guarantees*: `BUGS_AUDIT.md` Round 2 (CH-1…CH-14) and Round 3.

@@ -112,7 +112,7 @@ jobs:
           curl -sf http://127.0.0.1:8000/ | grep -q 'id="root"' || { echo "app did not serve the React bundle"; cat /tmp/app.log; exit 1; }
           # CI has no Chrome channel: let Playwright use the chromium it installed.
           KESTREL_TEST_BROWSER=chromium python3 check_ui_react.py --base http://127.0.0.1:8000
-      - name: Chat-integrity and brain-claim invariants
+      - name: Chat-integrity, brain-claim and connector invariants
         # The history-loss (CH-1..CH-9) and creation-race (M4) guarantees were only
         # ever reachable through the local battery: the fast job has no database, and
         # this job — which DOES provide Postgres on 5434 — never called verify.sh. So a
@@ -121,10 +121,15 @@ jobs:
         # pytest.raises), and pytest is now declared in requirements-dev.txt, which
         # this job installs. Its DATABASE_URL contains 5434, so the suite's own
         # refusal guard lets it create its scratch database on this service.
+        # connectors_test.py moved here from the fast lane for the same reason: it
+        # deletes connector_credentials rows, so it refuses any database that is not
+        # the lab port, and the fast job has no database at all. Running it here means
+        # the vault/OAuth contract is actually exercised on a hosted runner.
         run: |
           python3 tests/test_chat_integrity.py
           python3 tests/test_brain_claim.py
           python3 test_auth_isolation.py
+          python3 connectors_test.py
       - name: Clerk-mode gate (auth on, token + control)
         run: python3 tests/test_react_clerk.py
       - name: Application log on failure

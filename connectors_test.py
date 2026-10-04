@@ -106,6 +106,21 @@ def main() -> int:
     import psycopg
     from storage import DATABASE_URL
 
+    # This suite writes AND deletes rows, and `OWNER` is `|` — the same owner key a
+    # single-user install stores its own connected accounts under. It used to take
+    # storage.DATABASE_URL with no check, and standalone that is the LIVE tier: the
+    # hardcoded default in storage.py:37 points at :5433, and the `connector_credentials`
+    # table sitting in the live database is proof this suite has been reaching it. The
+    # live vault held 0 rows, so nothing was destroyed — that is luck, not a design.
+    if "5434" not in DATABASE_URL:
+        print(f"REFUSED: DATABASE_URL resolves to {DATABASE_URL.rsplit('@', 1)[-1]}, "
+              "not the lab (5434).")
+        print("         This suite deletes connector_credentials rows for owner '|'.")
+        print("         Run it against the lab explicitly:")
+        print("           DATABASE_URL=<lab 5434> python3 connectors_test.py")
+        print("         (./verify.sh does that for you when the lab is up.)")
+        sys.exit(2)
+
     section("vault crypto")
     truthy("vault configured", cx.vault_configured())
     truthy("table ready", cx.init_vault())

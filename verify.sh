@@ -159,11 +159,20 @@ note server "up (pid $SERVER_PID, mock fixtures, :$PORT)"
 # --- 3. connector vault + OAuth contract (in-process, no browser) ------------
 # Runs before the live-server suites: it drives app.py through TestClient, so
 # it must not race the mock server for the real port.
-if python3 connectors_test.py > /tmp/kestrel_verify_conn.log 2>&1; then
-  note connectors "PASS  $(tally /tmp/kestrel_verify_conn.log)"
+# Lab-only from here on. The suite deletes connector_credentials rows for owner '|',
+# which is the key a single-user install keeps its own grants under, and standalone
+# storage.DATABASE_URL resolves to the LIVE tier (:5433) — the table it created there
+# is the evidence. It now refuses anything but 5434, so the battery has to say why it
+# is skipping rather than reporting a failure it caused by having no lab database.
+if [[ "${DATABASE_URL:-}" == *5434* ]]; then
+  if python3 connectors_test.py > /tmp/kestrel_verify_conn.log 2>&1; then
+    note connectors "PASS  $(tally /tmp/kestrel_verify_conn.log)"
+  else
+    note connectors "FAIL — see /tmp/kestrel_verify_conn.log"
+    FAILS=$((FAILS + 1))
+  fi
 else
-  note connectors "FAIL — see /tmp/kestrel_verify_conn.log"
-  FAILS=$((FAILS + 1))
+  note connectors "SKIP  (needs DATABASE_URL=<lab 5434> — it deletes vault rows)"
 fi
 
 # --- 4. tenant isolation (live-server test; config written + restored) ------

@@ -1,0 +1,1960 @@
+{
+  "info": {
+    "name": "Kestrel Company Brain \u2014 HTTP API",
+    "description": "Retrieval over a company's own documents. Ask a brain a question and it answers with citations that name the source file; conversations are persisted per brain. Every read/write route is tenant-scoped: knowing an id is not ownership. Start at GET /api/config for the live auth mode, the turn cap the server enforces, and which brain-create path this server answers; GET /health for provider, upstream and LLM routing.\n\nGenerated from the served 3.1.0 document at http://127.0.0.1:8000/openapi.json. Set {{bearer_token}} to a Clerk session JWT while the server runs AUTH_MODE=clerk; GET /api/config reports the live mode. Each request asserts the status codes the contract documents, so running the collection re-checks the contract.",
+    "_postman_id": "6301c2d7-a657-4a1d-8c50-8150e1ac9f64",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "bearer_token",
+      "value": "",
+      "secret": true
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{bearer_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "health_health_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/health",
+          "host": [],
+          "path": [
+            "health"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Health\n\nAlways have this. A health endpoint means the demo never looks dead.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "config_api_config_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/config",
+          "host": [],
+          "path": [
+            "api",
+            "config"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Config",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "chats_upsert_api_chats_post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/chats",
+          "host": [],
+          "path": [
+            "api",
+            "chats"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Chats Upsert",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 400, 401, 403, 404, 409, 410, 413, 422, 500, 503];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "chats_list_api_chats_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/chats?brain=&limit=200",
+          "host": [],
+          "path": [
+            "api",
+            "chats"
+          ],
+          "query": [
+            {
+              "key": "brain",
+              "value": "",
+              "description": "",
+              "disabled": true
+            },
+            {
+              "key": "limit",
+              "value": "200",
+              "description": "",
+              "disabled": true
+            }
+          ],
+          "variable": []
+        },
+        "description": "Chats List",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 403, 422, 500, 503];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "chats_get_api_chats__chat_id__get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/chats/{chat_id}",
+          "host": [],
+          "path": [
+            "api",
+            "chats",
+            "{chat_id}"
+          ],
+          "query": [],
+          "variable": [
+            {
+              "key": "chat_id",
+              "value": "test-value"
+            }
+          ]
+        },
+        "description": "Chats Get",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 404, 422, 500, 503];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "chats_delete_api_chats__chat_id__delete",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/chats/{chat_id}",
+          "host": [],
+          "path": [
+            "api",
+            "chats",
+            "{chat_id}"
+          ],
+          "query": [],
+          "variable": [
+            {
+              "key": "chat_id",
+              "value": "test-value"
+            }
+          ]
+        },
+        "description": "Chats Delete",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 404, 422, 500, 503];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "usage_api_usage_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/usage?days=30",
+          "host": [],
+          "path": [
+            "api",
+            "usage"
+          ],
+          "query": [
+            {
+              "key": "days",
+              "value": "30",
+              "description": "",
+              "disabled": true
+            }
+          ],
+          "variable": []
+        },
+        "description": "Usage",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "summarize_api_summarize_post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/summarize",
+          "host": [],
+          "path": [
+            "api",
+            "summarize"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Summarize\n\nRolling-history summarization (P2): older turns compressed into a\nstable summary so multi-turn context stays bounded and cache-friendly.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "extract_attachment_api_extract_post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/extract",
+          "host": [],
+          "path": [
+            "api",
+            "extract"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Extract Attachment\n\nExtract text from ONE chat attachment so the CURRENT answer can use it.\n\nThe ask path feeds text-like files client-side, but PDFs and DOCX keep\ntheir text in binary \u2014 pypdf/python-docx extraction has to happen here.\nThis returns the text and touches nothing else: brain ingest remains the\nseparate, explicit upload that makes the file answerable in FUTURE asks.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "actions_draft_api_actions_draft_post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/actions/draft",
+          "host": [],
+          "path": [
+            "api",
+            "actions",
+            "draft"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Actions Draft\n\nP6: turn an answered question into a DRAFT email or Slack message.\n\nThe agent only drafts \u2014 nothing here sends. Pydantic AI gives typed\noutputs (to/subject/body or channel/text) so the UI renders real fields.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "actions_send_api_actions_send_post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/actions/send",
+          "host": [],
+          "path": [
+            "api",
+            "actions",
+            "send"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Actions Send\n\nP6: the APPROVAL GATE. Sends an explicitly reviewed draft through the\nconfigured transport. Unconfigured transports are a clean 503, and the\nsend is traced (who sent what, where).",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "connectors_status_api_connectors_status_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/connectors/status",
+          "host": [],
+          "path": [
+            "api",
+            "connectors",
+            "status"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Connectors Status\n\nWhich connector transports are configured \u2014 the UI renders honest\nstates instead of dead buttons. Vault rows win; legacy env tokens count\nas configured (dev/legacy path).",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "slack_connect_api_connectors_slack_connect_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/connectors/slack/connect?mode=read_post&private=",
+          "host": [],
+          "path": [
+            "api",
+            "connectors",
+            "slack",
+            "connect"
+          ],
+          "query": [
+            {
+              "key": "mode",
+              "value": "read_post",
+              "description": "",
+              "disabled": true
+            },
+            {
+              "key": "private",
+              "value": "",
+              "description": "",
+              "disabled": true
+            }
+          ],
+          "variable": []
+        },
+        "description": "Slack Connect\n\nScope-picker entry: the dialog's choices become the Slack scope set.\nRedirects to Slack's consent screen; identity + choices bind into state.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "slack_workspaces_list_api_connectors_slack_workspaces_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/connectors/slack/workspaces",
+          "host": [],
+          "path": [
+            "api",
+            "connectors",
+            "slack",
+            "workspaces"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Slack Workspaces List\n\nConnected workspaces + granted access level \u2014 no tokens, ever.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "slack_channels_route_api_connectors_slack__team_id__channels_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/connectors/slack/{team_id}/channels?types=public_channel,private_channel&cursor=",
+          "host": [],
+          "path": [
+            "api",
+            "connectors",
+            "slack",
+            "{team_id}",
+            "channels"
+          ],
+          "query": [
+            {
+              "key": "types",
+              "value": "public_channel,private_channel",
+              "description": "",
+              "disabled": true
+            },
+            {
+              "key": "cursor",
+              "value": "",
+              "description": "",
+              "disabled": true
+            }
+          ],
+          "variable": [
+            {
+              "key": "team_id",
+              "value": "test-value"
+            }
+          ]
+        },
+        "description": "Slack Channels Route\n\nconversations.list \u2014 private channels appear only when the grant\nincluded groups:read (and only if the bot was invited).",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "slack_messages_route_api_connectors_slack__team_id__messages_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/connectors/slack/{team_id}/messages?channel=&limit=50&cursor=",
+          "host": [],
+          "path": [
+            "api",
+            "connectors",
+            "slack",
+            "{team_id}",
+            "messages"
+          ],
+          "query": [
+            {
+              "key": "channel",
+              "value": "",
+              "description": "",
+              "disabled": false
+            },
+            {
+              "key": "limit",
+              "value": "50",
+              "description": "",
+              "disabled": true
+            },
+            {
+              "key": "cursor",
+              "value": "",
+              "description": "",
+              "disabled": true
+            }
+          ],
+          "variable": [
+            {
+              "key": "team_id",
+              "value": "test-value"
+            }
+          ]
+        },
+        "description": "Slack Messages Route\n\nconversations.history with cursor pagination. DM/MPIM channels\nrequire the USER token (bot tokens cannot read them).",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "slack_post_route_api_connectors_slack__team_id__post_post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/connectors/slack/{team_id}/post",
+          "host": [],
+          "path": [
+            "api",
+            "connectors",
+            "slack",
+            "{team_id}",
+            "post"
+          ],
+          "query": [],
+          "variable": [
+            {
+              "key": "team_id",
+              "value": "test-value"
+            }
+          ]
+        },
+        "description": "Slack Post Route\n\nchat.postMessage \u2014 refused 403 unless the grant actually included\nchat:write. The read-only access level can never post.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "slack_disconnect_route_api_connectors_slack__team_id__disconnect_post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/connectors/slack/{team_id}/disconnect",
+          "host": [],
+          "path": [
+            "api",
+            "connectors",
+            "slack",
+            "{team_id}",
+            "disconnect"
+          ],
+          "query": [],
+          "variable": [
+            {
+              "key": "team_id",
+              "value": "test-value"
+            }
+          ]
+        },
+        "description": "Slack Disconnect Route\n\nauth.revoke at Slack, then delete the stored workspace. The grant is\ngone from both sides after this.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "connectors_oauth_start_api_connectors_oauth__provider__start_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/connectors/oauth/{provider}/start",
+          "host": [],
+          "path": [
+            "api",
+            "connectors",
+            "oauth",
+            "{provider}",
+            "start"
+          ],
+          "query": [],
+          "variable": [
+            {
+              "key": "provider",
+              "value": "test-value"
+            }
+          ]
+        },
+        "description": "Connectors Oauth Start\n\n302 the browser to the provider's consent screen. Identity is bound\nserver-side into `state` \u2014 the token that comes back can only ever land\non the identity that started the flow.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "connectors_oauth_callback_api_connectors_oauth__provider__callback_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/connectors/oauth/{provider}/callback?code=&state=&error=",
+          "host": [],
+          "path": [
+            "api",
+            "connectors",
+            "oauth",
+            "{provider}",
+            "callback"
+          ],
+          "query": [
+            {
+              "key": "code",
+              "value": "",
+              "description": "",
+              "disabled": true
+            },
+            {
+              "key": "state",
+              "value": "",
+              "description": "",
+              "disabled": true
+            },
+            {
+              "key": "error",
+              "value": "",
+              "description": "",
+              "disabled": true
+            }
+          ],
+          "variable": [
+            {
+              "key": "provider",
+              "value": "test-value"
+            }
+          ]
+        },
+        "description": "Connectors Oauth Callback\n\nProvider redirects here. Validates state, exchanges the code, stores\nthe encrypted grant, lands on /?connected=<provider> for the UI toast.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "connectors_disconnect_api_connectors_disconnect_post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/connectors/disconnect",
+          "host": [],
+          "path": [
+            "api",
+            "connectors",
+            "disconnect"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Connectors Disconnect\n\nForget a grant (vault row deleted). Stops future syncs; already\nimported documents stay cited \u2014 disconnect is not un-ingest.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "connectors_import_api_connectors_import_post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/connectors/import",
+          "host": [],
+          "path": [
+            "api",
+            "connectors",
+            "import"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Connectors Import\n\nP6 connector: pull EXTERNAL messages (Slack channel history, Gmail\ninbox) into a brain through the same ingest primitive as uploads \u2014\nimported text becomes citable like any uploaded document. Env-gated:\nSLACK_BOT_TOKEN for Slack, GMAIL_USER/GMAIL_APP_PASSWORD for Gmail.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "ask_api_ask_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/ask?q=&dataset=&context=&tz=&local_time=",
+          "host": [],
+          "path": [
+            "api",
+            "ask"
+          ],
+          "query": [
+            {
+              "key": "q",
+              "value": "",
+              "description": "",
+              "disabled": false
+            },
+            {
+              "key": "dataset",
+              "value": "",
+              "description": "",
+              "disabled": true
+            },
+            {
+              "key": "context",
+              "value": "",
+              "description": "",
+              "disabled": true
+            },
+            {
+              "key": "tz",
+              "value": "",
+              "description": "",
+              "disabled": true
+            },
+            {
+              "key": "local_time",
+              "value": "",
+              "description": "",
+              "disabled": true
+            }
+          ],
+          "variable": []
+        },
+        "description": "Ask\n\nStream the answer as newline-delimited JSON so the UI never sits blank.\n\n`context` carries the preceding turns of the conversation. It is prepended\nto the question so a follow-up (\"and who signs it off?\") is resolved against\nwhat was already asked \u2014 without it, every turn is a cold start and a\nfollow-up question has no referent.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "graph_api_graph_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/graph?dataset=",
+          "host": [],
+          "path": [
+            "api",
+            "graph"
+          ],
+          "query": [
+            {
+              "key": "dataset",
+              "value": "",
+              "description": "",
+              "disabled": true
+            }
+          ],
+          "variable": []
+        },
+        "description": "Graph\n\nThe knowledge graph, for the graph view.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "stats_api_stats_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/stats?dataset=",
+          "host": [],
+          "path": [
+            "api",
+            "stats"
+          ],
+          "query": [
+            {
+              "key": "dataset",
+              "value": "",
+              "description": "",
+              "disabled": true
+            }
+          ],
+          "variable": []
+        },
+        "description": "Stats\n\nGraph size \u2014 cheap numbers that make the graph feel real.\n\nUses /graph rather than /graph-summary: the summary endpoint returns\nnumNodes 0 until a summary run has been computed, which would render as\na confidently empty graph.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "create_brain_v2_api_brains_v2_post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "multipart/form-data"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/brains/v2",
+          "host": [],
+          "path": [
+            "api",
+            "brains",
+            "v2"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Create Brain V2\n\n202 create through the durable job path (KESTREL_JOBS_V2=1 only).\n\nReservation + staging are atomic and tenant-free; ingestion happens in\nthe worker with per-file outcomes and publish fencing. 409 covers both\nsame-workspace slug conflicts and idempotency-key mismatches.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": []
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "job_status_v2_api_jobs__job_id__get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/jobs/{job_id}",
+          "host": [],
+          "path": [
+            "api",
+            "jobs",
+            "{job_id}"
+          ],
+          "query": [],
+          "variable": [
+            {
+              "key": "job_id",
+              "value": "test-value"
+            }
+          ]
+        },
+        "description": "Job Status V2",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "job_cancel_v2_api_jobs__job_id__cancel_post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/jobs/{job_id}/cancel",
+          "host": [],
+          "path": [
+            "api",
+            "jobs",
+            "{job_id}",
+            "cancel"
+          ],
+          "query": [],
+          "variable": [
+            {
+              "key": "job_id",
+              "value": "test-value"
+            }
+          ]
+        },
+        "description": "Job Cancel V2",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "list_brains_api_brains_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/brains",
+          "host": [],
+          "path": [
+            "api",
+            "brains"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "List Brains\n\nEvery brain on the tenant. Sizes are fetched per row by the dashboard.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "create_brain_api_brains_post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "multipart/form-data"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/brains",
+          "host": [],
+          "path": [
+            "api",
+            "brains"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Create Brain\n\nCreate a brain from uploaded documents, or add to an existing one.\n\n`append=False` (the default) refuses an existing name with 409: silently\nmerging into a brain the user believes is new would produce answers from\ndocuments they never saw. `append=True` is the explicit opt-in \u2014 the user\nhas been told the brain exists and chose to add to it.\n\nOrder matters: validate the name BEFORE touching the tenant, and never\nwrite to the demo dataset.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 400, 401, 409, 413, 422, 429, 500, 502, 503];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": []
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "brain_events_api_brains__name__events_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/brains/{name}/events?timeout_s=600",
+          "host": [],
+          "path": [
+            "api",
+            "brains",
+            "{name}",
+            "events"
+          ],
+          "query": [
+            {
+              "key": "timeout_s",
+              "value": "600",
+              "description": "",
+              "disabled": true
+            }
+          ],
+          "variable": [
+            {
+              "key": "name",
+              "value": "test-value"
+            }
+          ]
+        },
+        "description": "Brain Events",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "delete_brain_api_brains__name__delete",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/brains/{name}",
+          "host": [],
+          "path": [
+            "api",
+            "brains",
+            "{name}"
+          ],
+          "query": [],
+          "variable": [
+            {
+              "key": "name",
+              "value": "test-value"
+            }
+          ]
+        },
+        "description": "Delete Brain\n\nRemove a brain.\n\nRESERVED_NAMES is enforced here as well as in create_brain. The UI hides the\ndelete button for the demo and system brains, but the API is the real\nboundary \u2014 and `DELETE /api/brains/default_dataset` would otherwise delete\nCognee's own internal dataset. The demo guard also lives inside\ncognee_cloud.delete_dataset, so neither layer can be bypassed on its own.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "source_api_source_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/api/source?name=&dataset=",
+          "host": [],
+          "path": [
+            "api",
+            "source"
+          ],
+          "query": [
+            {
+              "key": "name",
+              "value": "",
+              "description": "",
+              "disabled": false
+            },
+            {
+              "key": "dataset",
+              "value": "",
+              "description": "",
+              "disabled": true
+            }
+          ],
+          "variable": []
+        },
+        "description": "Source\n\nReturn the text of a cited source document, so a citation is checkable.\n\nA citation you cannot open is an assertion. This makes it verifiable.\n\nPath safety: only a bare filename is accepted - no separators, no parent\nreferences - and the resolved path is re-checked to be inside corpus/\nbefore it is read. `basename` alone is not enough on its own, so both\nchecks run.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 401, 422, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "index__get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/",
+          "host": [],
+          "path": [],
+          "query": [],
+          "variable": []
+        },
+        "description": "Index\n\nThe product frontend: React when asked for and built, legacy otherwise.\n\nBoth are the same product on the same origin and the same API; KESTREL_UI\ndecides which one a browser gets. When react is selected but the bundle is\nmissing, this serves legacy AND says so in the log \u2014 the alternative (a\nsilent fallback) is how a deploy ends up on the wrong UI without anyone\nnoticing.",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "favicon_favicon_svg_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/favicon.svg",
+          "host": [],
+          "path": [
+            "favicon.svg"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Favicon\n\ndist/index.html asks for /favicon.svg; without this it 404s on every\nload (a console error, which the UI smoke suite treats as a failure).",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "icons_sprite_icons_svg_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/icons.svg",
+          "host": [],
+          "path": [
+            "icons.svg"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Icons Sprite",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "graph_page_graph_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/graph",
+          "host": [],
+          "path": [
+            "graph"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Graph Page",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "brains_page_brains_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/brains",
+          "host": [],
+          "path": [
+            "brains"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Brains Page",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    },
+    {
+      "name": "upload_page_upload_get",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bearer_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://127.0.0.1:8000/upload",
+          "host": [],
+          "path": [
+            "upload"
+          ],
+          "query": [],
+          "variable": []
+        },
+        "description": "Upload Page",
+        "event": [
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "const documented = [200, 500];",
+                "pm.test('status is one the contract documents', () => {",
+                "  pm.expect(documented).to.include(pm.response.code);",
+                "});",
+                "if (pm.response.code >= 400) {",
+                "  pm.test('error body keeps the documented {detail} shape', () => {",
+                "    pm.expect(pm.response.json()).to.have.property('detail');",
+                "  });",
+                "}"
+              ]
+            }
+          }
+        ]
+      },
+      "response": []
+    }
+  ]
+}
