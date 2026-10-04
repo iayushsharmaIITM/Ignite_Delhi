@@ -690,6 +690,34 @@ def section_stale_bundle(suite: Suite, base: str) -> None:
                     bool(box) and box.get("role") == "alert"
                     and "could not load" in (box.get("text") or "").lower()
                     and box.get("button") is True, str(box))
+
+        # The defect this gate now guards: the retry allowance used to be a
+        # once-per-session flag, so a 3-second server restart burned the single reload
+        # and pinned "could not load its interface" over a healthy server until the tab
+        # was closed. Age the allowance past the cooldown and the tab MUST attempt the
+        # bundle again — proven by the stored timestamp being refreshed, not by waiting.
+        aged = page.evaluate("""() => {
+            const before = Date.now() - 30000;
+            sessionStorage.setItem('kestrel.bundle.retry', String(before));
+            return before;
+        }""")
+        page.reload(wait_until="load")
+        page.wait_for_timeout(6000)
+        after = page.evaluate("() => parseInt(sessionStorage.getItem('kestrel.bundle.retry') || '0', 10)")
+        suite.check("an aged retry allowance attempts the bundle again instead of staying pinned",
+                    after > aged, f"stored {after} vs aged {aged}")
+        # And a deliberate click must not be blocked by the automatic attempt that just
+        # failed: the button clears the allowance before reloading.
+        cleared = page.evaluate("""() => {
+            sessionStorage.setItem('kestrel.bundle.retry', String(Date.now()));
+            const b = document.getElementById('stale-reload');
+            if (!b) return 'no button';
+            b.onclick.call(b);
+            return sessionStorage.getItem('kestrel.bundle.retry');
+        }""")
+        suite.check("the Reload button clears the retry allowance",
+                    cleared is None, f"flag after clicking Reload: {cleared}")
+        page.wait_for_timeout(3000)
     finally:
         page.unroute("**/assets/index-*.js", missing)
         suite.console.clear()

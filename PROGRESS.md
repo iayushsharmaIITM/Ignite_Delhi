@@ -144,6 +144,18 @@ had missed: **10 of 12 POST operations declare no `requestBody` at all** — onl
 and `/api/brains/v2` do, because those are the two using `Form`/`UploadFile`; the rest call
 `await request.json()` by hand, so FastAPI has nothing to generate from.
 
+**The preview then caught my own fix being wrong.** Opening `:8000` for the owner produced
+the panel in the screenshot above — and the server log had **zero asset 404s**, so nothing
+was missing. The stale-bundle guard's retry allowance was a once-per-session flag: the tab
+had failed during the ~3s restart window, burned its single reload, and stayed pinned on
+"could not load its interface" over a healthy server. A fix for "never render a silent
+blank page" that can pin a loud wrong page forever is not much of a fix. It is now a
+timestamp with a 20s cooldown, and the Reload button clears it so a deliberate click always
+retries from scratch. Both new gates were checked in the failing direction by re-injecting
+the old flag logic into the served file — they fail against it and pass against the new
+guard. Live needed no restart: `index.html` is read from disk per request, so the
+corrected guard was serving the moment the build landed.
+
 **Final state, measured:** `./verify.sh` → 13 tiers, 0 failing suites, `EXIT=0`. Live
 `:8000` restarted on the committed build and checked in a browser (new hashes
 `index-of6ZiLeY.js`, recovery script present, 15 mounted nodes, composer + 4 chips, zero

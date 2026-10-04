@@ -11,12 +11,21 @@
       // The browser answers with 404, React never mounts, and the user gets a BLANK
       // PAGE with nothing on it to explain itself — measured, not theorised: this is
       // exactly how the live app presented itself after a rebuild.
-      // Reload once so the tab picks up the new manifest. If a reload did not fix it
-      // the failure is real, so say so out loud instead of looping.
+      // Reload so the tab picks up the new manifest. If reloading does not fix it,
+      // say so out loud instead of looping.
+      //
+      // The retry allowance is a TIMESTAMP, not a once-per-session flag. The first
+      // version stored "1", and that turned a 3-second server restart into a screen
+      // the owner could not escape: the tab failed during the downtime, burned its
+      // single reload, and then pinned "could not load its interface" over a fully
+      // healthy server until the tab was closed. A cooldown still prevents a reload
+      // loop, but it lets a transient failure heal itself.
       (function () {
-        var KEY = "kestrel.stale.bundle";
-        var reloaded = false;
-        try { reloaded = sessionStorage.getItem(KEY) === "1"; } catch (e) {}
+        var KEY = "kestrel.bundle.retry";
+        var COOLDOWN_MS = 20000;
+        function last() {
+          try { return parseInt(sessionStorage.getItem(KEY) || "0", 10) || 0; } catch (e) { return 0; }
+        }
         function explain() {
           if (document.getElementById("stale-bundle")) return;
           var box = document.createElement("div");
@@ -29,14 +38,21 @@
             "Kestrel could not load its interface.</p>" +
             '<button type="button" id="stale-reload" style="font:inherit;padding:10px 18px;' +
             "border:1px solid #45413A;border-radius:8px;background:#1D1C1A;color:inherit;" +
-            'cursor:pointer">Reload the page</button></div>';
+            'cursor:pointer">Reload the page</button>' +
+            '<p style="margin:12px 0 0;font-size:12.5px;opacity:.7">This one retries from ' +
+            'scratch, so it works even if the server was restarting.</p></div>';
           document.body.appendChild(box);
-          document.getElementById("stale-reload").onclick = function () { location.reload(); };
+          // Clear the allowance first: a deliberate click must take the full retry
+          // path, not find itself blocked by the automatic attempt that just failed.
+          document.getElementById("stale-reload").onclick = function () {
+            try { sessionStorage.removeItem(KEY); } catch (e) {}
+            location.reload();
+          };
         }
         function failed() {
-          if (reloaded) { explain(); return; }
-          reloaded = true;
-          try { sessionStorage.setItem(KEY, "1"); } catch (e) {}
+          var age = Date.now() - last();
+          if (age < COOLDOWN_MS) { explain(); return; }
+          try { sessionStorage.setItem(KEY, String(Date.now())); } catch (e) {}
           location.reload();
         }
         // Resource errors do not bubble; capture them at the window instead.
@@ -51,8 +67,10 @@
           setTimeout(function () {
             var root = document.getElementById("root");
             if (root && root.children.length) {
+              // Mounted: forget the retry, so the next genuine failure gets a fresh
+              // attempt instead of inheriting this one.
               try { sessionStorage.removeItem(KEY); } catch (e) {}
-            } else if (!reloaded) {
+            } else if (Date.now() - last() >= COOLDOWN_MS) {
               failed();
             } else {
               explain();
