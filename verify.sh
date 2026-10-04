@@ -270,10 +270,31 @@ if [[ "${DATABASE_URL:-}" == *5434* ]]; then
     note auth-isolation "FAIL — see /tmp/kestrel_verify_auth_iso.log"
     FAILS=$((FAILS + 1))
   fi
+  # Three more security gates that had been sitting unwired: each one asserts a
+  # real invariant, runs clean standalone, and was invoked by nothing — no battery
+  # tier, no CI step, only a human who happened to know. An invariant suite that
+  # only a human can run reads as coverage while detecting nothing, which is the
+  # same failure H-2 recorded for chat-integrity.
+  #   route-authz          brain-scoped allow/deny + source path traversal (6 asserts)
+  #   lifecycle-identity   Phase 0 regression: identity carried through the lifecycle
+  #   lease-recovery       orphaned/uncertain jobs are not blindly retried
+  for gate in tests/test_route_authz.py tests/test_lifecycle_identity.py tests/test_lease_recovery.py; do
+    name=$(basename "$gate" .py | sed 's/^test_//' | tr '_' '-')
+    log="/tmp/kestrel_verify_${name}.log"
+    if python3 "$gate" > "$log" 2>&1; then
+      note "$name" "PASS"
+    else
+      note "$name" "FAIL — see $log"
+      FAILS=$((FAILS + 1))
+    fi
+  done
 else
   note chat-integrity "SKIP  (needs DATABASE_URL=<lab 5434> — it writes rows)"
   note brain-claim "SKIP  (needs DATABASE_URL=<lab 5434> — it writes rows)"
   note auth-isolation "SKIP  (needs DATABASE_URL=<lab 5434> — it creates a database)"
+  for name in route-authz lifecycle-identity lease-recovery; do
+    note "$(echo $name | tr '_' '-')" "SKIP  (needs DATABASE_URL=<lab 5434> — it writes rows)"
+  done
 fi
 
 # --- 7. React UI acceptance suite (browser) -----------------------------------
@@ -281,8 +302,12 @@ fi
 # menus/keyboard/deep links/history, with the model calls intercepted. This is
 # the suite that proves the frontend the product hands a browser actually works.
 # check_ui.py (the pre-port legacy suite) was retired here: it depended on a
-# playwright-cli binary that no longer exists, drove webkit, and the legacy shell
-# is now reachable only via KESTREL_UI=legacy — smoke.py still covers its pages
+# playwright-cli binary that no longer exists, drove webkit, and the legacy CHAT
+# shell is now reachable only via KESTREL_UI=legacy — smoke.py still covers its
+# pages. Careful with that sentence: it does NOT mean static/ is dead. /graph is
+# served from static/graph.html regardless of UI_MODE, the React sidebar's Graph nav
+# item links straight to it, and shell.css/shell.js/ui.js/auth.js are loaded by that
+# page. Deleting static/ would break a primary nav item in the shipping app.
 # over HTTP. See docs/FRONTEND_FIX_PLAN.md D2.
 if [ "$QUICK" -eq 1 ]; then
   note ui-react "SKIP  (--quick)"

@@ -269,17 +269,27 @@ app.mount("/static", NoCacheStaticFiles(directory=os.path.join(HERE, "static")),
 #
 # KESTREL_UI selects which UI a browser gets at "/":
 #   react  — frontend/dist/index.html (with /assets, /favicon.svg)
-#   legacy — static/index.html, the pre-port dashboard
 # Default flipped to react on 2026-10-03 after the Phase A/B gates passed:
 # tests/test_react_clerk.py proves the served bundle is authenticated in clerk
 # mode (with a no-token control run) and that asks stream, carry conversation
-# context and report failures honestly. Setting KESTREL_UI=legacy is the
-# rollback, and the legacy pages stay reachable either way.
+# context and report failures honestly.
+#
+# The legacy chat shell was retired on 2026-10-04 and KESTREL_UI no longer accepts
+# "legacy": static/index.html is gone, so the value could only ever promise a page
+# that does not exist. What did NOT go away is the rest of static/ — /graph serves
+# static/graph.html regardless of this setting, and shell.css/shell.js/ui.js/auth.js
+# are its assets, with the React sidebar's Graph nav item linking straight to it.
 DIST_DIR = os.path.join(HERE, "frontend", "dist")
 UI_MODE = (os.getenv("KESTREL_UI") or "react").strip().lower()
-if UI_MODE not in ("react", "legacy"):
-    # A typo must not silently pick a UI the operator did not ask for.
-    raise SystemExit(f"KESTREL_UI={UI_MODE!r} is not one of: react, legacy")
+if UI_MODE != "react":
+    # A typo must not silently pick a UI the operator did not ask for, and a
+    # rollback flag that no longer exists must say so at boot rather than 500 on
+    # the first request.
+    raise SystemExit(
+        f"KESTREL_UI={UI_MODE!r} is not supported. The legacy chat shell was retired "
+        "(static/index.html deleted); the React bundle in frontend/dist is the only "
+        "UI. Unset KESTREL_UI, and run ops/build_frontend.sh if the bundle is stale. "
+        "/graph is unaffected — it still serves static/graph.html.")
 
 
 def _dist_file(name: str) -> str:
@@ -2188,31 +2198,30 @@ def _page(filename: str) -> FileResponse:
 
 @app.get("/")
 def index():
-    """The product frontend: React when asked for and built, legacy otherwise.
+    """The product frontend: the built React bundle, and nothing else.
 
-    Both are the same product on the same origin and the same API; KESTREL_UI
-    decides which one a browser gets. When react is selected but the bundle is
-    missing, this serves legacy AND says so in the log — the alternative (a
-    silent fallback) is how a deploy ends up on the wrong UI without anyone
-    noticing.
+    This used to fall back to static/index.html when the bundle was missing, on the
+    theory that a wrong UI beats no UI. That theory is now gone with the file: an
+    unbuilt deploy answers 503 with the command that fixes it, because a silently
+    different UI is how a deploy ships something nobody reviewed.
     """
-    if UI_MODE == "react":
-        if react_available():
-            # Same no-cache rule as _page(): index.html is unhashed and names
-            # the hashed bundle, so a cached copy pins an old build.
-            return FileResponse(
-                _dist_file("index.html"),
-                headers={
-                    "Cache-Control": "no-cache, must-revalidate",
-                    "Pragma": "no-cache",
-                },
-            )
-        print(
-            "KESTREL_UI=react but frontend/dist/index.html is missing — "
-            "serving the legacy dashboard. Run ops/build_frontend.sh.",
-            flush=True,
+    if react_available():
+        # Same no-cache rule as _page(): index.html is unhashed and names
+        # the hashed bundle, so a cached copy pins an old build.
+        return FileResponse(
+            _dist_file("index.html"),
+            headers={
+                "Cache-Control": "no-cache, must-revalidate",
+                "Pragma": "no-cache",
+            },
         )
-    return _page("index.html")
+    print("KESTREL_UI=react but frontend/dist/index.html is missing — answering 503.",
+          flush=True)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "The interface has not been built on this server. "
+                           "Run ops/build_frontend.sh."},
+    )
 
 
 @app.get("/favicon.svg")
@@ -2265,15 +2274,14 @@ if __name__ == "__main__":
     if auth.mode() == "clerk":
         print(f"auth: clerk mode, JWKS {auth.jwks_url()}", flush=True)
     # Which frontend "/" will hand a browser — printed at boot so a deploy's
-    # logs answer "is the React UI live?" without opening a browser.
-    if UI_MODE == "react" and react_available():
+    # logs answer "is the React UI live?" without opening a browser. There is no
+    # longer a third case: UI_MODE can only be react, and a missing bundle is a
+    # 503 rather than a fallback to a page that has been deleted.
+    if react_available():
         print(f"ui: react (frontend/dist, {DIST_DIR})", flush=True)
-    elif UI_MODE == "react":
-        print("ui: react REQUESTED but frontend/dist is missing — serving the "
-              "legacy dashboard. Run ops/build_frontend.sh.", flush=True)
     else:
-        print("ui: legacy (static/index.html; set KESTREL_UI=react to serve "
-              "frontend/dist)", flush=True)
+        print("ui: frontend/dist/index.html is MISSING — / will answer 503 until "
+              "ops/build_frontend.sh runs.", flush=True)
     if not storage.available():
         print("storage: Postgres unavailable — chats fall back to "
               "localStorage; Clerk-mode brains will 403 until it connects.",

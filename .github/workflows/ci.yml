@@ -130,6 +130,13 @@ jobs:
           python3 tests/test_brain_claim.py
           python3 test_auth_isolation.py
           python3 connectors_test.py
+          # Three security gates that used to be invocable only by a human who knew
+          # they existed. Each asserts a real invariant and ran clean standalone, and
+          # none of them was in any harness — route authorization in particular is
+          # the last thing to leave unenforced.
+          python3 tests/test_route_authz.py
+          python3 tests/test_lifecycle_identity.py
+          python3 tests/test_lease_recovery.py
       - name: Clerk-mode gate (auth on, token + control)
         run: python3 tests/test_react_clerk.py
       - name: Application log on failure

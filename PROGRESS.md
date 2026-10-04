@@ -1,3 +1,39 @@
+## Dead code audit: three security gates nobody ran, and the legacy shell was not the dead thing
+
+Asked to clean up dead code "such as the legacy UI", the answer turned out to be the
+opposite of the premise — and the interesting defect was elsewhere.
+
+**`static/` is load-bearing.** `/graph` serves `static/graph.html` regardless of
+`UI_MODE`, the React sidebar's Graph nav item (`Sidebar.tsx:350`) links straight to it,
+and `shell.css`/`shell.js`/`ui.js`/`auth.js` are that page's assets — 4 of the 6 files.
+`smoke.py` tests `/graph` today. Only `static/index.html` was genuinely unreachable, and
+`verify.sh` had a comment implying the whole directory was dormant, which is the kind of
+comment that gets a working surface deleted.
+
+**The real finding was three security gates that nothing invoked.**
+`tests/test_route_authz.py` (brain-scoped allow/deny plus source path traversal, 6
+asserts), `tests/test_lifecycle_identity.py` and `tests/test_lease_recovery.py` each ran
+clean standalone and appeared in no harness — only in markdown prose. A grep for
+"referenced" initially called them live, which is the wrong question: the question is
+whether anything *runs* them. All three are now battery tiers (`route-authz`,
+`lifecycle-identity`, `lease-recovery`) and CI steps, with SKIP lines when there is no lab
+database. Route authorization being the thing nobody was checking is the point.
+
+Deleted as genuinely dead: `check_ui.py` (retired by its own comment, crashes on a missing
+binary), `ops/test_pagination.py` (imports `cognee_cloud`, which no longer exists),
+`ops/build_ui_review_pdf.py` (zero references).
+
+Then, with explicit approval, the legacy chat shell was retired properly:
+`KESTREL_UI` accepts only `react` and refuses to boot otherwise with a message naming the
+replacement, and `/` answers **503 + "Run ops/build_frontend.sh"** when the bundle is
+missing instead of falling back to a deleted page. Both failure directions were driven,
+not assumed: `KESTREL_UI=legacy` exits at import, and hiding `dist/index.html` produces a
+503 with the fix in the body. The old fallback "served the legacy dashboard" — a silently
+different UI, which is the thing the file's own docstring warned about.
+
+**Battery: 16 tiers, 0 failing, `EXIT=0`.** Logged as A-24, A-25, A-26.
+
+
 ## Driving the real engine found two more bugs in my own guard
 
 Installing WebKit (`python3 -m playwright install webkit`, owner-approved) and running a
