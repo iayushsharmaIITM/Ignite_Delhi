@@ -25,6 +25,7 @@ record, a historical record, or a business document.
 | `docs/ui-review/` | UI audit and browser baselines | 3 | before/after visual work |
 | `docs/CATEGORY_SCAN_2026.md` | 2026 feature bar scored against this codebase, connector landscape and the standout thesis | new | before committing roadmap or connector work |
 | `docs/BUG_HUNT_2026-10-05.md` | the widest engine + UI hunt to date: 26 defects, evidence and repro per finding, and which were fixed versus handed back | new | when one of its open items is closed |
+| `docs/SYSTEM_PRODUCT_REVIEW_2026-10-05.md` | the single consolidated review: goal, measured state, every open defect, the design audit, and the owner's decisions | new | when an open item closes or the measured numbers move |
 | `docs/HARNESS_BLUEPRINT_2026.md` | the harness plan: what each of the five work-loop dimensions must grow, and the gate every new platform feature must arrive with | new | when a phase lands or a defect class gains a detector |
 | `docs/ACL_AND_MCP_BLUEPRINT.md` | **design, not built** — document-level policy model, the two live enumeration oracles that must close first, and the in-process MCP read surface | new | when an ACL phase lands or an oracle is closed |
 

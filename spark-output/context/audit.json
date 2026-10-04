@@ -1,0 +1,253 @@
+{
+  "skill": "audit",
+  "generated_at": "2026-10-05T03:41:30",
+  "project_name": "Kestrel Company Brain",
+  "target": {
+    "type": "code",
+    "reference": "/Users/_iayushsharma_/Desktop/Kestrel_brains (frontend/src + app.py), walked live at :8000",
+    "pages_audited": [
+      "/ (chat)",
+      "/?view=brains",
+      "/?view=graph",
+      "/?view=connectors",
+      "settings/usage",
+      "stale-bundle guard"
+    ]
+  },
+  "audit_framework": [
+    "Nielsen-10",
+    "responsive",
+    "performance"
+  ],
+  "findings": [
+    {
+      "id": "audit-1",
+      "heuristic": "user-control",
+      "severity": "major",
+      "description": "Three primary controls are reachable only by mouse, and one is dead even for mouse users",
+      "evidence": "App.tsx:1433-1436 (collapsed working-log header is a div onClick, no role/tabIndex/key handler); Sidebar.tsx:283-287 (brain folder row, same shape); the attachment chip opens a data: URL via window.open, which current Chrome/Safari block as a top-level navigation. Animations.tsx:247-257 already ships the correct role=button + tabIndex + Enter/Space implementation, unused.",
+      "suggestion": "Adopt the existing correct component rather than writing a new one; make attachment previews open through the in-app source modal.",
+      "effort": "medium"
+    },
+    {
+      "id": "audit-2",
+      "heuristic": "error-recovery",
+      "severity": "major",
+      "description": "Dialogs claim aria-modal but never move focus in or restore it",
+      "evidence": "SourceModal.tsx:73-80, Animations.tsx:770 and :834 announce aria-modal=true with no focus transfer, trap or restore; FilesSheet.tsx:142-147 has no dialog semantics at all and ignores Escape. CreateBrainDialog uses Radix and does it correctly, so the pattern exists in the tree.",
+      "suggestion": "Reuse the Radix dialog primitives for the remaining three surfaces; restore focus to the invoking control on close.",
+      "effort": "medium"
+    },
+    {
+      "id": "audit-3",
+      "heuristic": "consistency",
+      "severity": "major",
+      "description": "Five components render user-facing chrome without t(), in a product shipping six locales",
+      "evidence": "GraphView (0 calls), CreateBrainDialog (0), SlackAccessDialog (0), most of Connectors and BrainsPage; 34 of 43 toast calls pass raw English literals. Several bypassed strings already have complete six-locale keys (graph.title, action.copy, composer.send/stop), which proves oversight rather than policy.",
+      "suggestion": "Land the gate first (fail the build when a rendered string has no key), then sweep the components.",
+      "effort": "major-rework"
+    },
+    {
+      "id": "audit-4",
+      "heuristic": "consistency",
+      "severity": "major",
+      "description": "Seventeen translation keys exist in no locale, so those strings are permanently English",
+      "evidence": "Verified by key-set diff across all six DICT blocks, which are otherwise exactly 154/154 with zero duplicates. Remaining after the two typo fixes: conn.* import panel (9), set.connectors, usage.loading, view.show_all_n, view.show_less, chat.deleted, a11y.answer_ready, nav.sign_in_for_chats, menu.really_clear.",
+      "suggestion": "Translate properly for five languages, or drop the strings from the UI; a machine-guessed string in a product whose claim is honesty about sources is the wrong fix.",
+      "effort": "medium"
+    },
+    {
+      "id": "audit-5",
+      "heuristic": "visibility",
+      "severity": "major",
+      "description": "The create-brain dialog can stick on Working… for the rest of the session",
+      "evidence": "CreateBrainDialog.tsx:68-79 reschedules a 5s setTimeout with no cancellation on close or unmount and re-polls forever on a null job read; jobId/name/files at :23-27 are never cleared while the component stays mounted hidden.",
+      "suggestion": "Cancel the poll on close/unmount and reset the form state; surface a terminal job state instead of an indefinite spinner.",
+      "effort": "quick-win"
+    },
+    {
+      "id": "audit-6",
+      "heuristic": "visibility",
+      "severity": "minor",
+      "description": "The chat restore overlay is announced visually only",
+      "evidence": "App.tsx:1888-1890 renders #restore with no role=status or aria-live, so a screen-reader user gets no signal that a conversation is being restored or that it failed.",
+      "suggestion": "Add role=status aria-live=polite to the restore element and announce the failure path.",
+      "effort": "quick-win"
+    },
+    {
+      "id": "audit-7",
+      "heuristic": "aesthetic",
+      "severity": "major",
+      "description": "Internal developer affordances are visible on the Brains page",
+      "evidence": "Observed in the live signed-in DOM: the Brains view renders links labelled demo dashboard and /health alongside real user actions, and a button labelled new brain duplicating the primary New brain action. Evidence: live snapshot of /?view=brains.",
+      "suggestion": "Remove developer endpoints from the user surface; keep one primary action per intent with the product's own vocabulary.",
+      "effort": "quick-win"
+    },
+    {
+      "id": "audit-8",
+      "heuristic": "aesthetic",
+      "severity": "minor",
+      "description": "The Connectors import panel escapes its own page container",
+      "evidence": "Connectors.tsx:252-254: the max-width wrapper closes before the section opens, so on a wide window the panel runs full-bleed while the two cards above it sit centred.",
+      "suggestion": "Move the section inside the capped wrapper.",
+      "effort": "quick-win"
+    },
+    {
+      "id": "audit-9",
+      "heuristic": "performance",
+      "severity": "major",
+      "description": "Every ask triggers a full citation prewarm fan-out",
+      "evidence": "orchestrator answer() starts _prewarm before the router decides the route, and _prewarm_fill runs an 8-worker pool of data_raw fetches per document, so even a reply that retrieves nothing loads the brain service and saturates the pool for concurrent asks.",
+      "suggestion": "Resolve a citation when the source chip is opened; prewarm only the chunks that entered the answer.",
+      "effort": "medium"
+    },
+    {
+      "id": "audit-10",
+      "heuristic": "performance",
+      "severity": "major",
+      "description": "A single long-poll can occupy most of a one-worker tier",
+      "evidence": "/api/brains/{name}/events defaults to timeout_s=600 (FilesSheet.tsx:118), holding an open request for ten minutes on a process that runs one worker.",
+      "suggestion": "Shorten the default with a heartbeat and client reconnect; document the concurrency ceiling this implies.",
+      "effort": "medium"
+    },
+    {
+      "id": "audit-11",
+      "heuristic": "performance",
+      "severity": "major",
+      "description": "The committed bundle is 1.0 MB and loads the graph renderer on every screen",
+      "evidence": "frontend/dist measures 1.0 MB with four self-hosted Inter locale subsets and a non-lazy GraphView containing a canvas renderer plus force simulation.",
+      "suggestion": "Route-level React.lazy for graph/brains/connectors and subset fonts to the locales actually shipped.",
+      "effort": "medium"
+    },
+    {
+      "id": "audit-12",
+      "heuristic": "error-recovery",
+      "severity": "major",
+      "description": "Errors are prose only and success payloads are unschemaed, so clients retry by guessing",
+      "evidence": "No machine-readable code field on API errors, and 0 of 39 operations carry a response schema; measured agent-readiness 59.7 percent with these two as the blockers. A client cannot distinguish retryable-503 from terminal-403 without parsing English.",
+      "suggestion": "Add code to the error contract and response schemas per route; ops/api_readiness.py already scores the gap and can gate it.",
+      "effort": "medium"
+    },
+    {
+      "id": "audit-13",
+      "heuristic": "help-docs",
+      "severity": "major",
+      "description": "Nothing explains what the product can do until you already know",
+      "evidence": "No onboarding, no inline help on any surface; the only guidance is four suggestion chips that exist for the demo brain alone, and what can you do is answered by a fixed template. A new user with an uploaded brain sees an empty chat and no indication of what to try.",
+      "suggestion": "Add a first-run panel that names the connected sources and the citation guarantee, plus a per-brain empty state that lists what is actually indexed.",
+      "effort": "medium"
+    },
+    {
+      "id": "audit-14",
+      "heuristic": "recognition",
+      "severity": "minor",
+      "description": "Non-demo brains get a generic chip set that says nothing about that brain",
+      "evidence": "App.tsx selects DEMO_CHIPS or GENERIC_CHIPS by brain name; a user looking at their own material gets generic prompts rather than questions derived from what is indexed there.",
+      "suggestion": "Derive prompt suggestions from the brain's own top documents or entity types, or drop chips when nothing specific is known.",
+      "effort": "medium"
+    },
+    {
+      "id": "audit-15",
+      "heuristic": "responsive",
+      "severity": "major",
+      "description": "Touch-target density is unresolved on mobile",
+      "evidence": "Raised as an owner decision in the earlier UI audit and still open: sidebar rows and icon-only controls sit below the 44px guideline on small screens.",
+      "suggestion": "Decide the density target and let a gate assert minimum hit area per control class.",
+      "effort": "medium"
+    },
+    {
+      "id": "audit-16",
+      "heuristic": "user-control",
+      "severity": "minor",
+      "description": "A deleted conversation cannot be undone",
+      "evidence": "Deletion is two-step armed (fixed today so the arm expires) and permanent; tombstones exist server-side, so a short undo is cheap where an accidental delete currently costs the whole thread.",
+      "suggestion": "Offer a timed undo in the toast after a single-chat delete; keep the existing arm for bulk delete.",
+      "effort": "medium"
+    }
+  ],
+  "opportunities": [
+    {
+      "title": "Make every failure state honest and reachable",
+      "addresses_findings": [
+        "audit-5",
+        "audit-6",
+        "audit-12",
+        "audit-1"
+      ],
+      "priority": "high",
+      "rationale": "Four findings across visibility, error-recovery and user-control all say the same thing: the product is candid about answers and vague about its own state. Trust is the product, so a stuck spinner or an unannounced restore is a product defect, not a polish item."
+    },
+    {
+      "title": "One voice across six locales, enforced by a gate",
+      "addresses_findings": [
+        "audit-3",
+        "audit-4"
+      ],
+      "priority": "high",
+      "rationale": "Localisation is already built and mostly complete (154/154 keys per locale), which makes the drift invisible. The gate must land before the sweep or the sweep silently regresses, exactly as it already did."
+    },
+    {
+      "title": "Keyboard parity on every primary surface",
+      "addresses_findings": [
+        "audit-1",
+        "audit-2",
+        "audit-15"
+      ],
+      "priority": "high",
+      "rationale": "A correct implementation already exists in the tree and is unused, and modal focus is absent on three surfaces. For a cited-answer product sold to enterprises, reachable-by-keyboard is a procurement question, not an accessibility nice-to-have."
+    },
+    {
+      "title": "Make the first sixty seconds work for a new brain",
+      "addresses_findings": [
+        "audit-13",
+        "audit-14",
+        "audit-7"
+      ],
+      "priority": "high",
+      "rationale": "Three findings compound: no onboarding, prompts that only describe the demo, and developer affordations on the Brains page. A new user's first screen is currently the weakest argument for the product."
+    },
+    {
+      "title": "Pay only for what a request needs",
+      "addresses_findings": [
+        "audit-9",
+        "audit-10",
+        "audit-11"
+      ],
+      "priority": "medium",
+      "rationale": "Per-ask prewarm fan-out, a ten-minute long-poll on one worker, and a 1.0 MB bundle that ships the graph renderer to the chat screen are all the same defect: cost paid whether or not the feature is used."
+    },
+    {
+      "title": "Let the user take back a mistake",
+      "addresses_findings": [
+        "audit-16",
+        "audit-2"
+      ],
+      "priority": "low",
+      "rationale": "Bulk delete is armed and expires correctly now; single-chat delete remains irreversible with no undo, which is a trust cost disproportionate to its implementation."
+    }
+  ],
+  "summary": {
+    "total_findings": 16,
+    "by_severity": {
+      "major": 12,
+      "minor": 4
+    },
+    "by_heuristic": {
+      "user-control": 2,
+      "error-recovery": 2,
+      "consistency": 2,
+      "visibility": 2,
+      "aesthetic": 2,
+      "performance": 3,
+      "help-docs": 1,
+      "recognition": 1,
+      "responsive": 1
+    },
+    "top_opportunities": [
+      "Make every failure state honest and reachable",
+      "One voice across six locales, enforced by a gate",
+      "Keyboard parity on every primary surface",
+      "Make the first sixty seconds work for a new brain"
+    ]
+  }
+}
