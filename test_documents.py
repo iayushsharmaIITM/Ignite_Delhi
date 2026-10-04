@@ -6,8 +6,9 @@ Every case here is a real file on disk, not a synthetic string. The negative
 cases matter more than the positive ones: an upload path is only trustworthy if
 its refusals are specific and its failures are per-file rather than fatal.
 
-The PDF is generated with cupsfilter so it is a genuine PDF, not a text file
-with a .pdf extension (which would prove nothing about pypdf).
+The PDF is written with PyMuPDF so it is a genuine PDF, not a text file with a
+.pdf extension (which would prove nothing about pypdf). It used to be made with
+cupsfilter, which is macOS-only and failed the first hosted CI run.
 """
 
 from __future__ import annotations
@@ -49,22 +50,27 @@ def expect_error(name: str, data: bytes, must_mention: str) -> None:
 
 
 def make_pdf(text: str, path: str) -> bool:
-    """Real PDF via cupsfilter. Returns False if unavailable."""
-    source = path + ".src"
-    with open(source, "w") as fh:
-        fh.write(text)
+    """A genuine PDF with real extractable text, written in-process.
+
+    This used to shell out to `/usr/sbin/cupsfilter`, which exists on macOS and not on
+    the Ubuntu CI runner — so the suite asserted False there and `[documents]` failed
+    the first hosted run, meaning this battery had only ever been green on a Mac.
+    PyMuPDF is already declared (documents.py uses it for the scanned-PDF ladder), and
+    writing the page with it keeps the property that mattered: a real PDF object with
+    real text, not a text file renamed to .pdf.
+    """
     try:
-        proc = subprocess.run(
-            ["/usr/sbin/cupsfilter", "-m", "application/pdf", source],
-            capture_output=True,
-            timeout=60,
-        )
-    except Exception:  # noqa: BLE001
+        import fitz
+    except ImportError:
         return False
-    if proc.returncode != 0 or not proc.stdout:
-        return False
-    with open(path, "wb") as fh:
-        fh.write(proc.stdout)
+    doc = fitz.open()
+    try:
+        page = doc.new_page()
+        page.insert_text((72, 96), text, fontsize=11)
+        with open(path, "wb") as fh:
+            fh.write(doc.tobytes())
+    finally:
+        doc.close()
     return True
 
 
@@ -108,7 +114,7 @@ def main() -> int:
             got = documents.extract("board_memo.pdf", fh.read())
         check("pdf extracts", MARKER in got, repr(got[:120]))
     else:
-        check("pdf extracts", False, "cupsfilter unavailable - cannot verify")
+        check("pdf extracts", False, "PyMuPDF unavailable - cannot verify")
 
     try:
         import docx

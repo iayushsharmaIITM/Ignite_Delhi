@@ -85,6 +85,31 @@ file from scratch (`pip install --dry-run --ignore-installed` → 59 packages, e
 rather than by asserting it looks right now. This is exactly the M-delivery.1 bet: the
 dependency file had been validated only by inherited local state.
 
+**The second run got further and taught a harder lesson.** Install passed, the fresh-schema
+bootstrap passed on the hosted runner, and **the whole browser suite passed on Linux** —
+then `[documents]`, `[connectors]` and the chat-integrity step failed for three
+independent reasons that all say the same thing:
+
+- `test_documents.py` made its PDF with `/usr/sbin/cupsfilter`, which is macOS-only.
+- `test_chat_integrity.py` SELECTed an org that already had access to `company_brain`, so
+  on CI's empty Postgres it died on `None["org_id"]` before asserting anything.
+- `connectors_test.py` inherited `CONNECTOR_VAULT_KEY` from my `.env`; without it the
+  vault refuses and OAuth start answers 503 **by design**, so the test's own expectation
+  of 302 was the bug.
+
+So "13/13 green" had been a statement about one Mac, not about the product. Each fix was
+reproduced before it was made — an empty database created on the lab *server* (not the
+lab's populated `kestrel`) for the first two, and a symlinked copy of the repo **without**
+`.env` for the third, which failed locally with CI's exact 503 — and each was then verified
+in both directions. All three suites exit 0 on an empty database, `connectors` is 90/90 with
+and without a `.env`, and the scratch database and copy are gone with 0 `itest` rows left.
+
+**And the battery could not have told me any of that.** It printed `FAIL — see
+/tmp/kestrel_verify_docs.log`, a file that exists only on the runner, so the diagnosis
+started by reading source and guessing. `note()` now tails the log inline; self-tested in
+three directions (FAIL with a log prints it, PASS prints nothing, FAIL with a missing log
+degrades instead of crashing the battery).
+
 **Battery:** `./verify.sh` → 13 tiers, 0 failing suites, `EXIT=0`; `./verify.sh --quick`
 (the CI lane) → `EXIT=0`. Live `:8000` restarted on the committed build and verified in a
 browser: new hashes served (`index-of6ZiLeY.js`), recovery script present, 15 mounted

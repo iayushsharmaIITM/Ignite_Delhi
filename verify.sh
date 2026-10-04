@@ -49,7 +49,21 @@ fi
 SERVER_PID=""
 FAILS=0
 
-note() { echo "[$1] $2"; }
+note() {
+  echo "[$1] $2"
+  # The first hosted CI run failed two suites and said only
+  # "FAIL — see /tmp/kestrel_verify_docs.log" — a pointer to a file that exists on a
+  # GitHub runner and nowhere else. Print the tail inline so the reason survives the
+  # jump from the machine that ran it to the person reading it.
+  case "$2" in
+    FAIL*) local log="${2##*see }"
+           if [ -f "$log" ]; then
+             echo "  ---- tail of $log ----"
+             tail -c 2000 "$log" | sed 's/^/  | /'
+             echo "  ---- end ----"
+           fi ;;
+  esac
+}
 
 # Count what the suite actually reported instead of typing a denominator into this
 # file. The labels used to read "PASS  25/25" as a literal, so a suite could gain or

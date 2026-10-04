@@ -35,6 +35,16 @@ os.environ["GOOGLE_OAUTH_CLIENT_SECRET"] = "test-secret"
 os.environ["SLACK_CLIENT_ID"] = "123.456"
 os.environ["SLACK_CLIENT_SECRET"] = "slack-secret"
 
+# The vault key is minted here, not inherited. Without it every write refuses and
+# `/api/connectors/oauth/*/start` answers 503, so the suite only worked on a machine
+# whose .env happened to carry a real key — the first hosted CI run failed exactly
+# there ("start 302 got=503", then a KeyError on the absent Location header). A test
+# key is also a better key: the result no longer depends on whose secret happened to
+# be loaded, and nothing here can decrypt anything real.
+from cryptography.fernet import Fernet  # noqa: E402
+
+os.environ["CONNECTOR_VAULT_KEY"] = Fernet.generate_key().decode()
+
 import connectors as cx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 

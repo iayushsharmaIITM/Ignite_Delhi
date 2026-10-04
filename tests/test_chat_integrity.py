@@ -60,11 +60,20 @@ import app as app_module
 
 client = TestClient(app_module.app)
 
+# The suite owns its fixture. It used to SELECT an org that already had access to
+# `company_brain`, which meant it passed on a populated lab database and died with
+# `TypeError: 'NoneType' object is not subscriptable` on a clean one — the first
+# hosted CI run (37168749492) had exactly that, because CI's Postgres starts empty.
+# Minting an org and a brain of its own also keeps the suite from mutating access to
+# a brain a real user cares about.
+ORG_A = "itest_org_" + uuid.uuid4().hex[:6]
+BRAIN_A = "itest_brain_" + uuid.uuid4().hex[:6]
+USER_A = "itest-user-a"
 with psycopg.connect(URL, row_factory=dict_row) as conn, conn.cursor() as cur:
-    org_a = cur.execute(
-        "select org_id from brain_access where brain='company_brain' "
-        "and org_id is not null limit 1").fetchone()["org_id"]
-hA = {"Authorization": f"Bearer {token(org_a, 'itest-user')}"}
+    cur.execute("INSERT INTO brain_access (brain, org_id, created_by) VALUES (%s, %s, %s)",
+                (BRAIN_A, ORG_A, USER_A))
+    conn.commit()
+hA = {"Authorization": f"Bearer {token(ORG_A, USER_A)}"}
 hB = {"Authorization": f"Bearer {token('other_org_' + uuid.uuid4().hex[:6], 'itest-user-b')}"}
 
 FAILS = []
@@ -84,7 +93,7 @@ def turns_of(n, tag="t"):
             for i in range(n)]
 
 
-def save(cid, turns, trim=False, headers=hA, brain="company_brain"):
+def save(cid, turns, trim=False, headers=hA, brain=BRAIN_A):
     return client.post("/api/chats", params={"brain": brain}, headers=headers,
                        json={"id": cid, "title": "itest", "turns": turns, "trim": trim})
 
@@ -292,6 +301,7 @@ finally:
             cur.execute("DELETE FROM turns WHERE chat_id = %s", (cid,))
             cur.execute("DELETE FROM chats WHERE id = %s", (cid,))
             cur.execute("DELETE FROM deleted_chats WHERE id = %s", (cid,))
+        cur.execute("DELETE FROM brain_access WHERE brain = %s", (BRAIN_A,))
         cur.execute("DELETE FROM chats WHERE id LIKE 'itest-%'")
         cur.execute("DELETE FROM turns WHERE chat_id LIKE 'itest-%'")
         cur.execute("DELETE FROM deleted_chats WHERE id LIKE 'itest-%'")
