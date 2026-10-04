@@ -108,6 +108,22 @@ gone.
 `ui-react PASS`, `All sections clean … zero console errors`. `smoke.py`'s graph check now
 proves the redirect rather than a followed 200.
 
+**Live `:8000` was broken by this change, briefly, and is now on the new build.** The
+commit deletes `static/graph.html`, but the running tier had already imported the old
+routes — and `frontend/dist` is read from disk per request, so live served the new bundle
+under the old Python for a window in which the Graph nav item returned **500** (measured:
+`/graph` → 500, `/static/*` → 404). Restarting live is Ayush's call, it was asked and
+given, and `ops_stack_up.sh` brought the tier back (`ui: react`, clerk mode, JWKS loaded).
+Verified in the owner's own signed-in session, not just the harness: `/graph?brain=…` →
+307 → `/?view=graph&brain=…`, canvas renders, `93 nodes · 161 edges (cloud)`, 5 legend
+rows, 12 core chips, zoom at 86%, opening a node yields the inspector with 22 relationship
+rows and stats reading `· 1 opened`, and clicking **New chat** from Brains goes
+`?view=brains` → `?new=1` with the composer on screen and the Brains heading gone. Console
+carries only the expected Clerk development-keys warning. The lesson is written into the
+route itself: a purge that touches a served file cannot be considered done when the
+committed bundle and the running process are allowed to disagree — `docs/INDEX.md` now
+records the deletion, and the next such change needs the restart in the same breath.
+
 ## Harness round 2: the gates that could not fail, and a contract that routed agents into a crash
 
 Re-ran the Better Harness review after today's changes (CI real and green, 16 tiers,
