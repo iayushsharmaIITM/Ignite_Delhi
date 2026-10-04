@@ -41,7 +41,7 @@ explicitly the owner's call.
 
 ---
 
-## M-delivery.1 — the repository has no delivery boundary and no second copy — 2026-10-04 — **OPEN: owner action**
+## M-delivery.1 — the repository has no delivery boundary and no second copy — 2026-10-04 — **PARTLY CLOSED: CI is real; branch protection and an off-disk copy still open**
 
 **Measured 2026-10-04 while checking whether the new CI steps could be verified.**
 
@@ -76,6 +76,33 @@ logic.
 **Not done here deliberately:** pushing is a shared-state write with 172 commits behind
 one command, and the first CI run may fail in ways only visible on the hosted runner.
 That is a decision to make awake, not an agent convenience.
+
+**Item 1 is DONE (2026-10-04, owner authorised the push and the first-run watch).**
+`main` is pushed — `24a2308..75901ac`, 175 commits — and the prediction above was right:
+the first hosted run failed, and it failed on things no local green could see.
+
+- Run `37168535441`: both jobs died at `pip install -r requirements.txt`. The declared set
+  was **unsatisfiable** (`fastapi==0.141.1` needs `starlette>=0.46`; the next line capped
+  it at `<0.39`), plus six pins declaring versions no machine here had installed.
+- Run `37168749492`: install green, fresh-schema bootstrap green, **the whole browser
+  acceptance suite green on Linux** — then `[documents]` (macOS-only `cupsfilter`),
+  `[connectors]` and chat-integrity (both assumed database state that CI's empty Postgres
+  does not have) all failed.
+- Following `[connectors]`'s failure led to **A-13**: that suite deletes
+  `connector_credentials` rows for owner `"|"`, and standalone its database URL resolves
+  to **live `:5433`**. The live vault held 0 rows, so nothing was destroyed — luck, not a
+  control. It now refuses any non-lab database.
+- Run `37169797906` (`75901ac`): **success. `fast` 13/13 steps, `ui` 17 passed + 1
+  skipped**, including the fresh-schema bootstrap, the React acceptance suite, the
+  chat-integrity/brain-claim/connector invariants and the Clerk-mode gate.
+
+So the sentence at the top of this entry — "`ci.yml` is a well-formed intention, not a
+control" — is no longer true. It is a control now, and it has earned that status by
+catching four defects on the machine it actually runs on. **Items 2 and 3 stay open:**
+there is still no required check or branch protection (so a red run does not block a
+push), and the code, the live database and the nightly backups are still one disk apart
+from each other and zero disks apart from a dead laptop.
+
 
 ---
 

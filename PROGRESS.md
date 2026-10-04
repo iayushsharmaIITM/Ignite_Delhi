@@ -126,11 +126,31 @@ source, which the live app currently depends on because `.env` sets no `DATABASE
 recorded as **A-14** and left open: guarding it changes boot behaviour for `:8000`, so it
 is the owner's call, not a thing to slip in while fixing CI.
 
-**Battery:** `./verify.sh` → 13 tiers, 0 failing suites, `EXIT=0`; `./verify.sh --quick`
-(the CI lane) → `EXIT=0`. Live `:8000` restarted on the committed build and verified in a
-browser: new hashes served (`index-of6ZiLeY.js`), recovery script present, 15 mounted
-nodes, composer and 4 chips, zero page errors. The live `/openapi.json` scores identically
-to the committed one (59.7%), so what is documented is what is served.
+**CI is green on the hosted runner: run `37169797906` at `75901ac`, `fast` 13/13 steps,
+`ui` 17 passed + 1 skipped.** That is the first run this repository has ever had that
+finished, and it took four pushes to get there — unsatisfiable pins, a macOS-only test
+fixture, two suites that assumed seeded database state, and the live-DB hazard behind the
+last one. `BLOCKERS.md` M-delivery.1 is partly closed: `ci.yml` stopped being "a well-formed
+intention" and became a control, by failing on a machine with no inherited state. Still open
+there: no required check or branch protection, so a red run blocks nothing, and the off-disk
+copy. Still open in the contract: P1 success schemas, E3 error codes, PF1 rate-limit headers,
+and **A-14** — `storage.py:37`'s hardcoded live connection string, which the live app
+currently depends on because `.env` sets no `DATABASE_URL`.
+
+**Postman collection shipped without the MCP** (`docs/api-analysis/kestrel.postman_collection.json`,
+39 requests from the served document, bearer auth on a variable, every request asserting the
+status codes the contract documents). Generating it produced a finding the readiness analysis
+had missed: **10 of 12 POST operations declare no `requestBody` at all** — only `/api/brains`
+and `/api/brains/v2` do, because those are the two using `Form`/`UploadFile`; the rest call
+`await request.json()` by hand, so FastAPI has nothing to generate from.
+
+**Final state, measured:** `./verify.sh` → 13 tiers, 0 failing suites, `EXIT=0`. Live
+`:8000` restarted on the committed build and checked in a browser (new hashes
+`index-of6ZiLeY.js`, recovery script present, 15 mounted nodes, composer + 4 chips, zero
+page errors) and over HTTP: its `/openapi.json` scores identically to the committed one
+(59.7%), and the data paths fail closed exactly as documented — unauthenticated and
+bogus-token requests to `/api/chats` and `/api/ask` both answer
+`401 {"detail":"A valid Clerk session token is required."}`.
 
 ## Structure pass: dead code out, document map in, and a scanner that sees ignored files 2026-10-04
 
