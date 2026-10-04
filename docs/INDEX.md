@@ -23,6 +23,7 @@ record, a historical record, or a business document.
 | `docs/architecture/` | runtime topology + document-health gate output (Round 4) | new | when ports, services or release paths change |
 | `docs/api-analysis/` | per-endpoint logic + API agent-readiness score | new | when a route's contract changes |
 | `docs/ui-review/` | UI audit and browser baselines | 3 | before/after visual work |
+| `docs/CATEGORY_SCAN_2026.md` | 2026 feature bar scored against this codebase, connector landscape and the standout thesis | new | before committing roadmap or connector work |
 
 ## Historical — read-only, do not cite as current
 
