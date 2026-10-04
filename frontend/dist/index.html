@@ -55,27 +55,68 @@
           try { sessionStorage.setItem(KEY, String(Date.now())); } catch (e) {}
           location.reload();
         }
+        // A SCRIPT element fires `error` for two unrelated reasons. Either the file is
+        // genuinely gone — a deploy replaced the hashed bundle under this tab — or the
+        // request was merely ABORTED by a navigation, which is exactly what Clerk's
+        // `?__clerk_handshake=` redirect does on every signed-in load. The first
+        // version treated both as "stale bundle" and cried wolf: the log showed
+        // index-*.js served with 200, React mounted and set the title, and the tab
+        // still landed on the failure panel because the guard reloaded it mid-flight.
+        //
+        // So require evidence: only a response that actually arrived with a 4xx/5xx
+        // counts as missing. An aborted or never-completed request does not, and we
+        // never guess — an older engine without responseStatus gets no verdict.
+        function statusOf(url) {
+          try {
+            var list = performance.getEntriesByName(new URL(url, location.href).href);
+            if (!list.length) {
+              list = performance.getEntriesByType("resource").filter(function (e) {
+                return e.name === new URL(url, location.href).href;
+              });
+            }
+            if (!list.length) return null;
+            var e = list[list.length - 1];
+            return typeof e.responseStatus === "number" && e.responseStatus ? e.responseStatus : 0;
+          } catch (err) { return null; }
+        }
+        function isMissing(url) {
+          var s = statusOf(url);
+          return s !== null && s >= 400;
+        }
         // Resource errors do not bubble; capture them at the window instead.
         window.addEventListener("error", function (e) {
           var t = e.target;
-          if (t && t.tagName === "SCRIPT" && /\.js(\?|$)/.test(t.src || "")) failed();
+          if (!t || t.tagName !== "SCRIPT" || !/\.js(\?|$)/.test(t.src || "")) return;
+          // Defer one task: the timing entry for the failed request is not always
+          // committed by the time the error event fires.
+          setTimeout(function () { if (isMissing(t.src)) failed(); }, 0);
         }, true);
         window.addEventListener("vite:preloadError", function (e) {
-          e.preventDefault(); failed();
+          e.preventDefault();
+          failed();
         }, true);
         window.addEventListener("load", function () {
-          setTimeout(function () {
+          var tries = 0;
+          var tick = function () {
             var root = document.getElementById("root");
             if (root && root.children.length) {
               // Mounted: forget the retry, so the next genuine failure gets a fresh
               // attempt instead of inheriting this one.
               try { sessionStorage.removeItem(KEY); } catch (e) {}
-            } else if (Date.now() - last() >= COOLDOWN_MS) {
-              failed();
-            } else {
-              explain();
+              return;
             }
-          }, 4000);
+            // A hidden tab is timer-throttled; React may simply not have run yet.
+            // Reloading it would have the guard manufacture the outage it reports.
+            if (document.hidden) return;
+            if (++tries < 4) { setTimeout(tick, 2500); return; }
+            // Still empty after ~10s in a visible tab. Reload ONLY if a bundle
+            // request actually came back 4xx/5xx; otherwise just explain, with a
+            // button, and let the user decide. No blind reload loop.
+            var proven = [].slice.call(document.querySelectorAll("script[src]"))
+              .some(function (s) { return isMissing(s.src); });
+            if (proven) { failed(); } else { explain(); }
+          };
+          setTimeout(tick, 2500);
         });
       })();
     </script>

@@ -1,3 +1,36 @@
+## The guard I wrote to kill a blank page was causing one 2026-10-04
+
+The owner's built-in browser showed "Kestrel could not load its interface" while the
+server log said the opposite: `index-Df5KrToC.js` **200**, CSS **200**, Clerk handshake
+**200**, and the tab title reading "Demo brain" — a title only React sets. The app had
+loaded. The guard invented in A-2 to end silent blank pages was producing a loud wrong
+one.
+
+The mechanism was a conflation. A `SCRIPT` element fires `error` both when the file is
+genuinely gone and when the request is merely **aborted by a navigation** — which is what
+Clerk's `?__clerk_handshake=` redirect does on every signed-in load, and what a throttled
+embedded webview does to a slow one. The listener called `failed()` on either, and the 4s
+empty-`#root` check fired once, in a tab that may simply not have been visible enough to
+be given CPU.
+
+The guard now requires evidence before acting: it reads
+`PerformanceResourceTiming.responseStatus` and reloads **only** when a bundle request
+actually came back 4xx/5xx — never on an abort, and never on an engine that cannot
+distinguish the two, because guessing is what caused this. The empty-root check polls to
+~10s instead of sampling once, skips entirely while `document.hidden`, and with no 4xx
+evidence it explains without reloading rather than spending a retry.
+
+The new gate is "an aborted bundle request does not spend a reload", and it was checked in
+the failing direction by restoring the unconditional listener: it writes a retry stamp and
+the gate fails. Against the evidence-based guard all four stale-bundle checks pass and the
+battery is 13/13, `EXIT=0`.
+
+Worth stating plainly: this is the second time in one day that a defensive mechanism I
+added made the owner's experience worse, and both times the fix was to require evidence
+before acting rather than to widen the heuristic. A guard that cannot tell a real failure
+from an aborted request should stay silent.
+
+
 ## Two corrections and one port 2026-10-04
 
 The owner came back with three things, two of which were about my own work.

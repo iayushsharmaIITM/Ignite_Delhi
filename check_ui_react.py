@@ -842,8 +842,27 @@ def section_stale_bundle(suite: Suite, base: str) -> None:
         suite.check("the Reload button clears the retry allowance",
                     cleared is None, f"flag after clicking Reload: {cleared}")
         page.wait_for_timeout(3000)
-    finally:
         page.unroute("**/assets/index-*.js", missing)
+
+        # The false alarm this guard used to produce: a SCRIPT element also fires
+        # `error` when a request is merely ABORTED, which is what Clerk's
+        # `?__clerk_handshake=` redirect does on every signed-in load, and what a
+        # throttled embedded browser does to a slow one. The old code reloaded on any
+        # error, so a working app got pushed into the failure panel — the owner's
+        # screenshot, with the bundle served 200 in the server log. An abort must not
+        # spend a retry.
+        def aborted(route):
+            route.abort()
+
+        page.route("**/assets/index-*.js", aborted)
+        page.evaluate("() => sessionStorage.clear()")
+        page.goto(base, wait_until="load")
+        page.wait_for_timeout(6000)
+        stamp = page.evaluate("() => sessionStorage.getItem('kestrel.bundle.retry')")
+        suite.check("an aborted bundle request does not spend a reload",
+                    stamp is None, f"retry stamp after an abort: {stamp}")
+        page.unroute("**/assets/index-*.js", aborted)
+    finally:
         suite.console.clear()
 
 
