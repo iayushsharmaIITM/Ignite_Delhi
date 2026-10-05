@@ -507,7 +507,7 @@ def safe_dataset(raw: str | None) -> str:
 # A raw COGNEE_DATASET like "Acme-Demo" would otherwise leave its normalized
 # twin ("acme_demo") creatable/deletable past this guard.
 RESERVED_NAMES = {normalize_brain_name(DEMO_DATASET) or DEMO_DATASET,
-                  "default_dataset", "company_brain"}
+                  "default_dataset", "company_brain", "collisions"}
 
 
 def _pipeline_state(payload) -> str:

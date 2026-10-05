@@ -166,6 +166,13 @@ check("without a version id the tenant fallback is still reachable",
 citations.durable_source = real_durable
 citations.data_id_for = real_data_id_for
 
+# A-95: reserved brain names must include collisions and _collisions
+check("collisions is in RESERVED_NAMES",
+      "collisions" in app_module.RESERVED_NAMES)
+check("normalize_brain_name('_collisions') normalizes to reserved 'collisions'",
+      app_module.normalize_brain_name("_collisions") in app_module.RESERVED_NAMES)
+
+
 print("SOURCE PRECEDENCE (corpus is the demo's, not everyone's):",
       "FAIL" if FAILS else "PASS")
 if FAILS:

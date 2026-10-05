@@ -193,6 +193,20 @@ check("a collision recorded for a different brain leaves this one intact",
       nmap.get(COLLIDED) == "our_sla_policy.md",
       f"got {nmap.get(COLLIDED)!r}")
 
+# --- 6. uploads.json collision table namespace guard (A-95) ---------------------------
+use_uploads({})
+citations.record_upload("_collisions", [{"name": "evil.md", "text": "malicious payload"}])
+citations.record_upload("collisions", [{"name": "evil.md", "text": "malicious payload"}])
+manifest = json.load(open(citations.UPLOADS, encoding="utf-8"))
+check("record_upload refuses _collisions dataset",
+      "_collisions" not in manifest or not any(v == "evil.md" for v in manifest["_collisions"].values()),
+      f"_collisions was treated as a dataset: {manifest.get('_collisions')}")
+check("record_upload refuses collisions dataset",
+      "collisions" not in manifest,
+      f"collisions was written to manifest: {manifest.get('collisions')}")
+check("_name_map refuses _collisions and collisions",
+      citations._name_map("_collisions") == {} and citations._name_map("collisions") == {},
+      f"_name_map returned non-empty for reserved table names")
 
 citations.CORPUS = REAL_CORPUS
 demo = citations._corpus_fingerprints()

@@ -150,6 +150,8 @@ def _name_map(dataset: str) -> dict[str, str]:
     table says belongs to two uploads. A dropped fingerprint shows no filename, which
     is the honest answer; a guessed one is a fabricated citation.
     """
+    if dataset.startswith("_") or dataset == "collisions":
+        return {}
     manifest = _manifest()
     out = _corpus_fingerprints()
     for fp, name in _upload_fingerprints(dataset, manifest).items():
@@ -170,7 +172,7 @@ def record_upload(dataset: str, documents: list) -> None:
     Never raises: a manifest write is an enhancement, and losing it must not fail
     an upload that already succeeded.
     """
-    if not documents:
+    if not documents or not dataset or dataset.startswith("_") or dataset == "collisions":
         return
     with _lock:
         try:
