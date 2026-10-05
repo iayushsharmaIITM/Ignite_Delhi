@@ -17,6 +17,7 @@ record, a historical record, or a business document.
 | `PROGRESS.md` | execution log, newest first | 6 | every completed piece of work |
 | `BUGS_AUDIT.md` | defect ledger by round (1–9), each closure with its measurement | 8 | every defect found or fixed |
 | `docs/FIX_LOG.md` | the running fix account for the current branch: status per defect, the test that proves it, the battery line after each commit, and what was never run against a real stack | new | every commit on a fix branch |
+| `docs/HANDOVER_2026-10-05.md` | the handover for `fix/bughunt-2026-10`: the live/branch skew, the boundaries, every defect with its proof, the review round, the measured inventory of what is built, and the plan + prompts to continue from | new | when the branch merges, is abandoned, or the inventory changes |
 | `BLOCKERS.md` | open escalations, `M-<phase>.<n>` | 5 | when something needs the owner |
 | `PLAN.md` | locked 7-phase plan (P1–P3 done, P4 = deploy) | 4 | **do not re-litigate**; amend only with a decision |
 | `DESIGN.md` | frontend design system: tokens, components, the rules CI/battery can check | 3 | any visual or token change |
