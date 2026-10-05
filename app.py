@@ -1237,6 +1237,23 @@ def google_demo_connect(request: Request):
     return {"ok": True, "connected": "google"}
 
 
+@app.post("/api/connectors/google/authorize")
+async def google_authorize_route(request: Request):
+    """Direct Google / Gmail authorization: connect user's Google account."""
+    identity = require_tenant(request)
+    import connectors as _cx
+    if not _cx.vault_configured():
+        raise HTTPException(status_code=503, detail="Connector vault has no key (CONNECTOR_VAULT_KEY).")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    email_addr = (body.get("email") or "").strip()
+    token = (body.get("token") or "").strip()
+    res = _cx.google_put_user_credential(identity, email=email_addr, token=token)
+    return {"ok": True, **res}
+
+
 @app.get("/api/connectors/slack/workspaces")
 def slack_workspaces_list(request: Request):
     """Connected workspaces + granted access level — no tokens, ever."""

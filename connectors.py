@@ -747,6 +747,22 @@ def google_put_demo_credential(identity: dict | None) -> None:
     put_credential("google", identity, tokens, scopes=scopes)
 
 
+def google_put_user_credential(identity: dict | None, email: str | None = None, token: str | None = None) -> dict:
+    scopes = " ".join(PROVIDERS["google"]["scopes"])
+    t = (token or "").strip()
+    clean_email = (email or "").strip() or "user@company.com"
+    if not t:
+        t = DEMO_GOOGLE_TOKEN
+    tokens = {
+        "access_token": t,
+        "email": clean_email,
+        "refresh_token": "1//refresh-token",
+        "expires_at": int(time.time()) + 86400 * 30,
+    }
+    put_credential("google", identity, tokens, scopes=scopes)
+    return {"ok": True, "connected": "google", "email": clean_email}
+
+
 def slack_channels(token: str, types: str = "public_channel,private_channel", cursor: str = "", limit: int = 100, team_id: str = "") -> dict:
     if is_demo_token(token):
         tid = team_id or _demo_token_to_team.get(token) or (DEMO_SLACK_TEAM_ID if token == DEMO_SLACK_BOT_TOKEN else "")

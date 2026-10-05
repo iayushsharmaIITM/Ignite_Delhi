@@ -4,6 +4,7 @@ import { Hash, Link2, Lock, MessageSquare, Plug, Plus, RefreshCw, Send } from "l
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { SlackAccessDialog } from "@/components/SlackAccessDialog"
+import { GoogleAccessDialog } from "@/components/GoogleAccessDialog"
 import { apiFetch, serverError } from "@/lib/api"
 import { t } from "@/lib/i18n"
 
@@ -68,7 +69,7 @@ export function Connectors({ brain = "" }: { brain?: string }) {
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [postText, setPostText] = useState("")
   const [posting, setPosting] = useState(false)
-  const [googleConnecting, setGoogleConnecting] = useState(false)
+  const [googleDialogOpen, setGoogleDialogOpen] = useState(false)
   const [showAddChannel, setShowAddChannel] = useState(false)
   const [newChannelName, setNewChannelName] = useState("")
   const [addingChannel, setAddingChannel] = useState(false)
@@ -234,21 +235,6 @@ export function Connectors({ brain = "" }: { brain?: string }) {
       toast.error((e as Error).message)
     } finally {
       setAddingChannel(false)
-    }
-  }
-
-  const connectGoogleDemo = async () => {
-    setGoogleConnecting(true)
-    try {
-      const r = await apiFetch("/api/connectors/google/demo/connect", { method: "POST" })
-      const d = await r.json()
-      if (!r.ok || !d.ok) throw new Error(d.detail || "Connection failed")
-      toast.success("Connected Google Workspace")
-      refresh()
-    } catch (e) {
-      toast.error((e as Error).message)
-    } finally {
-      setGoogleConnecting(false)
     }
   }
 
@@ -546,13 +532,12 @@ export function Connectors({ brain = "" }: { brain?: string }) {
             <Button
               variant="secondary"
               className="rounded-lg"
-              disabled={googleConnecting}
               onClick={() => {
                 if (googleOAuth?.configured) {
                   // transport-exempt: OAuth hand-off is a browser navigation
                   window.location.href = "/api/connectors/oauth/google/start"
                 } else {
-                  connectGoogleDemo()
+                  setGoogleDialogOpen(true)
                 }
               }}
             >
@@ -587,18 +572,18 @@ export function Connectors({ brain = "" }: { brain?: string }) {
           {/* Quick preset channel chips */}
           <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
             <span className="text-muted-foreground text-[11px] mr-1">Quick channels:</span>
-            {[
-              { id: "C_DEMO_INC", name: "#incident-postmortems" },
-              { id: "C_DEMO_ROAD", name: "#product-roadmap" },
-              { id: "C_DEMO_SEC", name: "#security-compliance" },
-            ].map((preset) => (
+            {(channels.length > 0 ? channels.slice(0, 6) : [
+              { id: "C_DEMO_INC", name: "incident-postmortems" },
+              { id: "C_DEMO_ROAD", name: "product-roadmap" },
+              { id: "C_DEMO_SEC", name: "security-compliance" },
+            ]).map((preset) => (
               <button
                 key={preset.id}
                 type="button"
                 onClick={() => setImportChannel(preset.id)}
                 className="rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-[11px] text-foreground hover:bg-secondary transition-colors"
               >
-                {preset.name}
+                #{preset.name.replace(/^#/, "")}
               </button>
             ))}
           </div>
@@ -655,6 +640,7 @@ export function Connectors({ brain = "" }: { brain?: string }) {
       </div>
 
       <SlackAccessDialog open={dialogOpen} onClose={() => { setDialogOpen(false); refresh() }} />
+      <GoogleAccessDialog open={googleDialogOpen} onClose={() => { setGoogleDialogOpen(false); refresh() }} />
     </div>
   )
 }
