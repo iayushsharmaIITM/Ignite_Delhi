@@ -1,3 +1,13 @@
+## Handover continuation: Live restart, second independent review, A-72 closed (2026-10-05)
+
+1. **Live :8000 unified with main**: Ayush gave explicit approval to merge and restart :8000. `main` was fast-forwarded to `86301c6`, the old process stopped, and `ops_stack_up.sh` restarted :8000. Verified live: `GET /` serves `assets/index-CnumYN-y.js`, `GET /health` reports 200 ok (cloud, postgres), and `/openapi.json` documents `document_version_id`.
+2. **Second independent review of S2b, S8b, S5b**:
+   - `245bb2c` (S2b): Defect found in `_collided_fingerprints` (`citations.py:98-99`). The filter `len(key) - len(head) == _FINGERPRINT_LEN` (120) ignores colliding documents whose text content is shorter than 120 characters, leaving short colliding uploads unsuppressed from `_name_map`.
+   - `72835b1` (S8b): Verified sound. UUID parsing protects against psycopg type errors manufacturing outages; `UndefinedTable`/`UndefinedColumn` correctly mapped to no durable rows; pinned version missing 404s; active generation preferred.
+   - `f0da7b1` (S5b): Verified sound. `stopImmediatePropagation` on Escape; honest origin label; provider log truncation; gate tightenings.
+3. **A-72 closed (commit `e53085b`)**: `CreateBrainDialog`'s 5s poll had no cleanup on unmount or dialog close, and form inputs and `jobId` were never cleared when hidden. Reopening showed the previous attempt with submit button disabled on "Working…". Fixed with `useEffect([open])` form/job reset on close, `useEffect([jobId])` lifecycle with `AbortController`, `clearTimeout`, and termination on SUCCEEDED/FAILED/RECONCILIATION_REQUIRED, plus `getJob(jobId, signal)` in `api.ts`. Gated in `check_ui_react.py` (2 checks failed first). Full battery: `ran 23 tier(s), skipped 1, failing 0`.
+4. **A-95 investigation**: `normalize_brain_name` strips leading underscores and requires `^[a-z0-9]`, so `_collisions` normalizes to `collisions`. No brain named `_collisions` or `collisions` exists in the database or `uploads.json`. Awaiting Ayush's naming decision.
+
 ## An outside bug list, checked before it was believed: 14 claims, 9 real defects, 5 not
 
 A 14-item brief (B01–B14, plus a citation-redesign phase) arrived as a fix-it prompt.

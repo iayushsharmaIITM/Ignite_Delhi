@@ -45,6 +45,7 @@ After the pass, full battery (browser suite included, lab on 5434):
 | A-85 | The OAuth landing pad moved the screen without moving the URL | **FIXED** (S5) | `App.tsx` | 8 new `ui-react` gates (success + failure return, each re-checked after reload) | `ui-react` PASS |
 | A-86 | `history.replaceState(…, "")` is a no-op, so the round-trip param was never stripped | **FIXED** (S5), found by A-85's gate | `App.tsx` | observed failing URL: `?connected=google&view=connectors&chat=cfdd6ead-…` | `ui-react` PASS |
 | A-87 | A REBUILD job could never publish (both fences required `CREATING`) | **FIXED** (S6), closes **A-58** | `lifecycle.py` (`_publishable`, two fences, recovery select gains `kind`) | `tests/test_rebuild_publish.py` — located both inline comparisons before changing either | new `rebuild-fence` tier; `lifecycle-identity`, `lease-recovery` unaffected |
+| A-72 | `CreateBrainDialog`'s 5s poll never stopped/aborted, kept stale inputs/jobId on reopen | **FIXED** | `CreateBrainDialog.tsx`, `api.ts`, `check_ui_react.py` | `check_ui_react.py` — 2 checks failed first (stale name on reopen, button stuck on Working) | full battery, browser suite `ui-react` PASS |
 | B05/B06/X-USAGE | Legacy `NULL/NULL` rows visible to every identity; org-OR-creator; unregistered brains in scoped usage | **DEMONSTRATED ONLY** (Ayush: change nothing) | `tests/test_legacy_visibility.py`, `verify.sh` | characterisation tier, labelled non-security in its own output | `legacy-visibility` PASS / "characterisation only" |
 | B04 | `for_dataset` cannot tell "unavailable" from "empty" | **PARTIAL** — the user-visible outcome is already honest ("no citation"), and with A-74/A-75 closed nothing can be substituted. The status plumbing waits for the citation redesign | — | — | — |
 | A-88 | `lifecycle.py:263`/`:267` assign `is_rebuild` twice, identically | **OPEN** — reported, unrelated to the fence fix, not touched | — | — | — |
@@ -77,9 +78,10 @@ After the pass, full battery (browser suite included, lab on 5434):
 5. **A `(brain_id, backend_data_id)` unique constraint** would make A-76's clash
    impossible rather than detected. Needs a read of existing rows first — a migration on
    live data is not this pass's authority.
-6. **A-72** (`CreateBrainDialog`'s poll never stops, only under `KESTREL_JOBS_V2=1`) was
-   in the brief's frontend phase and is **not** fixed here: it was not reproduced against
-   a running v2 job, and the flag is off by default.
+6. **A-95 naming decision**: `normalize_brain_name` strips leading underscores, so
+   `_collisions` normalizes to `collisions`. No brain named `_collisions` or `collisions`
+   exists on lab or in `uploads.json`. Needs an owner decision whether to add both to
+   `RESERVED_NAMES` in `app.py` and guard `citations.record_upload`.
 
 ## Not run against a real stack
 
