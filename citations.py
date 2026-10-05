@@ -133,7 +133,7 @@ def _collided_fingerprints(dataset: str, manifest: dict) -> set[str]:
     """
     head = f"{dataset}::"
     return {key[len(head):] for key in (manifest.get("_collisions") or {})
-            if key.startswith(head) and len(key) - len(head) == _FINGERPRINT_LEN}
+            if key.startswith(head) and 0 < len(key) - len(head) <= _FINGERPRINT_LEN}
 
 
 def _name_map(dataset: str) -> dict[str, str]:

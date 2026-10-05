@@ -164,6 +164,18 @@ check("but a document that merely opens the same way keeps its own citation",
       nmap.get(citations._fingerprint(NEAR_UNIQUE)) == "z_unique.md",
       f"got {nmap.get(citations._fingerprint(NEAR_UNIQUE))!r} — over-deleted")
 
+# --- 3c. collisions of documents shorter than 120 chars must also be suppressed -------
+SHORT_TEXT = "Short contract summary text under 120 chars."
+assert len(citations._fingerprint(SHORT_TEXT)) < 120
+use_corpus({"s_unique.md": "Different unique short text."})
+use_uploads()
+citations.record_upload("short-brain", [{"name": "short_1.md", "text": SHORT_TEXT},
+                                        {"name": "short_2.md", "text": SHORT_TEXT}])
+nmap = citations._name_map("short-brain")
+check("a collision of documents shorter than 120 chars is also suppressed",
+      citations._fingerprint(SHORT_TEXT) not in nmap,
+      f"got {nmap.get(citations._fingerprint(SHORT_TEXT))!r} — short collision was not suppressed")
+
 # --- 4. the tenant's own filename beats the demo file's, for identical content --------
 use_corpus({"05_policy_SLA.md": TEXT_A})
 use_uploads({"acme-brain": {COLLIDED: "our_sla_policy.md"}})
@@ -180,6 +192,7 @@ nmap = citations._name_map("acme-brain")
 check("a collision recorded for a different brain leaves this one intact",
       nmap.get(COLLIDED) == "our_sla_policy.md",
       f"got {nmap.get(COLLIDED)!r}")
+
 
 citations.CORPUS = REAL_CORPUS
 demo = citations._corpus_fingerprints()
