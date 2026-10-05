@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { ArrowDown, Loader2 } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, useDialog } from "@/lib/utils"
 import { resolvedTheme } from "@/theme"
 import { t } from "@/lib/i18n"
 import { apiFetch, serverError } from "@/lib/api"
@@ -753,12 +753,7 @@ export function UsageModal({ open, onClose }: UsageModalProps) {
       })
   }, [open])
 
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [open, onClose])
+  const sheetRef = useDialog<HTMLDivElement>(open, onClose)
 
   if (!open) return null
   const calls = rows.reduce((n, r) => n + Number(r.calls || 0), 0)
@@ -768,7 +763,8 @@ export function UsageModal({ open, onClose }: UsageModalProps) {
 
   return (
     <div className="km-scrim" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="km-sheet" role="dialog" aria-modal="true" aria-label={t("usage.title", "Usage stats")}>
+      <div className="km-sheet" ref={sheetRef} tabIndex={-1} role="dialog" aria-modal="true"
+           aria-label={t("usage.title", "Usage stats")}>
         <div className="km-head">
           <h2>{t("usage.title", "Usage stats")}</h2>
           <button type="button" className="km-x" onClick={onClose} aria-label={t("src.close", "Close")}>✕</button>
@@ -822,17 +818,13 @@ const TIERS = [
 ] as const
 
 export function UpgradeModal({ open, onClose }: UsageModalProps) {
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [open, onClose])
+  const sheetRef = useDialog<HTMLDivElement>(open, onClose)
 
   if (!open) return null
   return (
     <div className="km-scrim" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="km-sheet" role="dialog" aria-modal="true" aria-label={t("set.upgrade", "Upgrade")}>
+      <div className="km-sheet" ref={sheetRef} tabIndex={-1} role="dialog" aria-modal="true"
+           aria-label={t("set.upgrade", "Upgrade")}>
         <div className="km-head">
           <h2>{t("set.upgrade", "Upgrade")}</h2>
           <button type="button" className="km-x" onClick={onClose} aria-label={t("src.close", "Close")}>✕</button>

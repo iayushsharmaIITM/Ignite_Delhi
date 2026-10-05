@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 import { t } from "@/lib/i18n"
+import { useDialog } from "@/lib/utils"
 import { apiFetch } from "@/lib/api"
 
 type Props = {
@@ -69,17 +70,15 @@ export function SourceModal({ title, excerpt, version, brain, onClose }: Props) 
     }
   }, [title, excerpt, brain, version])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [onClose])
+  const panelRef = useDialog<HTMLDivElement>(true, onClose)
 
   return (
     <div
       id="source-modal"
+      ref={panelRef}
       role="dialog"
       aria-modal="true"
+      tabIndex={-1}
       aria-label="Cited source"
       // Legacy closes the sheet on a backdrop click (index.html:1812-1815).
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}

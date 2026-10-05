@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { apiFetch } from "@/lib/api"
 import { t } from "@/lib/i18n"
+import { useDialog } from "@/lib/utils"
 
 type Props = {
   open: boolean
@@ -31,6 +32,7 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
   // "added/failed" verdicts vanished exactly when they mattered.
   const [uploaded, setUploaded] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const panelRef = useDialog<HTMLDivElement>(open, onClose)
   const addPicked = (list: FileList | null) => {
     if (!list?.length) return
     const next: Row[] = [...picked]
@@ -145,7 +147,11 @@ export function FilesSheet({ open, brain, onClose, onAdded }: Props) {
       hidden={!open}
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="sheet">
+      {/* The only overlay in the app that had no dialog semantics at all: no role, no
+          aria-modal, no Escape, no focus handling — a keyboard user could Tab straight
+          out of it into the page behind. */}
+      <div className="sheet" ref={panelRef} role="dialog" aria-modal="true" tabIndex={-1}
+           aria-label={t("files.title", "Add documents")}>
         <div className="head">
           <strong>{t("files.title", "Add documents")}</strong>
           <span className="where" id="files-target">{brain ? `into ${brain}` : "into the demo brain (read-only)"}</span>

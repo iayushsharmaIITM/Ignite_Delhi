@@ -625,18 +625,30 @@ export default function App() {
     const u = new URLSearchParams(location.search)
     const connected = u.get("connected")
     const connectError = u.get("connect_error")
-    if (connected) {
-      setView("connectors")
-      toast.success(`${connected[0].toUpperCase() + connected.slice(1)} connected`)
-    } else if (connectError) {
-      setView("connectors")
-      toast.error(`Connection failed: ${decodeURIComponent(connectError)}`)
-    }
     if (connected || connectError) {
+      // Strip the round-trip params FIRST, then navigate: openView builds the new URL
+      // off location.href, and doing it the other way round re-wrote the cleaned URL
+      // with a stale copy that dropped `view` again.
       u.delete("connected")
       u.delete("connect_error")
-      history.replaceState(null, "", `?${u.toString()}`.replace(/\?$/, ""))
+      // An empty string is NOT a URL to history.replaceState — it means "leave the
+      // address alone" — and when the round-trip param was the only one on the way
+      // back, `?` + "" reduced to exactly that. The cleanup was a no-op in the common
+      // case: /?connected=google stayed in the address bar after the landing pad ran.
+      const query = u.toString()
+      history.replaceState(null, "", location.pathname + (query ? `?${query}` : ""))
+      // openView is the only thing that keeps `view` state and the address in the same
+      // sentence. This used to call setView directly, which showed Connectors while the
+      // URL still said chat — so a reload, a bookmark or a back press landed the user
+      // somewhere they were not looking at, with a toast already gone.
+      openView("connectors")
+      if (connected) {
+        toast.success(`${connected[0].toUpperCase() + connected.slice(1)} connected`)
+      } else {
+        toast.error(`Connection failed: ${decodeURIComponent(connectError || "")}`)
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {

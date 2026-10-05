@@ -269,6 +269,31 @@ def section_files_sheet(suite: Suite, base: str) -> None:
     sheet = page.locator("#files-sheet")
     suite.check("sheet opens from the ⋯ menu", sheet.is_visible())
     suite.check("drop zone present", page.locator("#files-sheet .drop").count() == 1)
+    # The one overlay in the app that was not a dialog at all: no role, no aria-modal,
+    # no Escape, and a keyboard user could Tab straight out of it into the page behind.
+    panel = page.locator('#files-sheet .sheet[role="dialog"][aria-modal="true"]')
+    suite.check("the files sheet is a dialog a screen reader can announce",
+                panel.count() == 1 and bool(panel.get_attribute("aria-label")),
+                f"panels={panel.count()}")
+    suite.check("focus moves inside when it opens", page.evaluate(
+        "() => !!document.activeElement && "
+        "!!document.activeElement.closest('#files-sheet .sheet')"))
+    page.keyboard.press("Tab")
+    page.keyboard.press("Tab")
+    page.keyboard.press("Tab")
+    page.keyboard.press("Tab")
+    page.keyboard.press("Tab")
+    suite.check("Tab cannot walk out of the sheet into the page behind", page.evaluate(
+        "() => !!document.activeElement && "
+        "!!document.activeElement.closest('#files-sheet .sheet')"),
+        page.evaluate("() => document.activeElement?.id || document.activeElement?.tagName"))
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(300)
+    suite.check("Escape closes the sheet", not sheet.is_visible())
+    page.click("#menu2-toggle")
+    page.wait_for_timeout(250)
+    page.locator("#menu2 button", has_text="Add documents").first.click()
+    page.wait_for_timeout(400)
     page.set_input_files("#file-input", {"name": "notes.txt", "mimeType": "text/plain",
                                          "buffer": b"Bluepeak notes"})
     page.wait_for_timeout(300)
@@ -627,6 +652,29 @@ def section_deep_links_history(suite: Suite, base: str) -> None:
                     page.url)
     else:
         suite.check("chat rows exist to click", False, "none in the sidebar")
+
+    # The OAuth round-trip lands on /?connected=<provider>, and the landing pad used
+    # to call setView("connectors") directly. setView moves the screen; only openView
+    # moves the screen AND the address. So the user saw Connectors while the URL said
+    # chat — and a reload, a bookmark, or a back press put them somewhere else entirely
+    # with the success toast already gone. A failure return did the same with
+    # ?connect_error. Both halves of the agreement are asserted, then proven durable by
+    # a reload, because a URL that disagrees is invisible until you touch it.
+    for marker in ("connected=google", "connect_error=bad_state"):
+        page.goto(base + f"/?{marker}", wait_until="networkidle")
+        page.wait_for_timeout(1500)
+        suite.check(f"after {marker} the address names the view on screen",
+                    "view=connectors" in page.url, page.url)
+        suite.check(f"after {marker} the round-trip param is gone",
+                    marker.split("=")[0] not in page.url, page.url)
+        suite.check(f"after {marker} the connectors view is what is rendered",
+                    page.locator("textarea#q").count() == 0,
+                    f"url={page.url} composers={page.locator('textarea#q').count()}")
+        page.reload(wait_until="networkidle")
+        page.wait_for_timeout(1500)
+        suite.check(f"{marker} survives a reload on the same view",
+                    page.locator("textarea#q").count() == 0 and "view=connectors" in page.url,
+                    page.url)
 
     # The owner's report, one step further along than CH-4: from ANY other
     # section, "New chat" must take you back to the composer. It did not.
