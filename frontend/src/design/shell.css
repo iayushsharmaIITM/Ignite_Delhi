@@ -309,14 +309,71 @@
   .turn.bot .bubble td { color:var(--fg-2); }
   .turn.bot .bubble tr:last-child td { border-bottom:0; }
 
-  /* ---- sources ---------------------------------------------------------------- */
-  .turn .srcs { display:flex; flex-wrap:wrap; gap:7px; }
-  .turn .srcs span, .turn .srcs button {
+  /* ---- sources & Perplexity citation chips ------------------------------------ */
+  .turn .srcs { display:flex; flex-wrap:wrap; gap:7px; margin-top:8px; align-items:center; }
+  .citation-chip-wrap { position:relative; display:inline-flex; }
+  .citation-chip-wrap.inline { vertical-align:super; font-size:10px; margin:0 2px; }
+
+  .turn .srcs button, .src-chip {
+    display:inline-flex; align-items:center; gap:5px;
     font-size:11px; color:var(--fg-2); background:var(--panel);
-    border:1px solid var(--line-2); padding:4px 10px; border-radius:7px;
-    cursor:pointer; transition:all .15s ease;
-    font-family:var(--mono); }
-  .turn .srcs button:hover { color:var(--accent-2); border-color:var(--accent-soft); }
+    border:1px solid var(--line-2); padding:3px 9px; border-radius:9999px;
+    cursor:pointer; transition:all .15s ease; font-family:var(--mono);
+    box-shadow:0 1px 2px rgba(0,0,0,0.04);
+  }
+  .turn .srcs button:hover, .src-chip:hover {
+    color:var(--accent-2); border-color:var(--accent-soft);
+    background:var(--panel-2); transform:translateY(-0.5px);
+  }
+  .src-chip .src-num {
+    font-weight:600; color:var(--accent); font-size:10.5px;
+  }
+  .src-chip.inline {
+    padding:1px 6px; border-radius:9999px; font-size:10px; line-height:1.2;
+    background:var(--wash-2); border:1px solid var(--line-2);
+  }
+  .src-chip.inline:hover {
+    background:var(--accent-soft); border-color:var(--accent); color:var(--accent-2);
+  }
+  .src-chip.unresolved {
+    opacity:0.6; cursor:not-allowed; border-style:dashed;
+  }
+
+  /* ---- hover popover card ----------------------------------------------------- */
+  .src-popover {
+    position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%);
+    width:280px; padding:10px 12px; border-radius:10px;
+    background:var(--panel); border:1px solid var(--line-2);
+    box-shadow:0 10px 25px -5px rgba(0,0,0,0.3), 0 8px 10px -6px rgba(0,0,0,0.2);
+    z-index:90; pointer-events:none; display:flex; flex-direction:column; gap:6px;
+    text-align:left; animation:popFade .15s ease-out;
+  }
+  @keyframes popFade {
+    from { opacity:0; transform:translateX(-50%) translateY(4px); }
+    to { opacity:1; transform:translateX(-50%) translateY(0); }
+  }
+  .src-popover .pop-head {
+    display:flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; color:var(--fg);
+  }
+  .src-popover .pop-idx {
+    color:var(--accent); font-family:var(--mono); font-size:10.5px;
+  }
+  .src-popover .pop-title {
+    flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .src-popover .pop-badge {
+    font-size:9.5px; font-weight:500; font-family:var(--mono);
+    color:var(--muted); background:var(--wash-2);
+    padding:2px 6px; border-radius:4px; border:1px solid var(--line);
+  }
+  .src-popover .pop-excerpt {
+    font-size:11px; line-height:1.45; color:var(--fg-2);
+    font-style:italic; display:-webkit-box; -webkit-line-clamp:3;
+    -webkit-box-orient:vertical; overflow:hidden;
+  }
+  .src-popover .pop-foot {
+    font-size:9.5px; color:var(--accent); font-weight:500; align-self:flex-end;
+  }
 
   /* ---- hover-only message controls (ZCode anatomy) -----------------------------
      copy · email · steps · chat · thumbs up/down · time — invisible until the

@@ -24,6 +24,7 @@ import {
 import { t, fmt, setLang, getLang, getLangs, type LangCode } from "@/lib/i18n"
 import { applyTheme, setTheme } from "@/theme"
 import { loadClerk } from "@/lib/clerk"
+import { CitationChip } from "@/components/CitationChip"
 
 const Markdown = lazy(() => import("@/components/Markdown"))
 
@@ -1508,21 +1509,24 @@ export default function App() {
         <div className={"bubble rendered" + (streamingHere ? " streaming" : "") + (turn.error ? " err" : "")}>
           {turn.text ? (
             <Suspense fallback={<span>{turn.text}</span>}>
-              <Markdown>{turn.text}</Markdown>
+              <Markdown
+                sources={turn.sources}
+                onOpenSource={(item) => setSourcesPanel({ title: item.source, excerpt: item.excerpt, version: item.version })}
+              >
+                {turn.text}
+              </Markdown>
             </Suspense>
           ) : null}
         </div>
         {turn.sources && turn.sources.length > 0 && (
           <div className="srcs">
             {turn.sources.map((s, si) => (
-              <button
-                type="button"
+              <CitationChip
                 key={si}
-                title={t("src.open", "Open this source document")}
-                onClick={() => setSourcesPanel({ title: s.source, excerpt: s.excerpt, version: s.version })}
-              >
-                {s.source}
-              </button>
+                index={si + 1}
+                source={s}
+                onOpenSource={(item) => setSourcesPanel({ title: item.source, excerpt: item.excerpt, version: item.version })}
+              />
             ))}
           </div>
         )}

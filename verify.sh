@@ -340,7 +340,19 @@ else
   FAILS=$((FAILS + 1))
 fi
 
-# --- 6b7. legacy visibility, characterised (NOT a security gate) --------------
+# --- 6b7. numbered citations invariant gate (Phase 7, hermetic) -----------------------
+# Every inline marker [N] or [^N] must correspond to an actual resolved source in
+# references (1-based index). Out-of-bounds or unresolved markers return None/unresolved
+# rather than guessing a document name. Pinned version lookups 404 on miss rather than
+# substituting another version, and storage outages surface as 503 rather than empty/denial.
+if python3 tests/test_numbered_citations.py > /tmp/kestrel_verify_num_citations.log 2>&1; then
+  note numbered-citations "PASS  $(tally /tmp/kestrel_verify_num_citations.log)"
+else
+  note numbered-citations "FAIL — see /tmp/kestrel_verify_num_citations.log"
+  FAILS=$((FAILS + 1))
+fi
+
+# --- 6b8. legacy visibility, characterised (NOT a security gate) --------------
 # B05/B06/X-USAGE came in as vulnerabilities and are documented grandfathering: a row
 # with both owner columns NULL is readable by every authenticated identity, membership
 # OR creator is enough, and a brain nobody registered still shows in a scoped usage
