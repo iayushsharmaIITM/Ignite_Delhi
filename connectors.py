@@ -476,7 +476,7 @@ def _slack_error(data: dict) -> RuntimeError:
     return RuntimeError(human)
 
 
-def _slack_get(token: str, method: str, params: dict) -> dict:
+def _slack_get(token: str, method: str, params: dict | None = None) -> dict:
     """Slack GET with 429 Retry-After backoff (bounded: 2 retries)."""
     import requests
     params = dict(params or {})
@@ -497,8 +497,9 @@ def _slack_get(token: str, method: str, params: dict) -> dict:
     return data
 
 
-def _slack_post_json(token: str, method: str, body: dict) -> dict:
+def _slack_post_json(token: str, method: str, body: dict | None = None) -> dict:
     import requests
+    body = dict(body or {})
     for attempt in range(3):
         r = requests.post(f"https://slack.com/api/{method}",
                           headers={"Authorization": f"Bearer {token}",
