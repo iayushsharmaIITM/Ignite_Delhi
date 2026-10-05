@@ -1653,9 +1653,66 @@ coverage lost, zero real questions newly swallowed, eight genuinely social strin
 recognised.
 
 **Still open after this round:** A-57 (the only remaining hole under the citation
-invariant), A-58 + A-72 as one job-state-machine pass, A-66 (localisation sweep),
+invariant) — **closed in Round 9 by A-75**, A-58 + A-72 as one job-state-machine pass —
+**A-58 closed in Round 9 by A-87, A-72 still open**, A-66 (localisation sweep),
 A-68 + A-69 (accessibility, using components that already exist), and every owner
 decision carried forward from Rounds 5–7: parity-gate wiring, key rotation, branch
 protection, an off-disk copy, `storage.py:37`, touch-target density, and P1 — 0 of 39
 success responses carrying a schema.
 
+
+---
+
+## Round 9 — an outside bug list, checked line by line before anything was fixed (2026-10-05)
+
+A 14-item defect list (B01–B14 plus a citation-redesign phase) arrived as a fix-it
+brief. Nothing in it was taken on trust: every claim was re-read at its cited line, and
+where a test already asserted the opposite of the claim, the test won. Branch
+`fix/bughunt-2026-10`, one commit per defect, failing test first in every case. The
+running account with each commit's gate line is **`docs/FIX_LOG.md`**.
+
+What the checking changed: **4 of the 14 were not bugs** (two of them are deliberate
+behaviour with a test asserting it and the reason written in the test), **2 were
+documented owner decisions** rather than oversights, and the single most severe item was
+one the brief listed as UNVERIFIED. Proofs: **[E]** executed and measured, **[R]** read
+at the cited line.
+
+| ID | Sev | Finding | Status |
+|---|---|---|---|
+| A-74 | **HIGH** | **[E]** `/api/source` read `corpus/<filename>` off disk **before** consulting the authorised brain (app.py:2228-2233 ran ahead of the durable lookup at :2247 and the tenant read at :2251). `corpus/` is shared by every brain and named like a real document, so a customer who uploaded a file under a corpus name clicked a citation and got Kestrel's demo text. Reproduced: the tenant brain returned the corpus file's 2,149 characters. | **FIXED** (S1) — `corpus/` is the demo brain's alone; a non-demo miss is 404, never a substitution. Demo order and speed unchanged. `tests/test_source_precedence.py` (9 checks, new tier) |
+| A-75 | **HIGH** | **[E]** Three fingerprint defects, one mechanism: a citation's filename is the first 120 normalised characters of the content. Two `corpus/` files sharing a prefix resolved to the alphabetically later one; `record_upload` has written the loser into `uploads.json::_collisions` since COR-8 and **no reader has ever consulted it** (this is A-57, now closed); and an empty corpus file fingerprints to `""`, which is also what a FAILED raw fetch fingerprints to, so every unfetchable document borrowed its name. | **FIXED** (S2) — one `_name_map(dataset)`, ambiguity dropped at the source, collisions honoured. `tests/test_citation_collisions.py` (12 checks, new tier). Closes **A-57** |
+| A-76 | MED | **[E]** `citations._durable_reference` selected `limit 1` with no `ORDER BY`, matching on `slug OR backend_dataset_name` plus `backend_data_id` — and `backend_data_id` identifies **content**, so the same file in two brains, or two generations of one brain, matched twice and the citation named whichever row the planner reached. | **FIXED** (S3) — two ordered candidates; a genuine clash resolves to unresolved. `tests/test_durable_identity.py` |
+| A-77 | MED | **[R]** `durable_source` read the newest `document_versions` row for a slug+filename (`order by dv.created_at desc limit 1`), so an answer produced from version A kept opening version B after a re-upload. | **FIXED** (S3) — citations carry `document_version_id`, `/api/source` accepts it and reads exactly that version; no-id lookups keep today's behaviour deliberately (every saved chat has no id). The `(brain, backend_data_id)` unique constraint is a follow-up: it needs a read of existing rows first |
+| A-78 | LOW | **[R]** `SourceModal` labelled every origin except `tenant` as "from the corpus" — already wrong for a durable (v2) document, and load-bearing the moment `corpus/` became the demo's alone. | **FIXED** (S3) |
+| A-79 | LOW | **[E]** `mint_state` only ever added to `_states`: nothing pruned expired OAuth states and nothing capped the set — 5,001 records retained after every one of them had passed `STATE_TTL`, until the process restarted. | **FIXED** (S4) — prune on mint and pop, `STATE_CAP` enforced after insert. `connectors_test.py` 90 → 112 checks |
+| A-80 | MED | **[E]** With no refresh token, an access token whose tracked `expires_at` had already passed was still returned; the row said `connected` and the caller took an unexplainable 401. The code's own comment claimed "no expiry tracked", which is false whenever `expires_at` is set. | **FIXED** (S4) — expired-and-unrenewable returns None; an UNTRACKED expiry still means never-expires, so Slack bot tokens and grants without `expires_in` are untouched |
+| A-81 | MED | **[E]** Every refresh refusal collapsed into one answer, and the HTTP status was never read. `invalid_client` / `unauthorized_client` — our OAuth client being misconfigured — flipped **every** user's row to `needs_reconnect`, sending each of them through re-consent while the real fault never surfaced. | **FIXED** (S4) — `refresh_failure()` says revoked / config / temporary; only a revoked grant touches a user row, the rest log at operator level naming no token. B13's claim that 503/429 were indistinguishable was checked and **partly refuted**: they already returned None without a flip |
+| A-82 | MED | **[R]** A rotated refresh token that failed to persist vanished behind `except: pass`. The request succeeded on the new access token while the stored grant went stale; weeks later the owner is told to reconnect with no trace of a cause. No test covered it. | **FIXED** (S4) — retried once, then recorded in `connectors.rotation_losses()` and logged without secrets |
+| A-83 | MED | **[E]** A Postgres outage answered 403 "Unknown brain": `brain_access` swallowed the failure into `None` and `brain_allowed` reads `None` as a denial. `/api/source` 404ed for the same reason. | **FIXED** (S8) — **this reverses a recorded owner decision** (SEC-2 fail-closed at app.py:405-409), approved by Ayush for this pass. Access still fails closed; the *answer* is 503 and retryable, while missing-row and foreign-row denials stay byte-identical so existence stays unprobeable. `tests/test_storage_outage.py` (11 checks). Also makes `AGENTS.md`'s existing "a storage outage must surface as 503, never as an empty list" enforceable |
+| A-84 | LOW | **[E]** `FilesSheet` was the only overlay with no dialog semantics at all — no `role`, no `aria-modal`, no label, no Escape, and Tab walked out of it into the page behind. `SourceModal` and the two `km-sheet` dialogs declared the role but did none of the focus half. | **FIXED** (S5) — one `lib/useDialog` (Escape, Tab containment, focus in, focus restored to the opener when it is still mounted). No Radix port: this surface drives uploads, so consolidating onto `components/ui/dialog.tsx` stays a follow-up |
+| A-85 | LOW | **[R]** The OAuth return pad called `setView("connectors")` while only `openView` moves the address too, so the user saw Connectors under a chat URL — a reload, bookmark or Back press put them somewhere else with the toast gone. | **FIXED** (S5) |
+| A-86 | LOW | **[E]** Found by the gate written for A-85: `history.replaceState(null, "", "")` treats an **empty string as "leave the address alone"**, so when the round-trip param was the only one on the way back the cleanup was a no-op and `/?connected=google` stayed in the bar. Observed failing: `?connected=google&view=connectors&chat=cfdd6ead-…`. | **FIXED** (S5) — URL built from `location.pathname` + query |
+| A-87 | MED | **[E]** A REBUILD job could never publish: both fences required `brains.state == 'CREATING'` while `stage_rebuild()` deliberately leaves a live brain `READY`. The new tier located both inline comparisons before changing either. | **FIXED** (S6) — one `_publishable(state, is_rebuild)`; a create keeps its double-publish guard, a rebuild publishes from READY and still refuses CREATING/FAILED. Closes **A-58** |
+| A-88 | NIT | **[R]** `lifecycle.py:263` and `:267` assign `is_rebuild` twice, identically, with the EXTRACTING comment between. Harmless; `process_job` is long enough that it reads as two different things. | OPEN — reported, not touched (unrelated to the fence fix) |
+
+**Refuted — and what refuted them.** B09 (`pop_state` should not burn a state token on a
+wrong-provider attempt) is **deliberate and asserted** at `connectors_test.py:177-179`,
+which carries the attack reasoning: a probe against several providers must not leave a
+live token usable. B11 (do not return a stale token on a transport blip) is **deliberate
+and asserted** at `:253`, with `expires_at` already in the past in the fixture — a flaky
+network must not force re-consent, and the downstream 401 is the detector. B05/B06
+(legacy `NULL/NULL` visibility, org-OR-creator) and the usage variant are documented
+grandfathering at `storage.py:393-406`, not oversights — per Ayush they are now
+**characterised** by `tests/test_legacy_visibility.py` and nothing else changed. B10
+(process-local OAuth state breaks under multiple workers) does not apply: one uvicorn
+worker, by design. B03 (`citations` swallow every exception, so a source is silently
+substituted) is only reachable through the collision path, which A-75 closes — with S1
+and S2 in, the swallow yields "unresolved", so no new exception type was added; B04
+(`for_dataset` cannot tell unavailable from empty) is likewise **PARTIAL**: the outcome is
+honest, and the status plumbing waits for the citation redesign.
+
+**Battery after Round 9:** `ran 23 / skipped 1 / failing 0` — five tiers added
+(`source-precedence`, `citation-collisions`, `durable-identity`, `storage-outage`,
+`rebuild-fence`, plus `legacy-visibility` as a characterisation lane), 14 new browser
+gates, and 22 new connector checks. Nothing was run against a live stack; no brain was
+created, rebuilt, re-ingested or deleted; `KESTREL_ALLOW_LIVE_DB` was never set.

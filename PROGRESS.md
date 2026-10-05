@@ -1,3 +1,62 @@
+## An outside bug list, checked before it was believed: 14 claims, 9 real defects, 5 not
+
+A 14-item brief (B01–B14, plus a citation-redesign phase) arrived as a fix-it prompt.
+Every claim was re-read at its cited line first, and the list was rewritten around what
+survived: **9 defects fixed, 4 refuted, 2 revealed to be owner decisions already recorded
+in the code** — and the most severe item on the board was one the brief itself had
+flagged as UNVERIFIED. Ledger: `BUGS_AUDIT.md` Round 9 (A-74…A-88). Running account with
+each commit's gate line: **`docs/FIX_LOG.md`**. Branch `fix/bughunt-2026-10`, one commit
+per defect, failing test first every time, nothing pushed.
+
+The one that mattered. `/api/source` looked up `corpus/<filename>` on disk **before** it
+consulted the authorised brain. `corpus/` is shared by every brain and its files are
+named like a real document, so a customer who happened to upload a file under a corpus
+name clicked a citation and read Kestrel's demo text back. That is a confidently wrong
+source under the product's single absolute invariant, and it reproduced first: 2,149
+characters of demo policy returned for a tenant brain. `corpus/` is now the demo brain's
+alone — the demo keeps its original order and its ~20s fallthrough guard intact — and a
+non-demo miss answers 404 rather than substituting anything.
+
+Two findings came from the *checking*, not the brief. `history.replaceState` with an
+empty string means "leave the address alone", so the OAuth round-trip cleanup had been a
+no-op all along whenever the round-trip param was the only one present; the gate written
+for a different bug caught it on its first run. And an empty or whitespace-only file in
+`corpus/` fingerprints to `""`, which is exactly what a **failed** raw fetch
+fingerprints to — one `touch` away from naming every unfetchable document after it.
+
+What refuted, and why that is the point. B09 and B11 asked to change `pop_state`
+consuming a state token on a wrong-provider callback, and to stop returning a stale token
+on a transport blip. Both are deliberate, both are **asserted**, and the reasoning is in
+the test: a probe across providers must not leave a live token usable, and a flaky network
+must not force a re-consent when the downstream 401 is the real detector. B05/B06 are
+documented grandfathering (`storage.py:393-406`) — per Ayush they are now *characterised*
+by a tier that says who can see what today and calls none of it correct. B10 assumed
+multiple workers; there is one, by design. B03's silent substitution turned out to be
+reachable only through the collision path the fingerprint fix already closes, so no new
+exception type was introduced.
+
+Deliberately not done, after being offered: the numbered-citation redesign, the Radix
+consolidation of every dialog surface, and the `app.py` router split — the user's call was
+correctness only, on the ground that a rewrite of the surface that drives uploads fixes no
+defect and cannot be proven without a live run.
+
+Gates this pass left behind: five new tiers (`source-precedence`,
+`citation-collisions`, `durable-identity`, `storage-outage`, `rebuild-fence`) plus
+`legacy-visibility` as an explicitly non-security characterisation lane, 14 new browser
+gates, and `connectors_test.py` grown from 90 to 112 checks. **Final battery: `ran 23
+tiers, skipped 1, failing 0`** — browser suite included, lab on 5434, `clerk-gate` the one
+lane that still stands down without `KESTREL_CLERK_GATE=1`. The rebuild-fence tier reads
+`lifecycle.py` for a re-opened literal, because that fix lives in two places and no other
+tier executes either.
+
+Not run against a real stack, plainly: no brain was created, rebuilt, re-ingested or
+deleted; no lifecycle job was executed end-to-end (the fence proof is a predicate plus a
+source guard, not a rebuild); the live read that would count how many real brains share a
+`corpus/` filename was not authorised and is not needed by the fix as written; the outage
+contract is proven against a stubbed connection, not a killed Postgres. Six commits were
+already unpushed on `main` before this branch; nothing here has been pushed, merged or
+deployed.
+
 ## The big hunt: 26 bugs in the engine and the UI, 15 fixed, 10 handed back
 
 Two parallel read-only passes over the answer engine and the interface, every claim

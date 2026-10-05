@@ -15,7 +15,8 @@ record, a historical record, or a business document.
 |---|---|---|---|
 | `AGENTS.md` | the agent entrypoint: battery lanes, DB boundaries, dist rule, schema authority | — | any command or boundary changes |
 | `PROGRESS.md` | execution log, newest first | 6 | every completed piece of work |
-| `BUGS_AUDIT.md` | defect ledger by round (1–4), each closure with its measurement | 8 | every defect found or fixed |
+| `BUGS_AUDIT.md` | defect ledger by round (1–9), each closure with its measurement | 8 | every defect found or fixed |
+| `docs/FIX_LOG.md` | the running fix account for the current branch: status per defect, the test that proves it, the battery line after each commit, and what was never run against a real stack | new | every commit on a fix branch |
 | `BLOCKERS.md` | open escalations, `M-<phase>.<n>` | 5 | when something needs the owner |
 | `PLAN.md` | locked 7-phase plan (P1–P3 done, P4 = deploy) | 4 | **do not re-litigate**; amend only with a decision |
 | `DESIGN.md` | frontend design system: tokens, components, the rules CI/battery can check | 3 | any visual or token change |
@@ -99,6 +100,9 @@ records; they now describe deleted files and must not be read as current.
 
 ```bash
 bash ops/doc_health.sh            # entrypoint agrees with the repo (battery tier)
-./verify.sh                       # the whole gate, 13 tiers
+./verify.sh                       # the whole gate — it prints its own tier count, so
+                                  # no number is repeated here. 23 ran / 1 skipped on
+                                  # 2026-10-05; a stale count in a document is worse
+                                  # than none, and three docs carried one.
 git ls-files '*.md' | wc -l       # count of documents, which only ever grows
 ```

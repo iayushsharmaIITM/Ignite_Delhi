@@ -34,7 +34,7 @@ entrypoints.
 
 | Surface | Today |
 |---|---|
-| Local battery | `verify.sh` — 18 tiers incl. the browser suite; lab-gated tiers SKIP rather than fake-pass, and the run closes with `ran / skipped / failing` |
+| Local battery | `verify.sh` — the browser suite included; lab-gated tiers SKIP rather than fake-pass, and the run closes with `ran / skipped / failing`. The tier count is deliberately not written here: three documents carried one and every one of them went stale. Read the closing line |
 | Hosted CI | 2 jobs (`fast`, `ui`). Green. Enforces `dist` ↔ `src` sync and that the served bundle is self-consistent; brings its own Postgres on 5434 and migrates it |
 | Correctness | Extraction, pipeline states, tenant isolation, chat integrity (CH-1..CH-9), brain-claim race, route authz (allow/deny/traversal), v2 job authz, lifecycle identity, lease recovery, connectors vault/OAuth |
 | Frontend | Acceptance over the **served** bundle: ask, stream, citations, files, draft, menus, keyboard focus, deep links, history, sidebar rail/motion, 16 graph gates, stale-bundle behaviour |

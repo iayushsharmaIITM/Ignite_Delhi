@@ -340,6 +340,21 @@ else
   FAILS=$((FAILS + 1))
 fi
 
+# --- 6b7. legacy visibility, characterised (NOT a security gate) --------------
+# B05/B06/X-USAGE came in as vulnerabilities and are documented grandfathering: a row
+# with both owner columns NULL is readable by every authenticated identity, membership
+# OR creator is enough, and a brain nobody registered still shows in a scoped usage
+# summary. Ayush's call was "demonstrate, change nothing". This tier is the
+# demonstration: it says who can see what today, in the exact SQL that decides it, so
+# that a future change is a decision and not a line someone edited by accident. A PASS
+# here is NOT an assertion that the behaviour is correct.
+if python3 tests/test_legacy_visibility.py > /tmp/kestrel_verify_legacy_vis.log 2>&1; then
+  note legacy-visibility "PASS  $(tally /tmp/kestrel_verify_legacy_vis.log) / characterisation only"
+else
+  note legacy-visibility "FAIL — see /tmp/kestrel_verify_legacy_vis.log"
+  FAILS=$((FAILS + 1))
+fi
+
 # --- 6a. doc freshness --------------------------------------------------------
 # A stale route inside an instruction document is not cosmetic: an agent obeys it.
 # CLAUDE_CONTEXT.md used to tell agents to verify with pytest, which this file's own
