@@ -280,6 +280,22 @@ else
   FAILS=$((FAILS + 1))
 fi
 
+# --- 6b3. citation collisions (hermetic: temp corpus, temp manifest) ----------
+# A citation's filename is recovered from the first 120 normalised characters of the
+# document, which is not unique. Two files sharing a prefix used to resolve to the
+# alphabetically later one, an empty corpus file used to adopt every document whose
+# raw fetch failed, and uploads.json's own _collisions table — written since COR-8 to
+# record exactly this — had no reader at all (A-57). Ambiguous now means unresolved,
+# which is the one outcome the no-fabricated-citations invariant permits. The tier also
+# fails if the shipped demo corpus ever gains a colliding pair, because that silently
+# costs a real document its citation.
+if python3 tests/test_citation_collisions.py > /tmp/kestrel_verify_citation_coll.log 2>&1; then
+  note citation-collisions "PASS  $(tally /tmp/kestrel_verify_citation_coll.log)"
+else
+  note citation-collisions "FAIL — see /tmp/kestrel_verify_citation_coll.log"
+  FAILS=$((FAILS + 1))
+fi
+
 # --- 6a. doc freshness --------------------------------------------------------
 # A stale route inside an instruction document is not cosmetic: an agent obeys it.
 # CLAUDE_CONTEXT.md used to tell agents to verify with pytest, which this file's own

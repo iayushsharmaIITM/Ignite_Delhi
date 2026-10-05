@@ -66,19 +66,35 @@ def _fingerprint(text: str, length: int = 120) -> str:
 
 
 def _corpus_fingerprints() -> dict[str, str]:
-    """{fingerprint: filename} for every file in corpus/."""
-    out = {}
+    """{fingerprint: filename} for every file in corpus/, ambiguous prefixes dropped.
+
+    A fingerprint is 120 normalised characters, so two documents that open the same way
+    collide. This map used to be last-writer-wins, which meant the alphabetically later
+    file silently owned both citations. An ambiguous fingerprint now names nothing: the
+    caller shows no source rather than the wrong one.
+    """
+    out: dict[str, str] = {}
     if not os.path.isdir(CORPUS):
         return out
+    owners: dict[str, list[str]] = {}
     for name in sorted(os.listdir(CORPUS)):
         path = os.path.join(CORPUS, name)
         if not os.path.isfile(path):
             continue
         try:
             with open(path, encoding="utf-8", errors="replace") as handle:
-                out[_fingerprint(handle.read())] = name
+                fp = _fingerprint(handle.read())
         except OSError:
             continue
+        # An empty or whitespace-only file fingerprints to "", which is also what a
+        # FAILED raw fetch fingerprints to — so it would lend its name to every
+        # document we could not read.
+        if not fp:
+            continue
+        owners.setdefault(fp, []).append(name)
+    for fp, names in owners.items():
+        if len(names) == 1:
+            out[fp] = names[0]
     return out
 
 
@@ -90,6 +106,48 @@ def _upload_fingerprints(dataset: str) -> dict[str, str]:
     except (OSError, ValueError):
         return {}
     return {k: v for k, v in (manifest.get(dataset) or {}).items()}
+
+
+def _collision_prefixes(dataset: str) -> set[str]:
+    """Fingerprint prefixes record_upload proved ambiguous for THIS brain.
+
+    COR-8 keeps the first name and records the loser under uploads.json's
+    `_collisions`, keyed `{dataset}::{fp[:32]}` — and until now nothing read it back,
+    so a known-ambiguous fingerprint still resolved to whichever name the manifest
+    happened to keep. The table stores 32 characters, so that is what the sweep uses.
+    """
+    try:
+        with open(UPLOADS, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError):
+        return set()
+    head = f"{dataset}::"
+    return {prefix for prefix in (key[len(head):]
+                                  for key in (manifest.get("_collisions") or {})
+                                  if key.startswith(head)) if prefix}
+
+
+def _name_map(dataset: str) -> dict[str, str]:
+    """The one {fingerprint: filename} map every resolver is built from.
+
+    Two sources of truth for "which filename is this?": `corpus/` (the pre-built demo
+    documents) and `uploads.json` (files a user uploaded, recorded at upload time).
+    Content is the join key, because the tenant accepts a `filename` field and silently
+    ignores it, so every document lands as `text_<hash>`.
+
+    Uploads win over the corpus for identical content: the tenant calls the file what
+    they uploaded it as, and the demo's filename would be the wrong label. What gets
+    dropped is ambiguity — a fingerprint two corpus files share, or one the collision
+    table says belongs to two uploads. A dropped fingerprint shows no filename, which
+    is the honest answer; a guessed one is a fabricated citation.
+    """
+    out = _corpus_fingerprints()
+    for fp, name in _upload_fingerprints(dataset).items():
+        out[fp] = name
+    for prefix in _collision_prefixes(dataset):
+        for fp in [f for f in out if f.startswith(prefix)]:
+            del out[fp]
+    return out
 
 
 def record_upload(dataset: str, documents: list) -> None:
@@ -152,13 +210,9 @@ def _fetch_map(dataset: str) -> dict:
     """{data_id: {"source": filename|None, "excerpt": str}} for one dataset."""
     import cognee_cloud
 
-    # Two sources of truth for "which filename is this?":
-    #   corpus/        - the pre-built demo documents
-    #   uploads.json   - files a user uploaded, recorded at upload time
-    # Content is the join key for both, because the tenant does not let us set a
-    # document's name (it accepts a `filename` field and silently ignores it).
-    corpus = _corpus_fingerprints()
-    corpus.update(_upload_fingerprints(dataset))
+    # Two sources of truth for "which filename is this?", both joined by content and
+    # both ambiguity-filtered — see _name_map.
+    names = _name_map(dataset)
     resolved: dict = {}
 
     dataset_id = cognee_cloud.resolve_id(dataset)
@@ -197,7 +251,7 @@ def _fetch_map(dataset: str) -> dict:
         resolved[data_id] = {
             # None is an honest answer: we would rather show no filename than a
             # wrong one.
-            "source": named or corpus.get(_fingerprint(raw)),
+            "source": named or names.get(_fingerprint(raw)),
             "excerpt": excerpt[:220],
         }
     return resolved
@@ -296,8 +350,7 @@ def _prewarm_fill(dataset: str) -> None:
     import cognee_cloud
 
     dataset_id = cognee_cloud.resolve_id(dataset)
-    corpus = _corpus_fingerprints()
-    corpus.update(_upload_fingerprints(dataset))
+    names = _name_map(dataset)
 
     def fetch(did):
         try:
@@ -308,7 +361,7 @@ def _prewarm_fill(dataset: str) -> None:
         named = (items_map.get(did) or "").strip()
         named = None if _GENERATED_NAME_RE.match(named) else (named or None)
         store[did] = {
-            "source": named or corpus.get(_fingerprint(raw)),
+            "source": named or names.get(_fingerprint(raw)),
             "excerpt": excerpt[:220],
         }
 
@@ -419,8 +472,7 @@ def enrich(references: list, dataset: str) -> list:
         except Exception:  # noqa: BLE001
             dataset_id = None
         if dataset_id is not None:
-            corpus = _corpus_fingerprints()
-            corpus.update(_upload_fingerprints(dataset))
+            names = _name_map(dataset)
 
             def fetch(did):
                 durable = _durable_reference(dataset, did)
@@ -435,7 +487,7 @@ def enrich(references: list, dataset: str) -> list:
                 named = (items_map.get(did) or "").strip()
                 named = None if _GENERATED_NAME_RE.match(named) else (named or None)
                 store[did] = {
-                    "source": named or corpus.get(_fingerprint(raw)),
+                    "source": named or names.get(_fingerprint(raw)),
                     "excerpt": excerpt[:220],
                 }
 
