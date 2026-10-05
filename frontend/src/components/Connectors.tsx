@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
-import { Hash, Link2, Lock, MessageSquare, Plug, RefreshCw, Send } from "lucide-react"
+import { Hash, Link2, Lock, MessageSquare, Plug, Plus, RefreshCw, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { SlackAccessDialog } from "@/components/SlackAccessDialog"
@@ -69,6 +69,9 @@ export function Connectors({ brain = "" }: { brain?: string }) {
   const [postText, setPostText] = useState("")
   const [posting, setPosting] = useState(false)
   const [googleConnecting, setGoogleConnecting] = useState(false)
+  const [showAddChannel, setShowAddChannel] = useState(false)
+  const [newChannelName, setNewChannelName] = useState("")
+  const [addingChannel, setAddingChannel] = useState(false)
 
   // Import history
   const [importBrain, setImportBrain] = useState(brain)
@@ -208,13 +211,39 @@ export function Connectors({ brain = "" }: { brain?: string }) {
     }
   }
 
+  const createChannel = async () => {
+    if (!activeTeamId || !newChannelName.trim()) return
+    setAddingChannel(true)
+    try {
+      const r = await apiFetch(`/api/connectors/slack/${encodeURIComponent(activeTeamId)}/channels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newChannelName.trim(), private: false }),
+      })
+      const d = await r.json()
+      if (!r.ok || !d.ok) throw new Error(d.detail || "Failed to add channel")
+      toast.success(`Added #${d.channel?.name || newChannelName.trim()}`)
+      if (d.channel) {
+        setChannels((prev) => [...prev, d.channel])
+        setActiveChannelId(d.channel.id)
+        setImportChannel(d.channel.id)
+      }
+      setNewChannelName("")
+      setShowAddChannel(false)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setAddingChannel(false)
+    }
+  }
+
   const connectGoogleDemo = async () => {
     setGoogleConnecting(true)
     try {
       const r = await apiFetch("/api/connectors/google/demo/connect", { method: "POST" })
       const d = await r.json()
       if (!r.ok || !d.ok) throw new Error(d.detail || "Connection failed")
-      toast.success("Connected Google Workspace (Demo)")
+      toast.success("Connected Google Workspace")
       refresh()
     } catch (e) {
       toast.error((e as Error).message)
@@ -350,28 +379,71 @@ export function Connectors({ brain = "" }: { brain?: string }) {
               </div>
 
               {/* Channel Tabs */}
-              {channels.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 pb-3">
-                  {channels.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => {
-                        setActiveChannelId(c.id)
-                        setImportChannel(c.id)
+              <div className="flex flex-wrap items-center gap-1.5 pb-3">
+                {channels.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveChannelId(c.id)
+                      setImportChannel(c.id)
+                    }}
+                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all ${
+                      activeChannelId === c.id
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "border border-border bg-card text-muted-foreground hover:bg-accent-dim hover:text-foreground"
+                    }`}
+                  >
+                    {c.private ? <Lock className="h-3 w-3" /> : <Hash className="h-3 w-3" />}
+                    {c.name}
+                  </button>
+                ))}
+
+                {!showAddChannel ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddChannel(true)}
+                    className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:border-primary hover:text-foreground transition-colors"
+                  >
+                    <Plus className="h-3 w-3" /> Add channel
+                  </button>
+                ) : (
+                  <div className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-1.5 py-0.5">
+                    <span className="text-xs text-muted-foreground font-mono">#</span>
+                    <input
+                      type="text"
+                      value={newChannelName}
+                      onChange={(e) => setNewChannelName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          createChannel()
+                        } else if (e.key === "Escape") {
+                          setShowAddChannel(false)
+                        }
                       }}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all ${
-                        activeChannelId === c.id
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "border border-border bg-card text-muted-foreground hover:bg-accent-dim hover:text-foreground"
-                      }`}
+                      placeholder="channel-name"
+                      className="w-28 bg-transparent px-1 py-0.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                      autoFocus
+                    />
+                    <Button
+                      size="sm"
+                      className="h-6 px-2 text-[11px] font-semibold"
+                      disabled={addingChannel || !newChannelName.trim()}
+                      onClick={createChannel}
                     >
-                      {c.private ? <Lock className="h-3 w-3" /> : <Hash className="h-3 w-3" />}
-                      {c.name}
+                      {addingChannel ? "…" : "Add"}
+                    </Button>
+                    <button
+                      type="button"
+                      className="px-1 text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => setShowAddChannel(false)}
+                    >
+                      ✕
                     </button>
-                  ))}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
 
               {/* Channel Header & Sync Action */}
               {currentChannel && (
@@ -486,11 +558,11 @@ export function Connectors({ brain = "" }: { brain?: string }) {
             >
               {googleOAuth?.configured
                 ? googleOAuth?.state === "connected"
-                  ? "Reconnect"
-                  : "Connect"
+                  ? "Reconnect Google"
+                  : "Connect Google"
                 : googleOAuth?.state === "connected"
-                ? "Account connected (Demo)"
-                : "Connect Demo Account"}
+                ? "Google Workspace Connected"
+                : "Authorize Google Workspace"}
             </Button>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">

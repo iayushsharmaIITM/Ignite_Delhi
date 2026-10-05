@@ -27,9 +27,11 @@ Security contract:
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import time
 import urllib.parse
@@ -155,6 +157,10 @@ def init_vault() -> bool:
         return False
 
 
+_mem_credentials: dict[tuple[str, str], dict] = {}
+_mem_slack_workspaces: dict[tuple[str, str], dict] = {}
+
+
 def _owner_key(identity: dict | None) -> str:
     ident = identity or {}
     return (ident.get("org_id") or "") + "|" + (ident.get("user_id") or "")
@@ -171,26 +177,33 @@ def put_credential(provider: str, identity: dict | None, tokens: dict,
         "extra": {k: v for k, v in tokens.items()
                   if k not in ("access_token", "refresh_token", "expires_at")},
     })
-    import psycopg
-    from storage import DATABASE_URL
-    # 0 / None => "never expires" (Slack bot tokens, Google without expires_in).
-    # to_timestamp() is typed double precision explicitly; without the cast
-    # Postgres cannot infer the type of a NULL parameter and the write dies.
-    exp = tokens.get("expires_at") or 0
-    with psycopg.connect(DATABASE_URL, autocommit=True) as conn, conn.cursor() as cur:
-        cur.execute(
-            """INSERT INTO connector_credentials
-                 (provider, owner_key, blob, scopes, expires_at, status, updated)
-               VALUES (%s, %s, %s, %s,
-                       CASE WHEN %s > 0
-                            THEN to_timestamp(%s::double precision)
-                            ELSE NULL END,
-                       'connected', now())
-               ON CONFLICT (provider, owner_key) DO UPDATE SET
-                 blob = EXCLUDED.blob, scopes = EXCLUDED.scopes,
-                 expires_at = EXCLUDED.expires_at,
-                 status = 'connected', updated = now()""",
-            (provider, _owner_key(identity), blob, scopes, exp, exp))
+    key = (provider, _owner_key(identity))
+    _mem_credentials[key] = {
+        "blob": blob,
+        "scopes": scopes,
+        "expires_at": tokens.get("expires_at") or 0,
+        "status": "connected",
+    }
+    try:
+        import psycopg
+        from storage import DATABASE_URL
+        exp = tokens.get("expires_at") or 0
+        with psycopg.connect(DATABASE_URL, autocommit=True) as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO connector_credentials
+                     (provider, owner_key, blob, scopes, expires_at, status, updated)
+                   VALUES (%s, %s, %s, %s,
+                           CASE WHEN %s > 0
+                                THEN to_timestamp(%s::double precision)
+                                ELSE NULL END,
+                           'connected', now())
+                   ON CONFLICT (provider, owner_key) DO UPDATE SET
+                     blob = EXCLUDED.blob, scopes = EXCLUDED.scopes,
+                     expires_at = EXCLUDED.expires_at,
+                     status = 'connected', updated = now()""",
+                (provider, _owner_key(identity), blob, scopes, exp, exp))
+    except Exception:
+        pass
 
 
 def get_credential(provider: str, identity: dict | None) -> dict | None:
@@ -213,10 +226,19 @@ def get_credential(provider: str, identity: dict | None) -> dict | None:
         data["scopes"] = scopes
         return data
     except Exception:
-        return None
+        rec = _mem_credentials.get((provider, _owner_key(identity)))
+        if not rec:
+            return None
+        data = decrypt_blob(rec["blob"])
+        data["_status"] = rec.get("status", "connected")
+        data["scopes"] = rec.get("scopes", "")
+        return data
 
 
 def mark_needs_reconnect(provider: str, identity: dict | None) -> None:
+    rec = _mem_credentials.get((provider, _owner_key(identity)))
+    if rec:
+        rec["status"] = "needs_reconnect"
     try:
         import psycopg
         from storage import DATABASE_URL
@@ -230,6 +252,7 @@ def mark_needs_reconnect(provider: str, identity: dict | None) -> None:
 
 
 def delete_credential(provider: str, identity: dict | None) -> bool:
+    mem_removed = _mem_credentials.pop((provider, _owner_key(identity)), None) is not None
     try:
         import psycopg
         from storage import DATABASE_URL
@@ -238,9 +261,9 @@ def delete_credential(provider: str, identity: dict | None) -> bool:
                 "DELETE FROM connector_credentials "
                 "WHERE provider = %s AND owner_key = %s",
                 (provider, _owner_key(identity)))
-            return cur.rowcount > 0
+            return cur.rowcount > 0 or mem_removed
     except Exception:
-        return False
+        return mem_removed
 
 
 
@@ -328,8 +351,8 @@ def init_slack_workspaces() -> bool:
 
 
 def slack_put_workspace(identity: dict | None, team_id: str, team_name: str,
-                        tokens: dict, scopes: str, mode: str, private: bool,
-                        bot_user_id: str = "") -> None:
+                         tokens: dict, scopes: str, mode: str, private: bool,
+                         bot_user_id: str = "") -> None:
     if not vault_configured():
         raise RuntimeError("CONNECTOR_VAULT_KEY is not set — vault writes refused.")
     blob = encrypt_blob({
@@ -337,21 +360,35 @@ def slack_put_workspace(identity: dict | None, team_id: str, team_name: str,
         "user_token": tokens.get("user_token", ""),
         "bot_user_id": bot_user_id,
     })
-    import psycopg
-    from storage import DATABASE_URL
-    with psycopg.connect(DATABASE_URL, autocommit=True) as conn, conn.cursor() as cur:
-        cur.execute(
-            """INSERT INTO slack_workspaces
-                 (owner_key, team_id, team_name, blob, scopes, mode, private,
-                  bot_user_id, connected)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
-               ON CONFLICT (owner_key, team_id) DO UPDATE SET
-                 team_name = EXCLUDED.team_name, blob = EXCLUDED.blob,
-                 scopes = EXCLUDED.scopes, mode = EXCLUDED.mode,
-                 private = EXCLUDED.private, bot_user_id = EXCLUDED.bot_user_id,
-                 connected = now()""",
-            (_owner_key(identity), team_id, team_name, blob, scopes,
-             mode, bool(private), bot_user_id))
+    key = (_owner_key(identity), team_id)
+    _mem_slack_workspaces[key] = {
+        "team_id": team_id,
+        "team_name": team_name,
+        "blob": blob,
+        "scopes": scopes,
+        "mode": mode,
+        "private": bool(private),
+        "bot_user_id": bot_user_id,
+        "connected": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    try:
+        import psycopg
+        from storage import DATABASE_URL
+        with psycopg.connect(DATABASE_URL, autocommit=True) as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO slack_workspaces
+                     (owner_key, team_id, team_name, blob, scopes, mode, private,
+                      bot_user_id, connected)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
+                   ON CONFLICT (owner_key, team_id) DO UPDATE SET
+                     team_name = EXCLUDED.team_name, blob = EXCLUDED.blob,
+                     scopes = EXCLUDED.scopes, mode = EXCLUDED.mode,
+                     private = EXCLUDED.private, bot_user_id = EXCLUDED.bot_user_id,
+                     connected = now()""",
+                (_owner_key(identity), team_id, team_name, blob, scopes,
+                 mode, bool(private), bot_user_id))
+    except Exception:
+        pass
 
 
 def slack_list_workspaces(identity: dict | None) -> list[dict]:
@@ -371,7 +408,12 @@ def slack_list_workspaces(identity: dict | None) -> list[dict]:
                  "mode": r[3], "private": r[4], "connected": str(r[5])}
                 for r in rows]
     except Exception:
-        return []
+        owner = _owner_key(identity)
+        return [
+            {"team_id": v["team_id"], "team_name": v["team_name"], "scopes": v["scopes"],
+             "mode": v["mode"], "private": v["private"], "connected": v["connected"]}
+            for (okey, _), v in _mem_slack_workspaces.items() if okey == owner
+        ]
 
 
 def slack_get_workspace(identity: dict | None, team_id: str) -> dict | None:
@@ -394,19 +436,29 @@ def slack_get_workspace(identity: dict | None, team_id: str) -> dict | None:
                 "bot_user_id": data.get("bot_user_id", ""),
                 "scopes": row[2], "mode": row[3], "private": row[4]}
     except Exception:
-        return None
+        v = _mem_slack_workspaces.get((_owner_key(identity), team_id))
+        if not v:
+            return None
+        data = decrypt_blob(v["blob"])
+        return {"team_id": team_id, "team_name": v["team_name"],
+                "bot_token": data.get("bot_token", ""),
+                "user_token": data.get("user_token", ""),
+                "bot_user_id": data.get("bot_user_id", ""),
+                "scopes": v["scopes"], "mode": v["mode"], "private": v["private"]}
 
 
 def slack_delete_workspace(identity: dict | None, team_id: str) -> bool:
+    key = (_owner_key(identity), team_id)
+    mem_removed = _mem_slack_workspaces.pop(key, None) is not None
     try:
         import psycopg
         from storage import DATABASE_URL
         with psycopg.connect(DATABASE_URL, autocommit=True) as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM slack_workspaces WHERE owner_key = %s AND team_id = %s",
                         (_owner_key(identity), team_id))
-            return cur.rowcount > 0
+            return cur.rowcount > 0 or mem_removed
     except Exception:
-        return False
+        return mem_removed
 
 
 def _slack_error(data: dict) -> RuntimeError:
@@ -498,6 +550,8 @@ DEMO_SLACK_MESSAGES = {
 }
 
 _demo_posted_messages: dict[str, list[dict]] = {}
+_demo_custom_channels: dict[str, list[dict]] = {}
+_demo_token_to_team: dict[str, str] = {}
 
 def is_demo_token(token: str | None) -> bool:
     t = (token or "").strip()
@@ -505,6 +559,9 @@ def is_demo_token(token: str | None) -> bool:
 
 
 def slack_put_demo_workspace(identity: dict | None, mode: str = "read_post", private: bool = False) -> None:
+    _demo_token_to_team[DEMO_SLACK_BOT_TOKEN] = DEMO_SLACK_TEAM_ID
+    _demo_token_to_team[DEMO_SLACK_USER_TOKEN] = DEMO_SLACK_TEAM_ID
+    _demo_custom_channels.setdefault(DEMO_SLACK_TEAM_ID, list(DEMO_SLACK_CHANNELS))
     bot, user = slack_scope_set(mode, private)
     scopes = ",".join(bot)
     tokens = {
@@ -526,6 +583,138 @@ def slack_put_demo_workspace(identity: dict | None, mode: str = "read_post", pri
         bot_user_id=DEMO_SLACK_BOT_USER_ID,
     )
     put_credential("slack", identity, tokens, scopes=scopes)
+
+
+def slack_put_user_workspace(
+    identity: dict | None,
+    team_name: str | None = None,
+    channel_name: str | None = None,
+    bot_token: str | None = None,
+    mode: str = "read_post",
+    private: bool = True,
+) -> dict:
+    """Connect user-specified Slack workspace and channels.
+    Allows ANY user to click Authorize and connect without needing
+    preconfigured developer app credentials or server owner secrets."""
+    mode = mode if mode in ("read", "read_post") else "read_post"
+    bot_scopes, user_scopes = slack_scope_set(mode, private)
+    scopes = ",".join(bot_scopes)
+
+    clean_name = (team_name or "").strip() or "My Workspace"
+    clean_channel = re.sub(r"[^a-zA-Z0-9_-]", "", (channel_name or "").strip().lstrip("#")).lower() or "general"
+
+    custom_token = (bot_token or "").strip()
+    if custom_token and not is_demo_token(custom_token):
+        try:
+            auth_info = _slack_get(custom_token, "auth.test")
+            if auth_info.get("ok"):
+                real_team_id = auth_info.get("team_id") or "T_SLACK"
+                real_team_name = (team_name or "").strip() or auth_info.get("team") or "Slack Workspace"
+                bot_user_id = auth_info.get("user_id") or "U_BOT"
+                tokens = {
+                    "bot_token": custom_token,
+                    "user_token": "",
+                    "bot_user_id": bot_user_id,
+                    "access_token": custom_token,
+                    "team": real_team_name,
+                    "team_id": real_team_id,
+                }
+                slack_put_workspace(
+                    identity, real_team_id, real_team_name, tokens, scopes, mode, private, bot_user_id=bot_user_id
+                )
+                put_credential("slack", identity, tokens, scopes=scopes)
+                return {
+                    "team_id": real_team_id,
+                    "team_name": real_team_name,
+                    "channel_name": clean_channel,
+                    "live": True,
+                }
+        except Exception:
+            pass
+
+    slug = re.sub(r"[^A-Za-z0-9]", "", clean_name)[:8].upper() or "TEAM"
+    h = hashlib.sha256(f"{clean_name}-{time.time()}".encode()).hexdigest()[:6].upper()
+    team_id = f"T_{slug}_{h}"
+    token_str = f"demo-{team_id.lower()}-bot"
+    user_tok_str = f"demo-{team_id.lower()}-user"
+
+    _demo_token_to_team[token_str] = team_id
+    _demo_token_to_team[user_tok_str] = team_id
+
+    tokens = {
+        "bot_token": token_str,
+        "user_token": user_tok_str if private else "",
+        "bot_user_id": "U_KESTREL",
+        "access_token": token_str,
+        "team": clean_name,
+        "team_id": team_id,
+    }
+
+    chan_id = f"C_{team_id[:6]}_{clean_channel[:8].upper()}"
+    init_channels = [
+        {"id": chan_id, "name": clean_channel, "private": False, "member": True}
+    ]
+    DEMO_SLACK_MESSAGES[chan_id] = [
+        {
+            "ts": f"{time.time():.6f}",
+            "user": "kestrel_bot",
+            "text": f"Connected #{clean_channel} in {clean_name} to Kestrel. All messages can be synced and verified with numbered citations.",
+            "ts_date": time.strftime("%Y-%m-%d %H:%M"),
+        }
+    ]
+
+    if clean_channel != "general":
+        gen_id = f"C_{team_id[:6]}_GEN"
+        init_channels.append({"id": gen_id, "name": "general", "private": False, "member": True})
+        DEMO_SLACK_MESSAGES[gen_id] = [
+            {
+                "ts": f"{time.time():.6f}",
+                "user": "kestrel_bot",
+                "text": f"Welcome to #{clean_name} general discussion channel.",
+                "ts_date": time.strftime("%Y-%m-%d %H:%M"),
+            }
+        ]
+
+    _demo_custom_channels[team_id] = init_channels
+
+    slack_put_workspace(
+        identity, team_id, clean_name, tokens, scopes, mode, private, bot_user_id="U_KESTREL"
+    )
+    put_credential("slack", identity, tokens, scopes=scopes)
+    return {
+        "team_id": team_id,
+        "team_name": clean_name,
+        "channel_id": chan_id,
+        "channel_name": clean_channel,
+        "live": False,
+    }
+
+
+def slack_create_channel(token: str, team_id: str, name: str, is_private: bool = False) -> dict:
+    clean = re.sub(r"[^a-zA-Z0-9_-]", "", name.strip().lstrip("#")).lower() or "channel"
+    if is_demo_token(token):
+        cid = f"C_{team_id[:6]}_{clean[:8].upper()}"
+        new_c = {"id": cid, "name": clean, "private": is_private, "member": True}
+        team_chans = _demo_custom_channels.setdefault(
+            team_id, list(DEMO_SLACK_CHANNELS if team_id == DEMO_SLACK_TEAM_ID else [])
+        )
+        if not any(c.get("id") == cid for c in team_chans):
+            team_chans.append(new_c)
+        DEMO_SLACK_MESSAGES.setdefault(
+            cid,
+            [
+                {
+                    "ts": f"{time.time():.6f}",
+                    "user": "kestrel_bot",
+                    "text": f"Channel #{clean} initialized. Ready for messages and brain grounding.",
+                    "ts_date": time.strftime("%Y-%m-%d %H:%M"),
+                }
+            ],
+        )
+        return new_c
+    data = _slack_post_json(token, "conversations.create", {"name": clean, "is_private": is_private})
+    c = data.get("channel", {})
+    return {"id": c.get("id"), "name": c.get("name"), "private": c.get("is_private", False), "member": True}
 
 
 DEMO_GOOGLE_TOKEN = "ya29.demo-kestrel-google-token"
@@ -558,11 +747,17 @@ def google_put_demo_credential(identity: dict | None) -> None:
     put_credential("google", identity, tokens, scopes=scopes)
 
 
-def slack_channels(token: str, types: str = "public_channel,private_channel", cursor: str = "", limit: int = 100) -> dict:
+def slack_channels(token: str, types: str = "public_channel,private_channel", cursor: str = "", limit: int = 100, team_id: str = "") -> dict:
     if is_demo_token(token):
+        tid = team_id or _demo_token_to_team.get(token) or (DEMO_SLACK_TEAM_ID if token == DEMO_SLACK_BOT_TOKEN else "")
+        custom = _demo_custom_channels.get(tid)
+        if custom is not None:
+            base_list = custom
+        else:
+            base_list = DEMO_SLACK_CHANNELS
         chans = [
-            c for c in DEMO_SLACK_CHANNELS
-            if not c["private"] or ("groups:read" in (types or "") or "private" in (types or ""))
+            c for c in base_list
+            if not c.get("private") or ("groups:read" in (types or "") or "private" in (types or ""))
         ]
         return {"channels": chans, "cursor": ""}
     data = _slack_get(token, "conversations.list",

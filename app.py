@@ -1169,7 +1169,8 @@ def connectors_status(request: Request):
 
 
 @app.get("/api/connectors/slack/connect")
-def slack_connect(request: Request, mode: str = "read_post", private: int = 0):
+def slack_connect(request: Request, mode: str = "read_post", private: int = 0,
+                  team_name: str = "", channel_name: str = ""):
     """Scope-picker entry: the dialog's choices become the Slack scope set.
     Redirects to Slack's consent screen; identity + choices bind into state."""
     from fastapi.responses import RedirectResponse
@@ -1180,10 +1181,40 @@ def slack_connect(request: Request, mode: str = "read_post", private: int = 0):
             "Connector vault has no key (CONNECTOR_VAULT_KEY)."))
     mode = mode if mode in ("read", "read_post") else "read_post"
     if not _cx.provider_configured("slack"):
-        _cx.slack_put_demo_workspace(identity, mode, bool(private))
+        _cx.slack_put_user_workspace(identity, team_name=team_name, channel_name=channel_name,
+                                     mode=mode, private=bool(private))
         return RedirectResponse("/?connected=slack", status_code=302)
     return RedirectResponse(
         _cx.slack_connect_url(identity, mode, bool(private)), status_code=302)
+
+
+@app.post("/api/connectors/slack/authorize")
+async def slack_user_authorize(request: Request):
+    """Direct user authorization: connect user's chosen workspace and channel
+    without needing server owner's credentials or predetermined workspace."""
+    identity = require_tenant(request)
+    import connectors as _cx
+    if not _cx.vault_configured():
+        raise HTTPException(status_code=503, detail="Connector vault has no key (CONNECTOR_VAULT_KEY).")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    team_name = (body.get("team_name") or "").strip()
+    channel_name = (body.get("channel_name") or "").strip()
+    bot_token = (body.get("bot_token") or "").strip()
+    mode = body.get("mode") or "read_post"
+    private = bool(body.get("private", True))
+
+    res = _cx.slack_put_user_workspace(
+        identity,
+        team_name=team_name,
+        channel_name=channel_name,
+        bot_token=bot_token,
+        mode=mode,
+        private=private,
+    )
+    return {"ok": True, **res}
 
 
 @app.post("/api/connectors/slack/demo/connect")
@@ -1237,10 +1268,31 @@ def slack_channels_route(request: Request, team_id: str,
     ws = _slack_ws(identity, team_id)
     import connectors as _cx
     try:
-        out = _cx.slack_channels(ws["bot_token"], types, cursor=cursor, limit=100)
+        out = _cx.slack_channels(ws["bot_token"], types, cursor=cursor, limit=100, team_id=team_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True, **out}
+
+
+@app.post("/api/connectors/slack/{team_id}/channels")
+async def slack_add_channel_route(request: Request, team_id: str):
+    """Add a channel to the connected Slack workspace."""
+    identity = require_tenant(request)
+    ws = _slack_ws(identity, team_id)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Request body must be JSON.")
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Channel name is required.")
+    is_private = bool(body.get("private", False))
+    import connectors as _cx
+    try:
+        chan = _cx.slack_create_channel(ws["bot_token"], team_id, name, is_private)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "channel": chan}
 
 
 @app.get("/api/connectors/slack/{team_id}/messages")

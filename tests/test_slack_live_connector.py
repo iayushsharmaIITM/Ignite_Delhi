@@ -175,6 +175,42 @@ def main() -> int:
           not any(w["team_id"] == cx.DEMO_SLACK_TEAM_ID for w in remaining),
           f"remaining: {remaining}")
 
+    # 11. Direct user authorization (any user can click Authorize without server owner credentials)
+    r = client.post("/api/connectors/slack/authorize",
+                    json={"team_name": "Ayush Global Team", "channel_name": "growth-marketing", "mode": "read_post", "private": True})
+    check("user authorize returns ok with new team and channel",
+          r.status_code == 200 and r.json().get("ok") is True and r.json().get("team_name") == "Ayush Global Team",
+          f"{r.status_code} {r.text}")
+    user_team_id = r.json().get("team_id")
+
+    r_ch = client.get(f"/api/connectors/slack/{user_team_id}/channels")
+    ch_list = [c["name"] for c in r_ch.json().get("channels", [])]
+    check("user workspace channels include custom growth-marketing channel",
+          "growth-marketing" in ch_list,
+          f"got {ch_list}")
+
+    # 12. Create custom channel in user workspace
+    r_add = client.post(f"/api/connectors/slack/{user_team_id}/channels",
+                        json={"name": "product-launch", "private": False})
+    check("creating custom channel succeeds",
+          r_add.status_code == 200 and r_add.json().get("ok") is True and r_add.json().get("channel", {}).get("name") == "product-launch",
+          f"{r_add.status_code} {r_add.text}")
+    new_cid = r_add.json().get("channel", {}).get("id")
+
+    # Post to the newly created channel
+    r_post = client.post(f"/api/connectors/slack/{user_team_id}/post",
+                         json={"channel": new_cid, "text": "Launched new v2 architecture with 100% test coverage."})
+    check("posting to custom channel succeeds",
+          r_post.status_code == 200 and r_post.json().get("ok") is True,
+          f"{r_post.status_code} {r_post.text}")
+
+    # Import custom channel to brain
+    r_imp = client.post("/api/connectors/import",
+                        json={"source": "slack", "channel": new_cid, "team_id": user_team_id, "brain": test_brain})
+    check("importing custom channel to brain succeeds",
+          r_imp.status_code == 200 and r_imp.json().get("imported", 0) > 0,
+          f"{r_imp.status_code} {r_imp.text}")
+
     print("\nSLACK & CONNECTORS INTEGRATION TEST:", "FAIL" if FAILS else "PASS")
     if FAILS:
         print(f"  {len(FAILS)} of {CHECKS} checks failed: {', '.join(FAILS)}")
