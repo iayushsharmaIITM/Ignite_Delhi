@@ -1,3 +1,21 @@
+## Phases 1–3 Complete: S2b edge case, A-95, Off-disk Backups, and Phase 7 Citations (2026-10-05)
+
+1. **S2b Edge Case Fixed (`fb6629e`)**:
+   `citations.py:_collided_fingerprints` checked `len(key) - len(head) == _FINGERPRINT_LEN` (120), dropping collisions of documents under 120 characters and allowing them to resolve instead of being suppressed. Fixed to accept fingerprints `0 < len <= _FINGERPRINT_LEN`. Added check 3c to `tests/test_citation_collisions.py` (failed first, now 16/16 pass).
+2. **A-95 Brain Name Guard Closed (`015a649`)**:
+   `normalize_brain_name('_collisions')` produces `'collisions'`. Added `'collisions'` to `RESERVED_NAMES` in `app.py`. Added guards in `citations.py` (`record_upload` and `_name_map`) preventing writes or lookups against `_collisions`, `collisions`, or underscore-prefixed datasets. Gated in `tests/test_citation_collisions.py` (check 6) and `tests/test_source_precedence.py`.
+3. **Phase 2 Operational Integrity & Off-Disk Backups**:
+   - `ops/check_secrets.sh --all` verified clean (exit 0).
+   - Created fresh verified backup via `ops/kestrel_nightly_backup.sh` (13M snapshot at `~/Kestrel_backups/20261005T124700Z`, `--status` OK).
+4. **Phase 7 Numbered Perplexity-Style Citations Shipped (`cfcaf04`)**:
+   - Built `CitationChip.tsx` component with 1-based indexing (`[1]`, `[2]`), hover inspection popover displaying excerpt previews, document title, and origin badges, and seamless click handoff to `SourceModal` with exact `document_version_id`.
+   - Updated `Markdown.tsx` to link inline citations `[N]` and `[^N]` to resolved sources.
+   - Strict invariant gate created in `tests/test_numbered_citations.py` (10 checks) and wired into `verify.sh` as tier 6b7: asserts 1-based indexing, out-of-bounds/unresolved safety (no fabricated citations), and storage outage preservation (503).
+   - Added browser acceptance checks in `check_ui_react.py` verifying numbered chips and hover popovers in Playwright.
+   - Frontend rebuilt (`frontend/dist` in sync with `src`), fast-forwarded to `main`.
+   - Full battery passes: **`ran 24 tier(s), skipped 1 (clerk-gate), failing 0`**.
+   - Restarted live `:8000` via `ops_stack_up.sh`; verified `GET /health` (200) and `GET /` serves `index-yln00Tca.js`.
+
 ## Handover continuation: Live restart, second independent review, A-72 closed (2026-10-05)
 
 1. **Live :8000 unified with main**: Ayush gave explicit approval to merge and restart :8000. `main` was fast-forwarded to `86301c6`, the old process stopped, and `ops_stack_up.sh` restarted :8000. Verified live: `GET /` serves `assets/index-CnumYN-y.js`, `GET /health` reports 200 ok (cloud, postgres), and `/openapi.json` documents `document_version_id`.

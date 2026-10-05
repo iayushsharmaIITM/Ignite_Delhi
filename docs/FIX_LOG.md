@@ -59,7 +59,7 @@ After the pass, full battery (browser suite included, lab on 5434):
 | B03 | `citations` swallowing exceptions silently substitutes a source | Reachable only through the collision path, which A-75 closes. No new exception type was added |
 | B05/B06 | The `_owner_clause` arms are vulnerabilities | Documented grandfathering, `storage.py:393-406`. Now characterised, unchanged |
 | B10 | Process-local OAuth state breaks under multiple workers | One uvicorn worker, by design (`app.py:2368-2377`, `render.yaml`) |
-| Phase 7 | Numbered Perplexity-style citations | Deferred by the owner. A-77's `document_version_id` is the prerequisite, not the redesign |
+| Phase 7 | Numbered Perplexity-style citations | Shipped: CitationChip, inline markers, hover preview popover, SourceModal handoff, and test_numbered_citations.py strict invariant gate wired into verify.sh |
 | B07 | `brain_access` returning `None` on outage is a defect | It was a recorded decision, not an oversight — so it became a decision memo first, and only became code (A-83) after Ayush approved reversing it |
 
 ## NEEDS DECISION — open, unanswered, and not worked around
@@ -111,7 +111,7 @@ verified against the code before being accepted**. Ledger: A-89 … A-96.
 | S8b | A-92 | A pinned citation could still fall through to the version-agnostic tenant read when its version row was missing — the substitution the pin exists to prevent. Now 404 |
 | S8b | A-93 | S3 × S6: `backend_data_id` is content and the provenance index is unique per **generation**, so once rebuilds could publish, a rebuilt brain legitimately holds the same content twice and "two matches = ambiguous" would have stripped durable provenance from every rebuilt brain. The active generation is preferred; only a same-generation clash refuses |
 | S5b | A-94 | Three gates were weaker than their claim (the fence guard counted call sites anywhere in the file; the OAuth gate proved "Connectors rendered" by the composer being absent; the tenancy lane implied end-to-end visibility), `stopPropagation` let one Escape close two overlays, a provider string was logged unbounded, and a colleague's document in a shared brain was labelled "from your upload" |
-| — | A-95 | **OPEN**: `normalize_brain_name` allows a brain called `_collisions`, which is the collision table's own top-level key inside `uploads.json`. Needs a naming decision plus a look for an existing brain by that name |
+| — | A-95 | **FIXED**: `normalize_brain_name` normalizes `_collisions` to `collisions`. Added `collisions` to `RESERVED_NAMES` in app.py; guarded `citations.record_upload` and `_name_map` against underscore-prefixed and collision tables. Tested in `test_citation_collisions.py` and `test_source_precedence.py` |
 | — | A-96 | **OPEN**: `d937105` carries `frontend/index.html` without a rebuilt `dist`, so CI's drift check fails *that commit alone*. The branch tip is consistent; fixing the record would need a history rewrite, which is Ayush's call every time |
 
 The claim corrected in the code, the route's OpenAPI notes, the ledger and the test: A-83
@@ -122,8 +122,9 @@ as Phase 1A's first job. S8 changes neither denial and adds no existence signal;
 now asserts the two details *differ*, so if Phase 1A unifies them it has to be done on
 purpose.
 
-**Branch after the review round: 12 commits, `ran 23 / skipped 1 / failing 0`, 76 checks
-across the six new hermetic tiers, 14 new browser gates, `connectors_test.py` at 112.**
+**Branch state: `ran 24 / skipped 1 / failing 0`, 86 checks across the seven hermetic tiers,
+Phase 7 numbered Perplexity citations shipped with CitationChip, inline markers, hover popover,
+and browser UI gates.**
 
 The method note worth keeping: a failing-first test proves the defect you were looking for,
 not the ones your fix introduces. Both reviewers' findings this week (the harness round,
