@@ -6,6 +6,9 @@ import { apiFetch } from "@/lib/api"
 type Props = {
   title: string
   excerpt?: string
+  // Which exact document version the answer was produced from. Optional: citations
+  // made before the server knew cannot supply one, and then the newest is opened.
+  version?: string
   brain: string
   onClose: () => void
 }
@@ -14,7 +17,7 @@ type Props = {
 // via /api/source, the where-line states the resolver origin honestly, the
 // cited passage is highlighted with <mark> when it can be located, Copy
 // hands out the raw text, Escape/Close dismiss.
-export function SourceModal({ title, excerpt, brain, onClose }: Props) {
+export function SourceModal({ title, excerpt, version, brain, onClose }: Props) {
   const [where, setWhere] = useState("loading…")
   const [body, setBody] = useState<ReactNode>(null)
   const plainRef = useRef("")
@@ -24,6 +27,7 @@ export function SourceModal({ title, excerpt, brain, onClose }: Props) {
     const ac = new AbortController()
     const params = new URLSearchParams({ name: title })
     if (brain) params.set("dataset", brain)
+    if (version) params.set("document_version_id", version)
     apiFetch(`/api/source?${params.toString()}`, { signal: ac.signal })
       .then((r) => r.json().catch(() => ({})).then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
@@ -31,8 +35,10 @@ export function SourceModal({ title, excerpt, brain, onClose }: Props) {
         if (!ok) throw new Error(d.detail || "unavailable")
         const text = d.text || ""
         plainRef.current = text
+        // Since corpus/ became the demo brain's alone, anything not from the corpus
+        // came out of this brain's own storage — durable or tenant, both "yours".
         setWhere(
-          (d.source === "tenant" ? "from your upload" : "from the corpus") +
+          (d.source === "corpus" ? "from the corpus" : "from your upload") +
             " · " + text.length.toLocaleString() + " chars",
         )
         // locate the cited passage (first 90 chars, whitespace-flattened)
@@ -61,7 +67,7 @@ export function SourceModal({ title, excerpt, brain, onClose }: Props) {
       alive = false
       ac.abort()
     }
-  }, [title, excerpt, brain])
+  }, [title, excerpt, brain, version])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()

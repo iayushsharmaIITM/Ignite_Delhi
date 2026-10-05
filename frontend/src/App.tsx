@@ -27,7 +27,7 @@ import { loadClerk } from "@/lib/clerk"
 
 const Markdown = lazy(() => import("@/components/Markdown"))
 
-type Source = { source: string; excerpt?: string }
+type Source = { source: string; excerpt?: string; version?: string }
 type Attachment = { name: string; kind: "image" | "file"; size: number; url?: string }
 type WorkStep = { label: string; at: number; ms?: number }
 type Turn = {
@@ -311,7 +311,7 @@ export default function App() {
   const [streaming, setStreaming] = useState(false)
   const [input, setInput] = useState("")
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
-  const [sourcesPanel, setSourcesPanel] = useState<{ title: string; excerpt?: string } | null>(null)
+  const [sourcesPanel, setSourcesPanel] = useState<{ title: string; excerpt?: string; version?: string } | null>(null)
 
   // Stable object URLs for the previews above.
   const attachmentPreviews = useObjectUrls(pendingFiles)
@@ -903,7 +903,8 @@ export default function App() {
           if (!line.trim()) continue
           let ev: {
             type?: string; text?: string; stage?: string; label?: string
-            message?: string; ms?: number; items?: { source?: string; excerpt?: string }[]
+            message?: string; ms?: number
+            items?: { source?: string; excerpt?: string; document_version_id?: string }[]
           }
           // One malformed line must never kill the stream (legacy:1398).
           try { ev = JSON.parse(line) } catch { continue }
@@ -914,7 +915,8 @@ export default function App() {
           } else if (ev.type === "references") {
             const items: Source[] = (ev.items || [])
               .filter((s) => s && s.source)
-              .map((s) => ({ source: s.source as string, excerpt: s.excerpt }))
+              .map((s) => ({ source: s.source as string, excerpt: s.excerpt,
+                             version: s.document_version_id }))
             const idx = botIdxRef.current >= 0 ? botIdxRef.current : turnsRef.current.length - 1
             setTurns((t) => {
               const copy = [...t]
@@ -1505,7 +1507,7 @@ export default function App() {
                 type="button"
                 key={si}
                 title={t("src.open", "Open this source document")}
-                onClick={() => setSourcesPanel({ title: s.source, excerpt: s.excerpt })}
+                onClick={() => setSourcesPanel({ title: s.source, excerpt: s.excerpt, version: s.version })}
               >
                 {s.source}
               </button>
@@ -1924,6 +1926,7 @@ export default function App() {
         <SourceModal
           title={sourcesPanel.title}
           excerpt={sourcesPanel.excerpt}
+          version={sourcesPanel.version}
           brain={brain}
           onClose={() => setSourcesPanel(null)}
         />

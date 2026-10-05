@@ -2207,7 +2207,8 @@ def delete_brain(request: Request, name: str):
 # --------------------------------------------------------------------------
 
 @app.get("/api/source")
-def source(request: Request, name: str, dataset: str | None = None):
+def source(request: Request, name: str, dataset: str | None = None,
+           document_version_id: str | None = None):
     """Return the text of a cited source document, so a citation is checkable.
 
     A citation you cannot open is an assertion. This makes it verifiable.
@@ -2216,6 +2217,11 @@ def source(request: Request, name: str, dataset: str | None = None):
     references - and the resolved path is re-checked to be inside corpus/
     before it is read. `basename` alone is not enough on its own, so both
     checks run.
+
+    `document_version_id` is additive: when a citation knows which version it was
+    produced from, that version and no other is opened. Without one the lookup is
+    the legacy newest-version read, which is what every chat saved before this
+    parameter exists has always done.
     """
     dataset = safe_dataset(dataset)
     require_dataset_access(request, dataset)
@@ -2224,6 +2230,10 @@ def source(request: Request, name: str, dataset: str | None = None):
         raise HTTPException(status_code=400, detail="Invalid source name.")
     if os.path.basename(name) != name:
         raise HTTPException(status_code=400, detail="Invalid source name.")
+    if document_version_id and not re.fullmatch(r"[0-9a-fA-F-]{8,64}", document_version_id):
+        # Refused rather than ignored: falling back to "newest" here would quietly
+        # open a different document than the one the citation quoted.
+        raise HTTPException(status_code=400, detail="Invalid document version.")
 
     # 1. the corpus on disk — and the demo brain's only.
     #
@@ -2244,21 +2254,20 @@ def source(request: Request, name: str, dataset: str | None = None):
         raise HTTPException(status_code=404, detail=f"No source document called '{name}'.")
 
     # 2. an uploaded document, read back from the tenant.
-    target = dataset
-
+    #
     # Phase 8: durable provenance first — a v2-created brain resolves from the
     # app's own tables, not from the uploads manifest.
     import citations
-    durable_text = citations.durable_source(target, name)
+    durable_text = citations.durable_source(dataset, name, document_version_id)
     if durable_text:
         return {"ok": True, "name": name, "source": "durable", "text": durable_text}
 
     try:
         import cognee_cloud
 
-        data_id = citations.data_id_for(target, name)
+        data_id = citations.data_id_for(dataset, name)
         if data_id:
-            text = cognee_cloud.data_raw(cognee_cloud.resolve_id(target), data_id)
+            text = cognee_cloud.data_raw(cognee_cloud.resolve_id(dataset), data_id)
             return {"ok": True, "name": name, "source": "tenant", "text": text}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)[:200]) from exc

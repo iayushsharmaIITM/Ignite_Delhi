@@ -113,6 +113,27 @@ r = get_source(DEMO, "does_not_exist.md")
 check("demo miss is a 404, not a fallthrough to the tenant", r.status_code == 404,
       f"{r.status_code} {r.text[:80]}")
 
+# --- 5. the version id travels from the citation to the lookup ----------------------
+seen = {}
+
+
+def record_durable(ds, fn, dv=None, *a, **k):
+    seen.update({"ds": ds, "fn": fn, "dv": dv})
+    return TENANT_TEXT
+
+
+citations.durable_source = record_durable
+r = client.get("/api/source", params={"name": "own_file.md", "dataset": "acme-ops",
+                                      "document_version_id": "a1b2c3d4-0000-1111-2222-333344445555"})
+check("a citation with a version id passes it to the lookup",
+      r.status_code == 200 and seen.get("dv") == "a1b2c3d4-0000-1111-2222-333344445555",
+      f"{r.status_code} looked up {seen}")
+r = client.get("/api/source", params={"name": "own_file.md", "dataset": "acme-ops",
+                                      "document_version_id": "../../corpus/01_x.md"})
+check("a malformed version id is refused, never downgraded to 'newest'",
+      r.status_code == 400, f"{r.status_code} {r.text[:80]}")
+citations.durable_source = real_durable
+
 print("SOURCE PRECEDENCE (corpus is the demo's, not everyone's):",
       "FAIL" if FAILS else "PASS")
 if FAILS:

@@ -296,6 +296,22 @@ else
   FAILS=$((FAILS + 1))
 fi
 
+# --- 6b4. durable citation identity (hermetic: the DB query is a named seam) ---------
+# Two ways a citation could name a document the answer did not come from. The durable
+# lookup selected limit 1 with no ORDER BY, and backend_data_id identifies CONTENT — so
+# the same file in two brains, or two generations of one brain, matched twice and the
+# citation named whichever row the planner reached. And /api/source re-read the NEWEST
+# version of a filename, so an answer produced from version A kept opening version B
+# after a re-upload. Now a clash resolves to nothing, and a citation that knows its
+# version opens exactly that one. Driven through citations._rows, so it proves the SQL
+# and the branch logic with no database in sight.
+if python3 tests/test_durable_identity.py > /tmp/kestrel_verify_durable_id.log 2>&1; then
+  note durable-identity "PASS  $(tally /tmp/kestrel_verify_durable_id.log)"
+else
+  note durable-identity "FAIL — see /tmp/kestrel_verify_durable_id.log"
+  FAILS=$((FAILS + 1))
+fi
+
 # --- 6a. doc freshness --------------------------------------------------------
 # A stale route inside an instruction document is not cosmetic: an agent obeys it.
 # CLAUDE_CONTEXT.md used to tell agents to verify with pytest, which this file's own

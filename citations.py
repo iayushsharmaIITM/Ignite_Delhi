@@ -375,54 +375,87 @@ def data_id_from(reference) -> str | None:
     return match.group(1) if match else None
 
 
+def _rows(sql: str, params: tuple) -> list[dict]:
+    """One read-only query against the app's own provenance tables.
+
+    A seam as much as a helper: these two lookups are the only place citations touch
+    Postgres, and tests replace this function to prove the ambiguous-row handling
+    without needing a server. Writes never belong here.
+    """
+    from storage import DATABASE_URL
+    import psycopg
+    with psycopg.connect(DATABASE_URL, row_factory=psycopg.rows.dict_row) as conn, \
+            conn.cursor() as cur:
+        return list(cur.execute(sql, params).fetchall())
+
+
 def _durable_reference(dataset: str, did: str):
     """Phase 8: exact provenance from the app's own tables (v2-created brains).
 
-    Returns {source, excerpt} or None. Only rows the v2 verification actually
-    wrote are consulted — nothing is inferred from names or fingerprints."""
+    Returns {source, excerpt, generation_id, document_version_id} or None. Only rows
+    the v2 verification actually wrote are consulted — nothing is inferred from names
+    or fingerprints.
+
+    This used to be `limit 1` with no `ORDER BY`, and that was not academic:
+    `backend_data_id` identifies CONTENT, so the same file inside two brains — or inside
+    two generations of one brain — matches twice, and the citation then named whichever
+    row the planner reached first. Two candidates are read in a fixed order; a genuine
+    clash answers None, which the caller renders as unresolved, rather than guessing at
+    someone's document.
+    """
     try:
-        from storage import DATABASE_URL
-        import psycopg
-        with psycopg.connect(DATABASE_URL, row_factory=psycopg.rows.dict_row) as conn, \
-                conn.cursor() as cur:
-            row = cur.execute(
-                """select doc.filename, dv.exact_extracted_text
-                   from generation_documents gd
-                   join brain_generations g on g.id = gd.generation_id
-                   join brains b on b.id = g.brain_id
-                   join document_versions dv on dv.id = gd.document_version_id
-                   join documents doc on doc.id = dv.document_id
-                   where (b.slug = %s or g.backend_dataset_name = %s)
-                     and gd.backend_data_id = %s
-                   limit 1""", (dataset, dataset, did)).fetchone()
-        if row:
-            text = row["exact_extracted_text"] or ""
-            return {"source": row["filename"],
-                    "excerpt": re.sub(r"\s+", " ", text).strip()[:220]}
+        rows = _rows(
+            """select gd.document_version_id, gd.generation_id,
+                      doc.filename, dv.exact_extracted_text
+               from generation_documents gd
+               join brain_generations g on g.id = gd.generation_id
+               join brains b on b.id = g.brain_id
+               join document_versions dv on dv.id = gd.document_version_id
+               join documents doc on doc.id = dv.document_id
+               where (b.slug = %s or g.backend_dataset_name = %s)
+                 and gd.backend_data_id = %s
+               order by gd.generation_id, gd.document_version_id
+               limit 2""", (dataset, dataset, did))
     except Exception:  # noqa: BLE001 - durable lookup is best-effort like the rest
         return None
-    return None
+    if not rows:
+        return None
+    if len({(r["generation_id"], r["document_version_id"]) for r in rows}) > 1:
+        return None
+    row = rows[0]
+    text = row["exact_extracted_text"] or ""
+    return {"source": row["filename"],
+            "excerpt": re.sub(r"\s+", " ", text).strip()[:220],
+            "generation_id": row["generation_id"],
+            "document_version_id": row["document_version_id"]}
 
 
-def durable_source(dataset: str, filename: str):
-    """Reverse lookup for /api/source: the durable text behind an uploaded
-    document of a v2-created brain. Returns the exact extracted text or None."""
+def durable_source(dataset: str, filename: str, document_version_id: str | None = None):
+    """Reverse lookup for /api/source: the durable text behind an uploaded document.
+
+    With a version id — which is what a citation carries now — exactly that version is
+    read, and only if it belongs to the brain the caller was authorised for. With none,
+    today's behaviour is kept and deliberately so: every chat saved before this change
+    has no id, and the newest version is what they have always opened. That IS the wrong
+    answer for an old citation whose document was re-uploaded, which is why the id is
+    threaded through the payload rather than patched around here.
+    """
+    if document_version_id:
+        clause, params = " and dv.id = %s", (dataset, filename, document_version_id)
+    else:
+        clause, params = "", (dataset, filename)
     try:
-        from storage import DATABASE_URL
-        import psycopg
-        with psycopg.connect(DATABASE_URL, row_factory=psycopg.rows.dict_row) as conn, \
-                conn.cursor() as cur:
-            row = cur.execute(
-                """select dv.exact_extracted_text
-                   from documents doc
-                   join brains b on b.id = doc.brain_id
-                   join document_versions dv on dv.document_id = doc.id
-                   where b.slug = %s and doc.filename = %s
-                   order by dv.created_at desc limit 1""", (dataset, filename)).fetchone()
-        if row and row["exact_extracted_text"]:
-            return row["exact_extracted_text"]
+        rows = _rows(
+            """select dv.exact_extracted_text
+               from documents doc
+               join brains b on b.id = doc.brain_id
+               join document_versions dv on dv.document_id = doc.id
+               where b.slug = %s and doc.filename = %s""" + clause + """
+               order by dv.created_at desc limit 1""", params)
     except Exception:  # noqa: BLE001
         return None
+    if rows and rows[0]["exact_extracted_text"]:
+        return rows[0]["exact_extracted_text"]
     return None
 
 
@@ -506,13 +539,14 @@ def enrich(references: list, dataset: str) -> list:
                 store[did] = durable
                 info = durable
         if info and info.get("source"):
-            out.append(
-                {
-                    "source": info["source"],
-                    "excerpt": info["excerpt"],
-                    "raw": str(ref),
-                }
-            )
+            entry = {"source": info["source"],
+                     "excerpt": info["excerpt"],
+                     "raw": str(ref)}
+            # Only a durable row knows WHICH version this was read from; the
+            # fingerprint path cannot, and guessing is the bug being closed.
+            if info.get("document_version_id"):
+                entry["document_version_id"] = info["document_version_id"]
+            out.append(entry)
         else:
             # Include the string so the panel is never empty, but mark it as
             # unresolved rather than pretending it is a source.
