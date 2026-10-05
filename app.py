@@ -2225,21 +2225,26 @@ def source(request: Request, name: str, dataset: str | None = None):
     if os.path.basename(name) != name:
         raise HTTPException(status_code=400, detail="Invalid source name.")
 
-    # 1. the corpus on disk (the demo brain, and anything committed)
-    corpus_root = os.path.realpath(os.path.join(HERE, "corpus"))
-    path = os.path.realpath(os.path.join(corpus_root, name))
-    if path.startswith(corpus_root + os.sep) and os.path.isfile(path):
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            return {"ok": True, "name": name, "source": "corpus", "text": fh.read()}
+    # 1. the corpus on disk — and the demo brain's only.
+    #
+    # This used to run for every dataset, before the tenant was consulted at all.
+    # `corpus/` is shared by every brain and its files are named like a real
+    # document (`05_policy_SLA-credit-01.md`), so a customer who uploaded a file
+    # under a corpus name clicked a citation and got Kestrel's demo text: a
+    # confidently wrong source. An unresolvable source is reported, never
+    # substituted, so `corpus/` is now reachable only from the demo brain, which
+    # keeps its original order and speed — its corpus is on disk, so a miss there
+    # is a genuine 404 and must not fall through to the tenant map (~20s).
+    if dataset == DEMO_DATASET:
+        corpus_root = os.path.realpath(os.path.join(HERE, "corpus"))
+        path = os.path.realpath(os.path.join(corpus_root, name))
+        if path.startswith(corpus_root + os.sep) and os.path.isfile(path):
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                return {"ok": True, "name": name, "source": "corpus", "text": fh.read()}
+        raise HTTPException(status_code=404, detail=f"No source document called '{name}'.")
 
     # 2. an uploaded document, read back from the tenant.
-    #
-    # Skipped for the demo brain: its corpus is on disk, so a miss there is a
-    # genuine 404. Without this guard an unknown name fell through to the tenant,
-    # which resolves the whole dataset map first and took ~20s to say "not found".
-    target = safe_dataset(dataset)
-    if target == DEMO_DATASET:
-        raise HTTPException(status_code=404, detail=f"No source document called '{name}'.")
+    target = dataset
 
     # Phase 8: durable provenance first — a v2-created brain resolves from the
     # app's own tables, not from the uploads manifest.

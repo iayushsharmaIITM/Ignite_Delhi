@@ -266,6 +266,20 @@ else
   FAILS=$((FAILS + 1))
 fi
 
+# --- 6b2. source precedence (hermetic: no provider call, no browser) -----------
+# /api/source used to read corpus/<filename> off disk before it consulted the
+# authorised brain, so a customer document sharing a demo corpus filename opened
+# the demo's text: a confidently wrong source, which is the invariant this product
+# is sold on. The tier pins PROVIDER=mock and refuses a non-lab DATABASE_URL, and
+# it also holds the demo brain to its original order — corpus first, tenant map
+# never touched, because that fallthrough used to cost ~20s.
+if python3 tests/test_source_precedence.py > /tmp/kestrel_verify_source_prec.log 2>&1; then
+  note source-precedence "PASS  $(tally /tmp/kestrel_verify_source_prec.log)"
+else
+  note source-precedence "FAIL — see /tmp/kestrel_verify_source_prec.log"
+  FAILS=$((FAILS + 1))
+fi
+
 # --- 6a. doc freshness --------------------------------------------------------
 # A stale route inside an instruction document is not cosmetic: an agent obeys it.
 # CLAUDE_CONTEXT.md used to tell agents to verify with pytest, which this file's own
