@@ -1,3 +1,22 @@
+## Live Slack & External Connectors Platform Wrap-Up (2026-10-05)
+
+1. **Slack Integration & Multi-Workspace Live Feature**:
+   - Built full presentation & live demo support for Slack in `connectors.py` and `app.py`: multi-workspace scope picker (`read` vs `read_post` + private channels toggle), realistic company channels (`#general`, `#incident-postmortems`, `#product-roadmap`, `#security-compliance`), channel message history, and live message posting (`/api/connectors/slack/{team_id}/post`).
+   - Added demo Google Workspace credential connection and sample Gmail correspondence (SOC2 compliance, customer SLA feedback).
+   - Upgraded `connectors_import` in `app.py`: imported Slack channel history and Gmail messages are now registered directly into the `citations` manifest (`citations.record_upload(brain, stored)`), ensuring imported documents resolve with exact citable filenames (`slack-C_DEMO_INC-*.txt`, `gmail-*.txt`) and verbatim excerpts when asked in Chat.
+   - Normalized `document_version_id` UUID handling in `/api/source` to avoid potential type representation anomalies.
+2. **Interactive Frontend Channel Explorer & Live Activity (`Connectors.tsx` & `SlackAccessDialog.tsx`)**:
+   - Redesigned `Connectors.tsx` with an interactive workspace channel explorer: clickable channel tabs with lock/hash icons, live message feed with user and timestamp badges, and one-click **"Sync to Brain"** button.
+   - Added a **Live Slack Message Composer** allowing users to compose and post messages directly to Slack channels (`read_post` mode) with real-time UI updates and toast feedback.
+   - Enhanced `SlackAccessDialog.tsx`: enables connecting both live OAuth workspaces and interactive demo workspaces seamlessly without getting blocked when OAuth client keys are unconfigured.
+   - Added preset quick-channel buttons for instant 1-click import into brains.
+   - Rebuilt `frontend/dist` with `./ops/build_frontend.sh` (`index-B2TuiMvO.js`, `index-BTtijbIH.css`, `Markdown-D84n4xZu.js`).
+3. **Verification & Battery**:
+   - Created `tests/test_slack_live_connector.py` (19 checks) covering demo workspace connection, channel listing (public vs private scoping), message history, live message posting, 403 read-only enforcement, connector import, citation manifest registration, demo Gmail import, and workspace revocation.
+   - Wired into `verify.sh` as tier 6b8 (`[slack-connector] PASS 19/19`).
+   - Clean secrets check: `./ops/check_secrets.sh --all` exits 0 (clean).
+   - Full battery result: **`ran 25 tier(s), skipped 1 (clerk-gate), failing 0`** (including browser UI acceptance `[ui-react] PASS`).
+
 ## Phases 1–3 Complete: S2b edge case, A-95, Off-disk Backups, and Phase 7 Citations (2026-10-05)
 
 1. **S2b Edge Case Fixed (`fb6629e`)**:

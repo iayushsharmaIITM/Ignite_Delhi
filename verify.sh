@@ -352,7 +352,18 @@ else
   FAILS=$((FAILS + 1))
 fi
 
-# --- 6b8. legacy visibility, characterised (NOT a security gate) --------------
+# --- 6b8. live slack & external connectors (P6, hermetic / lab-safe) -----------------
+# Slack multi-workspace, scope negotiation, public & private channel discovery,
+# conversation history, live message posting, and citable connector import into brains.
+# Disconnects cleanly revoke grants and purge stored credentials from the vault.
+if python3 tests/test_slack_live_connector.py > /tmp/kestrel_verify_slack_connector.log 2>&1; then
+  note slack-connector "PASS  $(tally /tmp/kestrel_verify_slack_connector.log)"
+else
+  note slack-connector "FAIL — see /tmp/kestrel_verify_slack_connector.log"
+  FAILS=$((FAILS + 1))
+fi
+
+# --- 6b9. legacy visibility, characterised (NOT a security gate) --------------
 # B05/B06/X-USAGE came in as vulnerabilities and are documented grandfathering: a row
 # with both owner columns NULL is readable by every authenticated identity, membership
 # OR creator is enough, and a brain nobody registered still shows in a scoped usage

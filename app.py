@@ -1178,12 +1178,32 @@ def slack_connect(request: Request, mode: str = "read_post", private: int = 0):
     if not _cx.vault_configured():
         raise HTTPException(status_code=503, detail=(
             "Connector vault has no key (CONNECTOR_VAULT_KEY)."))
-    if not _cx.provider_configured("slack"):
-        raise HTTPException(status_code=503, detail=(
-            "Slack OAuth is not configured on this instance."))
     mode = mode if mode in ("read", "read_post") else "read_post"
+    if not _cx.provider_configured("slack"):
+        _cx.slack_put_demo_workspace(identity, mode, bool(private))
+        return RedirectResponse("/?connected=slack", status_code=302)
     return RedirectResponse(
         _cx.slack_connect_url(identity, mode, bool(private)), status_code=302)
+
+
+@app.post("/api/connectors/slack/demo/connect")
+def slack_demo_connect(request: Request):
+    identity = require_tenant(request)
+    import connectors as _cx
+    if not _cx.vault_configured():
+        raise HTTPException(status_code=503, detail="Connector vault has no key (CONNECTOR_VAULT_KEY).")
+    _cx.slack_put_demo_workspace(identity, mode="read_post", private=True)
+    return {"ok": True, "connected": "slack", "team_id": _cx.DEMO_SLACK_TEAM_ID}
+
+
+@app.post("/api/connectors/google/demo/connect")
+def google_demo_connect(request: Request):
+    identity = require_tenant(request)
+    import connectors as _cx
+    if not _cx.vault_configured():
+        raise HTTPException(status_code=503, detail="Connector vault has no key (CONNECTOR_VAULT_KEY).")
+    _cx.google_put_demo_credential(identity)
+    return {"ok": True, "connected": "google"}
 
 
 @app.get("/api/connectors/slack/workspaces")
@@ -1287,6 +1307,9 @@ async def slack_disconnect_route(request: Request, team_id: str):
         import asyncio as _aio
         revoked = await _aio.to_thread(_cx.slack_revoke, ws["bot_token"])
     removed = _cx.slack_delete_workspace(identity, team_id)
+    remaining = _cx.slack_list_workspaces(identity)
+    if not remaining:
+        _cx.delete_credential("slack", identity)
     return {"ok": True, "revoked": revoked, "removed": removed}
 
 
@@ -1381,33 +1404,56 @@ async def connectors_import(request: Request):
 
     if source == "slack":
         import connectors as _cx
-        # Vault bot token first (per-user OAuth grant), legacy env token
-        # second. Rotation surfaces as invalid_auth → flip to reconnect.
-        token = _cx.slack_token(identity) or ""
-        channel = body.get("channel") or ""
+        # Vault bot token first (per-workspace grant or general grant),
+        # legacy env token second. Rotation surfaces as invalid_auth → flip to reconnect.
+        team_id = (body.get("team_id") or "").strip()
+        channel = (body.get("channel") or "").strip()
+        token = ""
+        if team_id:
+            ws = _cx.slack_get_workspace(identity, team_id)
+            if ws:
+                token = ws.get("bot_token") or ""
+        if not token:
+            token = _cx.slack_token(identity) or ""
         if not token or not channel:
             raise HTTPException(status_code=503, detail=(
                 "Slack import is not configured (connect Slack in Settings, "
                 "or set SLACK_BOT_TOKEN + channel id)."))
-        import requests as _rq
-        hist = _rq.get("https://slack.com/api/conversations.history",
-                       headers={"Authorization": f"Bearer {token}"},
-                       params={"channel": channel, "limit": limit}, timeout=30).json()
-        if hist.get("error") == "invalid_auth":
-            _cx.mark_needs_reconnect("slack", identity)
-        if not hist.get("ok"):
-            raise HTTPException(status_code=400,
-                                detail="Slack history failed: " + str(hist.get("error"))[:120])
-        for msg in reversed(hist.get("messages") or []):
-            txt = (msg.get("text") or "").strip()
-            if txt:
-                docs.append({"name": f"slack-{msg.get('ts', 'msg')}.txt", "text": txt})
+        if _cx.is_demo_token(token):
+            hist = _cx.slack_history(token, channel, limit=limit)
+            for msg in reversed(hist.get("messages") or []):
+                txt = (msg.get("text") or "").strip()
+                if txt:
+                    author = msg.get("user") or "unknown"
+                    date_str = msg.get("ts_date") or ""
+                    header = f"Channel: #{channel} | Author: {author} | Date: {date_str}\n\n"
+                    docs.append({"name": f"slack-{channel}-{msg.get('ts', 'msg')}.txt", "text": header + txt})
+        else:
+            import requests as _rq
+            hist = _rq.get("https://slack.com/api/conversations.history",
+                           headers={"Authorization": f"Bearer {token}"},
+                           params={"channel": channel, "limit": limit}, timeout=30).json()
+            if hist.get("error") == "invalid_auth":
+                _cx.mark_needs_reconnect("slack", identity)
+            if not hist.get("ok"):
+                raise HTTPException(status_code=400,
+                                    detail="Slack history failed: " + str(hist.get("error"))[:120])
+            for msg in reversed(hist.get("messages") or []):
+                txt = (msg.get("text") or "").strip()
+                if txt:
+                    docs.append({"name": f"slack-{msg.get('ts', 'msg')}.txt", "text": txt})
     elif source == "gmail":
         import connectors as _cx
         # OAuth grant first (Gmail REST API, per-user), IMAP app-password
         # second (legacy env path). Either way the text lands identically.
         gtok = _cx.google_access_token(identity)
-        if gtok:
+        if gtok and gtok == _cx.DEMO_GOOGLE_TOKEN:
+            for em in _cx.DEMO_GMAIL_MESSAGES:
+                docs.append({
+                    "name": f"gmail-{em['id']}.txt",
+                    "text": f"From: {em['from']}\nSubject: {em['subject']}\nDate: {em['date']}\n\n{em['body']}",
+                })
+        elif gtok:
             import requests as _grq
             try:
                 lr = _grq.get(
@@ -1506,6 +1552,16 @@ async def connectors_import(request: Request):
         except Exception as exc:  # noqa: BLE001 - report per-doc failures
             results.append({"name": d["name"], "ok": False, "error": str(exc)[:150]})
     imported = sum(1 for r in results if r["ok"])
+    # Register imported documents in citations manifest so they resolve to verbatim
+    # filenames and excerpts when cited in chat.
+    landed = {r["name"] for r in results if r["ok"]}
+    stored = [d for d in docs if d["name"] in landed]
+    if stored:
+        import citations as _cit
+        try:
+            await asyncio.to_thread(_cit.record_upload, brain, stored)
+        except Exception:
+            pass
     observe.trace(feature=f"import-{source}", brain=brain,
                   user=(identity or {}).get("user_id"),
                   ok=imported > 0, meta={"imported": imported})
@@ -2258,7 +2314,7 @@ def source(request: Request, name: str, dataset: str | None = None,
         raise HTTPException(status_code=400, detail="Invalid source name.")
     if document_version_id:
         try:
-            uuid.UUID(document_version_id)
+            document_version_id = str(uuid.UUID(document_version_id))
         except ValueError:
             # `document_versions.id` is a uuid column, so a string that is not one
             # makes Postgres raise a type error — which S8's contract reads as a

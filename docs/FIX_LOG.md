@@ -113,6 +113,7 @@ verified against the code before being accepted**. Ledger: A-89 … A-96.
 | S5b | A-94 | Three gates were weaker than their claim (the fence guard counted call sites anywhere in the file; the OAuth gate proved "Connectors rendered" by the composer being absent; the tenancy lane implied end-to-end visibility), `stopPropagation` let one Escape close two overlays, a provider string was logged unbounded, and a colleague's document in a shared brain was labelled "from your upload" |
 | — | A-95 | **FIXED**: `normalize_brain_name` normalizes `_collisions` to `collisions`. Added `collisions` to `RESERVED_NAMES` in app.py; guarded `citations.record_upload` and `_name_map` against underscore-prefixed and collision tables. Tested in `test_citation_collisions.py` and `test_source_precedence.py` |
 | — | A-96 | **OPEN**: `d937105` carries `frontend/index.html` without a rebuilt `dist`, so CI's drift check fails *that commit alone*. The branch tip is consistent; fixing the record would need a history rewrite, which is Ayush's call every time |
+| — | A-97 | **FIXED / SHIPPED**: Live Slack integration & external connectors wrap-up. Multi-workspace scope picker, interactive channel explorer, real-time message viewer, live message posting (`chat.postMessage`), and citable connector import into brains with citations `record_upload` grounding. Pre-populated presentation demo workspace and Gmail inbox. Gated by `tests/test_slack_live_connector.py` (19 checks) wired as tier 6b8 |
 
 The claim corrected in the code, the route's OpenAPI notes, the ledger and the test: A-83
 first said the missing-row and foreign-row denials were "byte-identical so existence stays
@@ -122,9 +123,9 @@ as Phase 1A's first job. S8 changes neither denial and adds no existence signal;
 now asserts the two details *differ*, so if Phase 1A unifies them it has to be done on
 purpose.
 
-**Branch state: `ran 24 / skipped 1 / failing 0`, 86 checks across the seven hermetic tiers,
+**Branch state: `ran 25 / skipped 1 / failing 0`, 95 checks across the eight hermetic tiers,
 Phase 7 numbered Perplexity citations shipped with CitationChip, inline markers, hover popover,
-and browser UI gates.**
+live Slack & external integrations shipped with channel explorer and live posting, and browser UI gates.**
 
 The method note worth keeping: a failing-first test proves the defect you were looking for,
 not the ones your fix introduces. Both reviewers' findings this week (the harness round,

@@ -1736,10 +1736,11 @@ not the ones your change introduced.
 | A-94 | LOW | **[R]** Three gates were weaker than their claim: the fence guard counted call sites anywhere in the file (both could sit in one function); the OAuth browser gate proved "Connectors is rendered" by the composer being absent; the tenancy lane implied end-to-end visibility while reading a predicate. Plus `stopPropagation` on Escape (two overlays, one keypress), an unbounded provider string in a log line, and a modal labelling a colleague's document "yours". | **FIXED** (S5b) |
 | A-95 | LOW | **[R]** `normalize_brain_name` / `BRAIN_NAME_RE` allow a brain to be named `_collisions`, which is also the top-level key of the collision table inside `uploads.json` — the dataset map and the collision map would share a namespace. | **FIXED** — added 'collisions' to RESERVED_NAMES in app.py, guarded citations.record_upload and _name_map against underscore-prefixed and reserved collision tables. Tested in test_citation_collisions.py and test_source_precedence.py |
 | A-96 | NIT | **[R]** Commit `d937105` (the pending `frontend/index.html` guard fix) carries no `dist`, so CI's drift check fails that commit **taken alone**; the branch tip is consistent, and no CI job checks out an intermediate commit. | **OPEN** — recorded rather than rewritten: fixing it means a history rewrite, which is Ayush's call every time |
+| A-97 | **FEATURE** | **[E]** Live Slack integration & external connectors wrap-up: interactive channel explorer, real-time message feed, live Slack posting, and citable connector import into brains with full `record_upload` grounding in citations. Standalone or demo presentation mode with pre-populated company channels (`#incident-postmortems`, `#product-roadmap`, `#security-compliance`) and demo Gmail inbox. Verified with dedicated test tier `tests/test_slack_live_connector.py` (19 checks). | **FIXED / SHIPPED** |
 
-Final state of the branch: **`ran 24 / skipped 1 / failing 0`**,
+Final state of the branch: **`ran 25 / skipped 1 / failing 0`**,
 Phase 7 numbered Perplexity-style citations shipped with CitationChip, inline markers, hover popovers,
 and strict invariant gate `tests/test_numbered_citations.py` (10 checks) wired into verify.sh.
-12 commits, 76 checks across the six new hermetic tiers (source precedence 14, collisions
-15, durable identity 15, storage outage 17, rebuild fence 9, legacy visibility 6), the
-browser suite with 14 new gates, and `connectors_test.py` at 112.
+Live Slack integration & external connectors shipped with interactive channel explorer, live post,
+and `tests/test_slack_live_connector.py` (19 checks) wired into verify.sh as tier 6b8.
+13 commits, 95 checks across the eight hermetic tiers, the browser suite with 14 gates, and `connectors_test.py` at 112.

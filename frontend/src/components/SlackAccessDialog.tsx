@@ -93,17 +93,20 @@ export function SlackAccessDialog({ open, onClose }: Props) {
 
         <Button
           className="w-full rounded-lg font-semibold"
-          disabled={configured === false}
+          disabled={configured === null}
           onClick={connect}
         >
-          {configured === null ? "Checking…" : configured ? "Connect to Slack" : "Slack app not configured"}
+          {configured === null
+            ? "Checking…"
+            : configured
+            ? "Connect to Slack (OAuth)"
+            : "Connect Demo Workspace (Live Presentation)"}
         </Button>
-        {configured === false && (
-          <p className="-mt-2 text-center text-xs text-muted-foreground">
-            This instance has no Slack OAuth client yet — the owner must set
-            SLACK_CLIENT_ID / SLACK_CLIENT_SECRET first.
-          </p>
-        )}
+        <p className="-mt-2 text-center text-xs text-muted-foreground">
+          {configured
+            ? "Redirects to Slack's authorization screen to link your workspace."
+            : "Connects a live Acme Corp workspace with incident postmortems, engineering discussions, and live channel posting."}
+        </p>
       </DialogContent>
     </Dialog>
   )

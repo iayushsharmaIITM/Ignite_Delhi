@@ -465,7 +465,106 @@ def _slack_post_json(token: str, method: str, body: dict) -> dict:
     return data
 
 
-def slack_channels(token: str, types: str, cursor: str = "", limit: int = 100) -> dict:
+DEMO_SLACK_TEAM_ID = "T_DEMO_ACME"
+DEMO_SLACK_TEAM_NAME = "Acme Corp (Demo Workspace)"
+DEMO_SLACK_BOT_TOKEN = "demo-slack-bot-token"
+DEMO_SLACK_USER_TOKEN = "demo-slack-user-token"
+DEMO_SLACK_BOT_USER_ID = "U_KESTREL_BOT"
+
+DEMO_SLACK_CHANNELS = [
+    {"id": "C_DEMO_GEN", "name": "general", "private": False, "member": True},
+    {"id": "C_DEMO_INC", "name": "incident-postmortems", "private": False, "member": True},
+    {"id": "C_DEMO_ROAD", "name": "product-roadmap", "private": False, "member": True},
+    {"id": "C_DEMO_SEC", "name": "security-compliance", "private": True, "member": True},
+]
+
+DEMO_SLACK_MESSAGES = {
+    "C_DEMO_GEN": [
+        {"ts": "1728130000.000100", "user": "alice_exec", "text": "Welcome to Acme Corp knowledge workspace! Ensure all team guides and onboarding docs are synced to Kestrel.", "ts_date": "2026-10-05 09:00"},
+        {"ts": "1728130500.000200", "user": "bob_eng", "text": "All onboarding guides for engineering and product have been updated.", "ts_date": "2026-10-05 09:15"},
+    ],
+    "C_DEMO_INC": [
+        {"ts": "1728131000.000100", "user": "sarah_ops", "text": "Incident Postmortem #412: On Oct 3, query latency spiked due to Redis connection pool exhaustion. Root cause was an unclosed connection in background worker task. Remediation: pool enlarged to 200, circuit breaker added, p99 back to 42ms.", "ts_date": "2026-10-05 10:00"},
+        {"ts": "1728131500.000200", "user": "alex_eng", "text": "Customer SLA credit policy: Affected enterprise customers received an automatic 10% SLA credit in accordance with our 99.9% uptime commitment.", "ts_date": "2026-10-05 10:20"},
+    ],
+    "C_DEMO_ROAD": [
+        {"ts": "1728132000.000100", "user": "priya_pm", "text": "Q4 Roadmap update: Perplexity-style numbered citations and multi-workspace Slack connectors are our top deliverables for enterprise customer presentations.", "ts_date": "2026-10-05 11:00"},
+        {"ts": "1728132500.000200", "user": "leo_design", "text": "Citation hover previews and source modal integration are complete. Verified across light and dark modes.", "ts_date": "2026-10-05 11:30"},
+    ],
+    "C_DEMO_SEC": [
+        {"ts": "1728133000.000100", "user": "marc_sec", "text": "SOC2 Audit Policy: API keys, database credentials, and service tokens must remain strictly in environment vaults. Zero secrets committed to source repositories.", "ts_date": "2026-10-05 12:00"},
+        {"ts": "1728133500.000200", "user": "devon_eng", "text": "Automated security scanning is active across all commits with check_secrets backstop in CI.", "ts_date": "2026-10-05 12:15"},
+    ],
+}
+
+_demo_posted_messages: dict[str, list[dict]] = {}
+
+def is_demo_token(token: str | None) -> bool:
+    t = (token or "").strip()
+    return bool(t and (t.startswith("demo-") or t == DEMO_SLACK_BOT_TOKEN))
+
+
+def slack_put_demo_workspace(identity: dict | None, mode: str = "read_post", private: bool = False) -> None:
+    bot, user = slack_scope_set(mode, private)
+    scopes = ",".join(bot)
+    tokens = {
+        "bot_token": DEMO_SLACK_BOT_TOKEN,
+        "user_token": DEMO_SLACK_USER_TOKEN if private else "",
+        "bot_user_id": DEMO_SLACK_BOT_USER_ID,
+        "access_token": DEMO_SLACK_BOT_TOKEN,
+        "team": DEMO_SLACK_TEAM_NAME,
+        "team_id": DEMO_SLACK_TEAM_ID,
+    }
+    slack_put_workspace(
+        identity,
+        DEMO_SLACK_TEAM_ID,
+        DEMO_SLACK_TEAM_NAME,
+        tokens,
+        scopes,
+        mode,
+        private,
+        bot_user_id=DEMO_SLACK_BOT_USER_ID,
+    )
+    put_credential("slack", identity, tokens, scopes=scopes)
+
+
+DEMO_GOOGLE_TOKEN = "ya29.demo-kestrel-google-token"
+
+DEMO_GMAIL_MESSAGES = [
+    {
+        "id": "msg-001",
+        "subject": "Acme Corp SLA & Security Audit Notice",
+        "from": "compliance@acmepartners.com",
+        "date": "2026-10-04 11:00",
+        "body": "Acme Corp has completed the annual SOC2 Type II compliance audit. All data encryption in transit and at rest meets SOC2 requirements. Service Level Agreements guarantee 99.9% availability for all cloud endpoints.",
+    },
+    {
+        "id": "msg-002",
+        "subject": "Product Feedback: Citation Verifiability",
+        "from": "support@enterpriseclient.com",
+        "date": "2026-10-04 14:30",
+        "body": "Our executive team requires all AI-generated answers to provide numbered citations linking directly to exact source document excerpts without hallucinations or semantic guessing.",
+    },
+]
+
+
+def google_put_demo_credential(identity: dict | None) -> None:
+    scopes = " ".join(PROVIDERS["google"]["scopes"])
+    tokens = {
+        "access_token": DEMO_GOOGLE_TOKEN,
+        "refresh_token": "1//demo-refresh",
+        "expires_at": int(time.time()) + 86400 * 30,
+    }
+    put_credential("google", identity, tokens, scopes=scopes)
+
+
+def slack_channels(token: str, types: str = "public_channel,private_channel", cursor: str = "", limit: int = 100) -> dict:
+    if is_demo_token(token):
+        chans = [
+            c for c in DEMO_SLACK_CHANNELS
+            if not c["private"] or ("groups:read" in (types or "") or "private" in (types or ""))
+        ]
+        return {"channels": chans, "cursor": ""}
     data = _slack_get(token, "conversations.list",
                       {"types": types, "limit": limit,
                        **({"cursor": cursor} if cursor else {}),
@@ -478,6 +577,11 @@ def slack_channels(token: str, types: str, cursor: str = "", limit: int = 100) -
 
 
 def slack_history(token: str, channel: str, limit: int = 50, cursor: str = "") -> dict:
+    if is_demo_token(token):
+        base = list(DEMO_SLACK_MESSAGES.get(channel, []))
+        extra = _demo_posted_messages.get(channel, [])
+        all_msgs = base + extra
+        return {"messages": all_msgs[:limit], "cursor": ""}
     data = _slack_get(token, "conversations.history",
                       {"channel": channel, "limit": limit,
                        **({"cursor": cursor} if cursor else {})})
@@ -488,11 +592,23 @@ def slack_history(token: str, channel: str, limit: int = 50, cursor: str = "") -
 
 
 def slack_post(token: str, channel: str, text: str) -> dict:
+    if is_demo_token(token):
+        now_ts = f"{time.time():.6f}"
+        msg = {
+            "ts": now_ts,
+            "user": "current_user",
+            "text": text,
+            "ts_date": time.strftime("%Y-%m-%d %H:%M", time.gmtime()),
+        }
+        _demo_posted_messages.setdefault(channel, []).append(msg)
+        return {"ts": now_ts, "channel": channel}
     data = _slack_post_json(token, "chat.postMessage", {"channel": channel, "text": text})
     return {"ts": data.get("ts"), "channel": data.get("channel")}
 
 
 def slack_revoke(token: str) -> bool:
+    if is_demo_token(token):
+        return True
     try:
         return bool(_slack_post_json(token, "auth.revoke", {"test": True}).get("ok"))
     except Exception:

@@ -37,6 +37,22 @@
     ]
   },
 
+  "What caused the query latency incident discussed in Slack, and how was it resolved?": {
+    "answer": "Cause of the incident\n\n- On October 3, query latency spiked due to Redis cache connection pool exhaustion, caused by an unclosed connection leak in a background worker task.\n\nResolution & Remediation\n\n1. The connection pool size was scaled to 200 connections.\n2. A circuit breaker was introduced for downstream query tasks, bringing p99 latency back down to 42ms.\n3. In accordance with the 99.9% uptime commitment, affected enterprise customers automatically received a 10% SLA credit.",
+    "references": [
+      "chunk 1 of slack-C_DEMO_INC-1728131000.000100.txt — Incident Postmortem #412: Redis connection pool exhaustion and circuit breaker remediation",
+      "chunk 1 of slack-C_DEMO_INC-1728131500.000200.txt — Customer SLA credit policy: 10% SLA billing credit applied"
+    ]
+  },
+
+  "What is our credentials and secret policy according to Slack compliance?": {
+    "answer": "Credentials & Secret Policy\n\n- Under the SOC2 Audit Policy, API keys, database credentials, and service tokens must remain strictly in environment vaults (.env) with restricted file permissions.\n- Secrets must never be committed to git repositories or logged in plain text.\n- Pre-commit automated scanning and CI check_secrets checks actively enforce zero-credential leakage across all commits.",
+    "references": [
+      "chunk 1 of slack-C_DEMO_SEC-1728133000.000100.txt — SOC2 Audit Policy: API keys and service tokens in environment vaults, zero secrets committed",
+      "chunk 1 of slack-C_DEMO_SEC-1728133500.000200.txt — Automated security scanning and check_secrets enforcement in CI"
+    ]
+  },
+
   "default": {
     "answer": "The live graph is not reachable, so this is the offline fallback answer. Try one of the suggested questions — each has a committed fixture answer that mirrors what the live graph returns.",
     "references": []
