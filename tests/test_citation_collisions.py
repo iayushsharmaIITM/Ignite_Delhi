@@ -129,6 +129,41 @@ check("an unambiguous upload in the same dataset still resolves",
       citations._fingerprint(TEXT_UNIQUE) in nmap,
       "the sweep removed more than it should")
 
+# --- 3b. the sweep must not punish documents that merely OPEN alike ------------------
+# The collision table once keyed on the first 32 characters of the fingerprint, and the
+# reader deleted every map key that STARTED WITH one. 32 normalised characters is about
+# five words of boilerplate, so recording a clash between two `service level agreement
+# credit…` documents also silenced a third document whose full 120-character
+# fingerprint was unique. Ambiguity is a property of the whole fingerprint, so that is
+# what the table stores and what the reader matches.
+OPEN = "service level agreement credit policy "
+BODY = ("applies to every account in the region and is administered by the finance "
+        "team without exception per the published schedule and renewed each quarter.")
+NEAR_A = OPEN + BODY + " Alpha document."
+NEAR_B = OPEN + BODY + " Beta document."
+NEAR_UNIQUE = OPEN + "differs here, well inside the fingerprint window, and is its own file."
+assert len(citations._fingerprint(OPEN + BODY)) == 120, "A and B must share a fingerprint"
+assert citations._fingerprint(NEAR_A)[:32] == citations._fingerprint(NEAR_UNIQUE)[:32], \
+    "fixture must share its first 32 characters"
+assert citations._fingerprint(NEAR_A) != citations._fingerprint(NEAR_UNIQUE), \
+    "fixture must differ inside the 120-character fingerprint"
+
+use_corpus({"x_1.md": NEAR_A, "x_2.md": NEAR_B, "z_unique.md": NEAR_UNIQUE})
+use_uploads()
+citations.record_upload("near-brain", [{"name": "x_1.md", "text": NEAR_A},
+                                       {"name": "x_2.md", "text": NEAR_B}])
+nmap = citations._name_map("near-brain")
+check("a recorded clash is stored by its full fingerprint, not a truncation of it",
+      any(key.endswith(citations._fingerprint(NEAR_A))
+          for key in json.load(open(citations.UPLOADS, encoding="utf-8"))
+          .get("_collisions", {})),
+      "the collision key is shorter than the fingerprint it describes")
+check("the clashing fingerprint names nothing",
+      citations._fingerprint(NEAR_A) not in nmap)
+check("but a document that merely opens the same way keeps its own citation",
+      nmap.get(citations._fingerprint(NEAR_UNIQUE)) == "z_unique.md",
+      f"got {nmap.get(citations._fingerprint(NEAR_UNIQUE))!r} — over-deleted")
+
 # --- 4. the tenant's own filename beats the demo file's, for identical content --------
 use_corpus({"05_policy_SLA.md": TEXT_A})
 use_uploads({"acme-brain": {COLLIDED: "our_sla_policy.md"}})
@@ -140,7 +175,7 @@ check("an upload that matches corpus content is labelled with the tenant's name"
 # --- 5. another dataset's collisions do not blind this one ----------------------------
 use_corpus({"05_policy_SLA.md": TEXT_A})
 use_uploads({"acme-brain": {COLLIDED: "our_sla_policy.md"},
-             "_collisions": {"other-brain::" + COLLIDED[:32]: ["x.md", "y.md"]}})
+             "_collisions": {"other-brain::" + COLLIDED: ["x.md", "y.md"]}})
 nmap = citations._name_map("acme-brain")
 check("a collision recorded for a different brain leaves this one intact",
       nmap.get(COLLIDED) == "our_sla_policy.md",

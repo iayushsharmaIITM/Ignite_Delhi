@@ -60,7 +60,10 @@ _DATA_ID_RE = re.compile(r"data_id:\s*([0-9a-fA-F-]{8,})")
 _GENERATED_NAME_RE = re.compile(r"^text_[0-9a-f]{16,}$", re.IGNORECASE)
 
 
-def _fingerprint(text: str, length: int = 120) -> str:
+_FINGERPRINT_LEN = 120
+
+
+def _fingerprint(text: str, length: int = _FINGERPRINT_LEN) -> str:
     """A whitespace-insensitive prefix, for matching raw content to a corpus file."""
     return re.sub(r"\s+", " ", text or "").strip().lower()[:length]
 
@@ -98,33 +101,39 @@ def _corpus_fingerprints() -> dict[str, str]:
     return out
 
 
-def _upload_fingerprints(dataset: str) -> dict[str, str]:
-    """{fingerprint: filename} for files uploaded into this brain."""
+def _manifest() -> dict:
+    """uploads.json parsed once. Every reader below takes it as an argument, so one
+    `_name_map` call does not open and parse the file twice."""
     try:
         with open(UPLOADS, encoding="utf-8") as handle:
-            manifest = json.load(handle)
+            return json.load(handle)
     except (OSError, ValueError):
         return {}
-    return {k: v for k, v in (manifest.get(dataset) or {}).items()}
 
 
-def _collision_prefixes(dataset: str) -> set[str]:
-    """Fingerprint prefixes record_upload proved ambiguous for THIS brain.
+def _upload_fingerprints(dataset: str, manifest: dict | None = None) -> dict[str, str]:
+    """{fingerprint: filename} for files uploaded into this brain."""
+    manifest = _manifest() if manifest is None else manifest
+    return {k: v for k, v in (manifest.get(dataset) or {}).items()
+            if isinstance(v, str)}
+
+
+def _collided_fingerprints(dataset: str, manifest: dict) -> set[str]:
+    """Fingerprints record_upload proved ambiguous for THIS brain.
 
     COR-8 keeps the first name and records the loser under uploads.json's
-    `_collisions`, keyed `{dataset}::{fp[:32]}` — and until now nothing read it back,
-    so a known-ambiguous fingerprint still resolved to whichever name the manifest
-    happened to keep. The table stores 32 characters, so that is what the sweep uses.
+    `_collisions`, and until now nothing read it back — so a known-ambiguous fingerprint
+    still resolved to whichever name the manifest happened to keep. The key is
+    `{dataset}::{full fingerprint}`: it used to be truncated to 32 characters, and a
+    reader matching on that prefix deleted every document that merely OPENED like a
+    colliding pair. 32 normalised characters is five words of boilerplate, and ambiguity
+    is a property of the whole 120-character fingerprint, which is what is matched now.
+    Records in the old short form are ignored rather than prefix-matched; A-57 measured
+    zero collision groups in the live manifest, so nothing is being dropped on the floor.
     """
-    try:
-        with open(UPLOADS, encoding="utf-8") as handle:
-            manifest = json.load(handle)
-    except (OSError, ValueError):
-        return set()
     head = f"{dataset}::"
-    return {prefix for prefix in (key[len(head):]
-                                  for key in (manifest.get("_collisions") or {})
-                                  if key.startswith(head)) if prefix}
+    return {key[len(head):] for key in (manifest.get("_collisions") or {})
+            if key.startswith(head) and len(key) - len(head) == _FINGERPRINT_LEN}
 
 
 def _name_map(dataset: str) -> dict[str, str]:
@@ -141,12 +150,12 @@ def _name_map(dataset: str) -> dict[str, str]:
     table says belongs to two uploads. A dropped fingerprint shows no filename, which
     is the honest answer; a guessed one is a fabricated citation.
     """
+    manifest = _manifest()
     out = _corpus_fingerprints()
-    for fp, name in _upload_fingerprints(dataset).items():
+    for fp, name in _upload_fingerprints(dataset, manifest).items():
         out[fp] = name
-    for prefix in _collision_prefixes(dataset):
-        for fp in [f for f in out if f.startswith(prefix)]:
-            del out[fp]
+    for fp in _collided_fingerprints(dataset, manifest):
+        out.pop(fp, None)
     return out
 
 
@@ -187,7 +196,10 @@ def record_upload(dataset: str, documents: list) -> None:
             if prior is None:
                 entry[fp] = name
             elif prior != name:
-                key = f"{dataset}::{fp[:32]}"
+                # Full fingerprint, not a truncation: the reader matches this key
+                # exactly, and a 32-character version of it also suppressed every
+                # document that merely opened with the same five words.
+                key = f"{dataset}::{fp}"
                 seen = collisions.setdefault(key, [])
                 for n in (prior, name):
                     if n not in seen:
