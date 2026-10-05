@@ -94,3 +94,35 @@ After the pass, full battery (browser suite included, lab on 5434):
 - `clerk-gate` never ran (needs `KESTREL_CLERK_GATE=1` with the lab), and no Clerk-mode
   behaviour was re-verified beyond the `auth-isolation` and `route-authz` tiers that did.
 - Nothing was pushed; CI has not seen this branch.
+
+## Review round — what the fresh reader found in my own fixes
+
+The branch was handed to an independent reviewer with the diff, this file and the ledger
+(none of this session's reasoning). Two Critical, five Important, seven Minor; **each one
+verified against the code before being accepted**. Ledger: A-89 … A-96.
+
+| Follow-up | Closed | What had been wrong |
+|---|---|---|
+| S2b | A-89 | The collision sweep matched a **32-character prefix** of a fingerprint and deleted every key that started with it, so a clash between two documents silenced a third that merely opened with the same five words. Reproduced: the unique sibling resolved to None. Ambiguity is a property of the whole fingerprint; the table now stores and matches the whole thing |
+| S8b | A-90 | `document_version_id` was shape-checked with a hex regex that admits `12345678`. Against a `uuid` column that raises a psycopg type error, which S8's own contract reads as a storage failure — so one query parameter returned 503 **and** marked storage down, poisoning `/health`. Now a UUID check, with a tier asserting no query leaves the process |
+| S8b | A-91 | S8 propagated what `durable_source` used to swallow, which made "this volume has not run migration 0002" a permanent 503 on every tenant source read. `UndefinedTable`/`UndefinedColumn` now answer "no durable rows"; only a real failure marks storage down |
+| S8b | A-92 | A pinned citation could still fall through to the version-agnostic tenant read when its version row was missing — the substitution the pin exists to prevent. Now 404 |
+| S8b | A-93 | S3 × S6: `backend_data_id` is content and the provenance index is unique per **generation**, so once rebuilds could publish, a rebuilt brain legitimately holds the same content twice and "two matches = ambiguous" would have stripped durable provenance from every rebuilt brain. The active generation is preferred; only a same-generation clash refuses |
+| S5b | A-94 | Three gates were weaker than their claim (the fence guard counted call sites anywhere in the file; the OAuth gate proved "Connectors rendered" by the composer being absent; the tenancy lane implied end-to-end visibility), `stopPropagation` let one Escape close two overlays, a provider string was logged unbounded, and a colleague's document in a shared brain was labelled "from your upload" |
+| — | A-95 | **OPEN**: `normalize_brain_name` allows a brain called `_collisions`, which is the collision table's own top-level key inside `uploads.json`. Needs a naming decision plus a look for an existing brain by that name |
+| — | A-96 | **OPEN**: `d937105` carries `frontend/index.html` without a rebuilt `dist`, so CI's drift check fails *that commit alone*. The branch tip is consistent; fixing the record would need a history rewrite, which is Ayush's call every time |
+
+The claim corrected in the code, the route's OpenAPI notes, the ledger and the test: A-83
+first said the missing-row and foreign-row denials were "byte-identical so existence stays
+unprobeable". They never were — `"Unknown brain."` and `"…belongs to another workspace."`
+differ, and that difference is the enumeration oracle `ACL_AND_MCP_BLUEPRINT` already lists
+as Phase 1A's first job. S8 changes neither denial and adds no existence signal; the tier
+now asserts the two details *differ*, so if Phase 1A unifies them it has to be done on
+purpose.
+
+**Branch after the review round: 12 commits, `ran 23 / skipped 1 / failing 0`, 76 checks
+across the six new hermetic tiers, 14 new browser gates, `connectors_test.py` at 112.**
+
+The method note worth keeping: a failing-first test proves the defect you were looking for,
+not the ones your fix introduces. Both reviewers' findings this week (the harness round,
+then this one) were in code that had already gone green.

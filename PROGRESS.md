@@ -40,6 +40,25 @@ consolidation of every dialog surface, and the `app.py` router split — the use
 correctness only, on the ground that a rewrite of the surface that drives uploads fixes no
 defect and cannot be proven without a live run.
 
+Then the branch was reviewed by a fresh reader, and **the review found six defects in the
+fixes** — all six real, all six verified against the code before being accepted
+(`BUGS_AUDIT.md` A-89…A-96). The two that mattered: S2's collision sweep matched a
+32-character *prefix* of a fingerprint, so recording a clash between two documents silenced
+a third that merely opened with the same five words — a real source going missing, the same
+class of harm the fix existed to prevent; and S8's `document_version_id` shape check admitted
+`12345678`, which against a `uuid` column raises a psycopg type error, which S8's own
+contract reads as a storage failure — one query parameter returning 503 *and* marking
+`/health` down. S3 and S6 also interacted: with rebuilds able to publish, one brain
+legitimately holds the same content in two generations, and "matched twice means ambiguous"
+would have stripped durable provenance from every rebuilt brain. A-83's ledger row also
+claimed the two 403 details were byte-identical; they never were, and that difference is the
+enumeration oracle ACL Phase 1A exists to close — corrected in place, both directions now
+asserted by the tier.
+
+**A failing-first test proves the defect you were looking for, not the ones your change
+introduces.** That is the second time this week an outside reader caught what my own gates
+could not see, so the gate is not a substitute for a review pass over the diff.
+
 Gates this pass left behind: five new tiers (`source-precedence`,
 `citation-collisions`, `durable-identity`, `storage-outage`, `rebuild-fence`) plus
 `legacy-visibility` as an explicitly non-security characterisation lane, 14 new browser
