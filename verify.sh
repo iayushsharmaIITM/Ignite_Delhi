@@ -312,6 +312,21 @@ else
   FAILS=$((FAILS + 1))
 fi
 
+# --- 6b5. storage outage contract (hermetic: the connection is a stub) ---------------
+# brain_access() caught every exception and returned None, and brain_allowed() reads
+# None as "Unknown brain" — so a Postgres outage told every authenticated user that the
+# brain they own does not exist, and /api/source 404ed for the same reason. Access still
+# fails CLOSED (nothing is served while storage is down), but an outage now answers 503
+# and says so, while a missing row and a foreign row keep the identical 403 so nothing
+# about existence becomes probeable. AGENTS.md already states the rule; this is the tier
+# that enforces it.
+if python3 tests/test_storage_outage.py > /tmp/kestrel_verify_storage_outage.log 2>&1; then
+  note storage-outage "PASS  $(tally /tmp/kestrel_verify_storage_outage.log)"
+else
+  note storage-outage "FAIL — see /tmp/kestrel_verify_storage_outage.log"
+  FAILS=$((FAILS + 1))
+fi
+
 # --- 6a. doc freshness --------------------------------------------------------
 # A stale route inside an instruction document is not cosmetic: an agent obeys it.
 # CLAUDE_CONTEXT.md used to tell agents to verify with pytest, which this file's own

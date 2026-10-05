@@ -405,13 +405,24 @@ def brain_allowed(request: Request, brain: str) -> None:
     SEC-2: fail CLOSED. An unknown brain (no row — script-ingested, pre-P3,
     ops-created) is 403, not allowed — and per owner decision the demo has
     NO blanket allow either: company_brain carries a real ownership row
-    (creator-owned), so every brain answers to the same rule, including
-    during a Postgres outage (lookup failure lands here as None → 403)."""
+    (creator-owned), so every brain answers to the same rule.
+
+    Amended 2026-10-05 (S8), with Ayush's approval, for the one case that was never
+    about permissions: during a Postgres outage the lookup fails, and answering
+    "Unknown brain" told every user that the brain they own does not exist — a lie
+    that invites a re-ingest. Access still fails closed (nothing is served), but an
+    outage now says 503 and is retryable. Missing-row and foreign-row denials are
+    byte-identical to each other, so this adds no way to probe existence.
+    """
     if not auth.active():
         return
     identity = getattr(request.state, "identity", None) or {}
     org = identity.get("org_id")
-    rec = storage.brain_access(brain)
+    try:
+        rec = storage.brain_access(brain)
+    except storage.db_error as exc:
+        storage.mark_down(f"brain_allowed: {exc}")
+        raise HTTPException(status_code=503, detail="storage unavailable") from exc
     if rec is None:
         raise HTTPException(status_code=403, detail="Unknown brain.")
     if rec.get("is_shared"):
@@ -2206,7 +2217,13 @@ def delete_brain(request: Request, name: str):
 # reading a source document back
 # --------------------------------------------------------------------------
 
-@app.get("/api/source")
+@app.get("/api/source", responses=_error_docs(
+    400, 401, 403, 404, 502, 503,
+    notes={403: "The brain is not yours to read (identical to 404 for an unknown one "
+                "on purpose, so names cannot be probed).",
+           404: "This brain has no document by that name. It is never answered with a "
+                "different document.",
+           503: "Storage is down. NOT 'no such document' — retry."}))
 def source(request: Request, name: str, dataset: str | None = None,
            document_version_id: str | None = None):
     """Return the text of a cited source document, so a citation is checkable.
@@ -2258,7 +2275,14 @@ def source(request: Request, name: str, dataset: str | None = None,
     # Phase 8: durable provenance first — a v2-created brain resolves from the
     # app's own tables, not from the uploads manifest.
     import citations
-    durable_text = citations.durable_source(dataset, name, document_version_id)
+    try:
+        durable_text = citations.durable_source(dataset, name, document_version_id)
+    except storage.db_error as exc:
+        # S8: an outage is not a missing document, and it must not fall through to a
+        # different source. 503, retryable, and nothing is substituted.
+        storage.mark_down(f"source: {exc}")
+        raise HTTPException(status_code=503,
+                            detail="source temporarily unavailable") from exc
     if durable_text:
         return {"ok": True, "name": name, "source": "durable", "text": durable_text}
 

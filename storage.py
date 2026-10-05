@@ -659,6 +659,17 @@ def unregister_brain(brain: str) -> None:
 
 
 def brain_access(brain: str) -> dict | None:
+    """The ownership row for a brain, or None when the query ran and found no row.
+
+    A FAILED query raises (S8, and the CH-8 rule the rest of this module already
+    follows). It used to return None on any exception, and `brain_allowed()` reads None
+    as "no such brain" — so during a Postgres outage every authenticated user was told
+    the brain they own does not exist, and `/api/source` 404ed for the same reason.
+    Missing rows and foreign rows keep answering the identical None/403, so nothing about
+    existence becomes probeable. O10 note: on a volume whose brain_access table predates
+    `created_by`, this now surfaces as a 503 rather than a wall of 403s — which is the
+    honest reading of "the schema is not ready", not a permission verdict.
+    """
     try:
         with _conn() as conn, conn.cursor() as cur:
             # H2: created_by must be readable — the org-less-creator rule
@@ -666,8 +677,9 @@ def brain_access(brain: str) -> dict | None:
             cur.execute("SELECT brain, org_id, created_by, is_shared, status FROM brain_access WHERE brain = %s",
                         (brain,))
             return cur.fetchone()
-    except Exception:  # noqa: BLE001
-        return None
+    except db_error as exc:
+        mark_down(f"brain_access: {exc}")
+        raise
 
 
 def usage_summary(days: int = 30, org: str | None = None,

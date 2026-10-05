@@ -381,12 +381,20 @@ def _rows(sql: str, params: tuple) -> list[dict]:
     A seam as much as a helper: these two lookups are the only place citations touch
     Postgres, and tests replace this function to prove the ambiguous-row handling
     without needing a server. Writes never belong here.
+
+    A failed query raises after marking storage down (the CH-8 rule the rest of the
+    app follows) — "we could not ask" is not the same fact as "there is no row", and
+    the difference is what S8 turns into a 503 instead of a 404.
     """
-    from storage import DATABASE_URL
+    from storage import DATABASE_URL, db_error, mark_down
     import psycopg
-    with psycopg.connect(DATABASE_URL, row_factory=psycopg.rows.dict_row) as conn, \
-            conn.cursor() as cur:
-        return list(cur.execute(sql, params).fetchall())
+    try:
+        with psycopg.connect(DATABASE_URL, row_factory=psycopg.rows.dict_row) as conn, \
+                conn.cursor() as cur:
+            return list(cur.execute(sql, params).fetchall())
+    except db_error as exc:
+        mark_down(f"citations: {exc}")
+        raise
 
 
 def _durable_reference(dataset: str, did: str):
@@ -444,6 +452,7 @@ def durable_source(dataset: str, filename: str, document_version_id: str | None 
         clause, params = " and dv.id = %s", (dataset, filename, document_version_id)
     else:
         clause, params = "", (dataset, filename)
+    from storage import db_error
     try:
         rows = _rows(
             """select dv.exact_extracted_text
@@ -452,6 +461,11 @@ def durable_source(dataset: str, filename: str, document_version_id: str | None 
                join document_versions dv on dv.document_id = doc.id
                where b.slug = %s and doc.filename = %s""" + clause + """
                order by dv.created_at desc limit 1""", params)
+    except db_error:
+        # "We could not ask" is not "there is no such document". The route turns this
+        # into a 503; swallowing it here would let the caller fall through to another
+        # source, which is exactly the substitution the invariant forbids.
+        raise
     except Exception:  # noqa: BLE001
         return None
     if rows and rows[0]["exact_extracted_text"]:
