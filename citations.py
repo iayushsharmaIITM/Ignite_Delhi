@@ -400,10 +400,16 @@ def _rows(sql: str, params: tuple) -> list[dict]:
     """
     from storage import DATABASE_URL, db_error, mark_down
     import psycopg
+    from psycopg.errors import UndefinedColumn, UndefinedTable
     try:
         with psycopg.connect(DATABASE_URL, row_factory=psycopg.rows.dict_row) as conn, \
                 conn.cursor() as cur:
             return list(cur.execute(sql, params).fetchall())
+    except (UndefinedTable, UndefinedColumn):
+        # A volume that has not run migration 0002 yet is not a storage failure.
+        # Propagated without marking anything down, and the caller answers
+        # "this brain has no durable rows".
+        raise
     except db_error as exc:
         mark_down(f"citations: {exc}")
         raise
@@ -422,11 +428,19 @@ def _durable_reference(dataset: str, did: str):
     row the planner reached first. Two candidates are read in a fixed order; a genuine
     clash answers None, which the caller renders as unresolved, rather than guessing at
     someone's document.
+
+    "Genuine clash" is narrower than "matched twice", and the difference only became
+    reachable once REBUILD jobs could publish (S6): the provenance index is unique per
+    GENERATION, so a rebuilt brain legitimately holds the same content in its active
+    generation and in the retired one. Two rows are not then an ambiguity — the active
+    generation is where the answer came from. Only two rows inside the SAME active
+    generation refuse to resolve, and a brain with no active generation keeps the
+    stricter reading.
     """
     try:
         rows = _rows(
             """select gd.document_version_id, gd.generation_id,
-                      doc.filename, dv.exact_extracted_text
+                      b.active_generation_id, doc.filename, dv.exact_extracted_text
                from generation_documents gd
                join brain_generations g on g.id = gd.generation_id
                join brains b on b.id = g.brain_id
@@ -434,15 +448,18 @@ def _durable_reference(dataset: str, did: str):
                join documents doc on doc.id = dv.document_id
                where (b.slug = %s or g.backend_dataset_name = %s)
                  and gd.backend_data_id = %s
-               order by gd.generation_id, gd.document_version_id
+               order by (gd.generation_id = b.active_generation_id) desc nulls last,
+                        gd.generation_id, gd.document_version_id
                limit 2""", (dataset, dataset, did))
     except Exception:  # noqa: BLE001 - durable lookup is best-effort like the rest
         return None
     if not rows:
         return None
-    if len({(r["generation_id"], r["document_version_id"]) for r in rows}) > 1:
+    active = rows[0].get("active_generation_id")
+    candidates = [r for r in rows if r["generation_id"] == active] if active else rows
+    if len({(r["generation_id"], r["document_version_id"]) for r in candidates}) != 1:
         return None
-    row = rows[0]
+    row = candidates[0]
     text = row["exact_extracted_text"] or ""
     return {"source": row["filename"],
             "excerpt": re.sub(r"\s+", " ", text).strip()[:220],
@@ -465,6 +482,7 @@ def durable_source(dataset: str, filename: str, document_version_id: str | None 
     else:
         clause, params = "", (dataset, filename)
     from storage import db_error
+    from psycopg.errors import UndefinedColumn, UndefinedTable
     try:
         rows = _rows(
             """select dv.exact_extracted_text
@@ -473,6 +491,10 @@ def durable_source(dataset: str, filename: str, document_version_id: str | None 
                join document_versions dv on dv.document_id = doc.id
                where b.slug = %s and doc.filename = %s""" + clause + """
                order by dv.created_at desc limit 1""", params)
+    except (UndefinedTable, UndefinedColumn):
+        # Schema not migrated yet: this brain simply has no durable rows, so the
+        # caller's version-agnostic path is the right one to take.
+        return None
     except db_error:
         # "We could not ask" is not "there is no such document". The route turns this
         # into a 503; swallowing it here would let the caller fall through to another

@@ -665,10 +665,12 @@ def brain_access(brain: str) -> dict | None:
     follows). It used to return None on any exception, and `brain_allowed()` reads None
     as "no such brain" — so during a Postgres outage every authenticated user was told
     the brain they own does not exist, and `/api/source` 404ed for the same reason.
-    Missing rows and foreign rows keep answering the identical None/403, so nothing about
-    existence becomes probeable. O10 note: on a volume whose brain_access table predates
-    `created_by`, this now surfaces as a 503 rather than a wall of 403s — which is the
-    honest reading of "the schema is not ready", not a permission verdict.
+    A successful query with no row still returns None. (It does NOT make the two denials
+    identical: unknown and foreign brains already answer different 403 details, which is
+    the enumeration oracle ACL Phase 1A exists to close, not something this change
+    touches.) O10 note: on a volume whose brain_access table predates `created_by`, this
+    now surfaces as a 503 rather than a wall of 403s — the honest reading of "the schema
+    is not ready", not a permission verdict.
     """
     try:
         with _conn() as conn, conn.cursor() as cur:

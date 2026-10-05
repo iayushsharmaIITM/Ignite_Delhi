@@ -48,6 +48,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 client = TestClient(app_module.app)
 DEMO = app_module.DEMO_DATASET
+DV = "a1b2c3d4-0000-1111-2222-333344445555"
 # A file that really is in corpus/, read here and never written.
 CORPUS_NAME = "05_policy_SLA-credit-01.md"
 CORPUS_TEXT = open(os.path.join(app_module.HERE, "corpus", CORPUS_NAME),
@@ -132,7 +133,38 @@ r = client.get("/api/source", params={"name": "own_file.md", "dataset": "acme-op
                                       "document_version_id": "../../corpus/01_x.md"})
 check("a malformed version id is refused, never downgraded to 'newest'",
       r.status_code == 400, f"{r.status_code} {r.text[:80]}")
+
+# A hex string that is not a UUID reaches Postgres typed as `uuid`, which raises
+# InvalidTextRepresentation — a psycopg error, which S8's contract turns into 503 AND
+# marks storage down. One query parameter must not be able to manufacture an outage
+# signal, so the shape is checked here and no query is allowed to leave the process.
+seen_sql = []
+real_rows = citations._rows
+citations._rows = lambda sql, params: (seen_sql.append(params) or [])
+r = client.get("/api/source", params={"name": "own_file.md", "dataset": "acme-ops",
+                                      "document_version_id": "12345678"})
+check("a non-UUID version id is 400 rather than a server error",
+      r.status_code == 400, f"{r.status_code} {r.text[:80]}")
+check("and no query is ever issued for it", not seen_sql, f"params: {seen_sql}")
+citations._rows = real_rows
+
+# A citation that names a version must never be answered from the version-agnostic
+# tenant read — that is how a substituted document gets opened past this fix.
+seen_calls = []
+citations.durable_source = lambda ds, fn, dv=None, *a, **k: (seen_calls.append(dv) or None)
+citations.data_id_for = lambda ds, fn: seen_calls.append("tenant-lookup") or "deadbeef"
+r = client.get("/api/source", params={"name": "own_file.md", "dataset": "acme-ops",
+                                      "document_version_id": DV})
+check("an unresolvable version id 404s instead of falling through to the tenant map",
+      r.status_code == 404, f"{r.status_code} {r.text[:80]}")
+check("and the version-agnostic lookup is never attempted",
+      "tenant-lookup" not in seen_calls, f"calls: {seen_calls}")
+seen_calls.clear()
+r = client.get("/api/source", params={"name": "own_file.md", "dataset": "acme-ops"})
+check("without a version id the tenant fallback is still reachable",
+      "tenant-lookup" in seen_calls, f"calls: {seen_calls}")
 citations.durable_source = real_durable
+citations.data_id_for = real_data_id_for
 
 print("SOURCE PRECEDENCE (corpus is the demo's, not everyone's):",
       "FAIL" if FAILS else "PASS")

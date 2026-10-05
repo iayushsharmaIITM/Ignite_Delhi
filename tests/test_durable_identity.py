@@ -50,6 +50,7 @@ def check(name, ok, detail=""):
 
 def row(version="v-1", generation="g-1", filename="policy.md", text="Version one text."):
     return {"document_version_id": version, "generation_id": generation,
+            "active_generation_id": None,
             "filename": filename, "exact_extracted_text": text}
 
 
@@ -103,6 +104,34 @@ else:
     # --- 4. no rows at all is still just "not durable" -----------------------------
     citations._rows = fake_rows([])
     check("no durable row means None, not an error",
+          citations._durable_reference("acme", "deadbeef") is None)
+
+    # --- 4b. a rebuilt brain legitimately holds the same content twice -------------
+    # backend_data_id is content, and the unique index is per GENERATION, so after a
+    # REBUILD publishes, one brain can hold the same document in its active generation
+    # and in the retired one. That is not ambiguity — the active generation is the
+    # answer. Refusing everything that matched twice would silently strip durable
+    # provenance from every rebuilt brain, which is exactly the regression S6 would
+    # otherwise introduce.
+    def grow(version, generation, active, filename="policy.md", text="t"):
+        return {"document_version_id": version, "generation_id": generation,
+                "active_generation_id": active, "filename": filename,
+                "exact_extracted_text": text}
+
+    citations._rows = fake_rows([grow("v-9", "g-new", "g-new", filename="current.md"),
+                                 grow("v-1", "g-old", "g-new", filename="retired.md")])
+    got = citations._durable_reference("acme", "deadbeef")
+    check("the same content in the active generation and a retired one resolves to the active",
+          bool(got) and got.get("document_version_id") == "v-9", f"got {got}")
+
+    citations._rows = fake_rows([grow("v-1", "g-old", "g-new", filename="one.md"),
+                                 grow("v-2", "g-older", "g-new", filename="two.md")])
+    got = citations._durable_reference("acme", "deadbeef")
+    check("and two candidates inside the SAME active generation stay ambiguous",
+          got is None, f"got {got}")
+
+    citations._rows = fake_rows([grow("v-1", "g-1", None), grow("v-2", "g-2", None)])
+    check("a brain with no active generation at all keeps the old, stricter rule",
           citations._durable_reference("acme", "deadbeef") is None)
 
     # --- 5. durable_source: exact version when an id is given ----------------------

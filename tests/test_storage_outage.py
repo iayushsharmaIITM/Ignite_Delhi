@@ -17,8 +17,11 @@ outage must surface as 503, never as an empty list", and because a user who is t
 their own brain is unknown may well re-ingest it.
 
 The three outcomes must stay distinguishable, which is the whole content of this tier:
-  * query ran, no row            -> None  -> the existing uniform 403
-  * query ran, row is someone else's -> 403, byte-identical to the missing-row denial
+  * query ran, no row            -> None  -> the existing 403 "Unknown brain."
+  * query ran, row is someone else's -> the existing 403 "...belongs to another
+    workspace." — the two details DIFFER, and that difference is itself the
+    enumeration oracle ACL Phase 1A exists to close. This tier deliberately does
+    NOT assert they are identical, because they are not, and S8 changes neither.
   * query FAILED                 -> raise -> 503, and mark_down() so `available()`
                                     stops promising postgres
 """
@@ -156,16 +159,28 @@ try:
               "unavailable" in detail.lower(), f"detail {detail!r}")
 
         storage._conn = lambda *a, **k: _Conn(None)
-        code = status_of(app_module.brain_allowed, identity_request(), "no-such-brain")
-        check("a genuinely unknown brain still answers the uniform 403",
-              code == 403, f"got {code}")
+        unknown_detail = ""
+        try:
+            app_module.brain_allowed(identity_request(), "no-such-brain")
+        except HTTPException as exc:
+            unknown_detail = str(exc.detail)
+        check("a genuinely unknown brain still answers its existing 403",
+              unknown_detail == "Unknown brain.", repr(unknown_detail))
 
         storage._conn = lambda *a, **k: _Conn(
             {"brain": "b", "org_id": "someone-else", "created_by": "other",
              "is_shared": False, "status": "ready"})
-        code = status_of(app_module.brain_allowed, identity_request(), "b")
-        check("a foreign brain still answers the SAME 403, so existence cannot be probed",
+        foreign_detail = ""
+        try:
+            app_module.brain_allowed(identity_request(), "b")
+        except HTTPException as exc:
+            code, foreign_detail = exc.status_code, str(exc.detail)
+        check("a foreign brain is still denied, and is not turned into 503",
               code == 403, f"got {code}")
+        check("the two denials are still the two DIFFERENT details they always were "
+              "(the known enumeration oracle, left exactly as found)",
+              foreign_detail != unknown_detail and foreign_detail,
+              f"unknown={unknown_detail!r} foreign={foreign_detail!r}")
 
         storage._conn = lambda *a, **k: _Conn(
             {"brain": "b", "org_id": "org-a", "created_by": "someone",
@@ -204,7 +219,41 @@ check("a source lookup during an outage is 503, not 404 and not another document
       outcome == 503, blurb)
 citations.durable_source = saved_durable
 
-# --- 4. the answer path must NOT die with the user: unresolved is enough -------------
+# --- 4b. a volume whose schema is not migrated is NOT an outage ----------------------
+# durable_source used to swallow every error and fall through to the tenant read. S8
+# made it propagate, which is right for a connection failure and wrong for
+# UndefinedTable/UndefinedColumn: on a volume that has not run migration 0002 yet, the
+# honest answer is "this brain has no durable rows", not 503 and not mark_down()
+# claiming the database is down.
+from psycopg.errors import UndefinedColumn, UndefinedTable  # noqa: E402
+
+saved_rows = citations._rows
+for exc, label in ((UndefinedTable("no such table"), "a missing table"),
+                   (UndefinedColumn("no such column"), "a missing column")):
+    citations._rows = (lambda e: (lambda *a, **k: (_ for _ in ()).throw(e)))(exc)
+    storage._status = {"storage": "postgres", "detail": ""}
+    try:
+        outcome = citations.durable_source("acme-ops", "policy.md")
+        marked = storage.status().get("storage")
+    except Exception as exc2:  # noqa: BLE001
+        outcome, marked = f"raised {type(exc2).__name__}", storage.status().get("storage")
+    check(f"{label} is not an outage: durable_source answers 'not durable'",
+          outcome is None, f"{outcome!r} / status {marked}")
+    check(f"{label} does not mark storage down", marked == "postgres", str(marked))
+
+citations._rows = lambda *a, **k: (_ for _ in ()).throw(psycopg.OperationalError("down"))
+storage._status = {"storage": "postgres", "detail": ""}
+try:
+    citations.durable_source("acme-ops", "policy.md")
+    outcome = "returned"
+except psycopg.Error:
+    outcome = "raised"
+# Only propagation is asserted here: mark_down() happens inside the real _rows, which
+# this check replaces. The mark-down-on-failure half is pinned through brain_access above.
+check("a connection failure still propagates", outcome == "raised", outcome)
+citations._rows = saved_rows
+
+# --- 5. the answer path must NOT die with the user: unresolved is enough -------------
 saved_rows = citations._rows
 citations._rows = boom
 try:

@@ -33,6 +33,7 @@ import re
 import threading
 import time
 import urllib.parse
+import uuid
 from pathlib import Path
 
 # --- environment must load BEFORE memory_layer is imported ---------------
@@ -411,8 +412,17 @@ def brain_allowed(request: Request, brain: str) -> None:
     about permissions: during a Postgres outage the lookup fails, and answering
     "Unknown brain" told every user that the brain they own does not exist — a lie
     that invites a re-ingest. Access still fails closed (nothing is served), but an
-    outage now says 503 and is retryable. Missing-row and foreign-row denials are
-    byte-identical to each other, so this adds no way to probe existence.
+    outage now says 503 and is retryable.
+
+    Correction to what this note claimed on first landing: 503-vs-403 adds no way to
+    probe existence, but the two 403s were never identical. An unknown brain answers
+    "Unknown brain." (:427) and a foreign one "This brain belongs to another
+    workspace." (:435), and the status codes alone (403 vs 404 on /api/chats) already
+    differed. That is the enumeration oracle recorded in
+    docs/ACL_AND_MCP_BLUEPRINT.md as Phase 1A's first job — deliberately NOT closed
+    here, because unifying the two details is a product decision about error
+    semantics, not a side effect of a bug hunt. tests/test_storage_outage.py asserts
+    only that an outage is distinguishable from a denial.
     """
     if not auth.active():
         return
@@ -2219,8 +2229,7 @@ def delete_brain(request: Request, name: str):
 
 @app.get("/api/source", responses=_error_docs(
     400, 401, 403, 404, 502, 503,
-    notes={403: "The brain is not yours to read (identical to 404 for an unknown one "
-                "on purpose, so names cannot be probed).",
+    notes={403: "The brain is not yours to read.",
            404: "This brain has no document by that name. It is never answered with a "
                 "different document.",
            503: "Storage is down. NOT 'no such document' — retry."}))
@@ -2247,10 +2256,16 @@ def source(request: Request, name: str, dataset: str | None = None,
         raise HTTPException(status_code=400, detail="Invalid source name.")
     if os.path.basename(name) != name:
         raise HTTPException(status_code=400, detail="Invalid source name.")
-    if document_version_id and not re.fullmatch(r"[0-9a-fA-F-]{8,64}", document_version_id):
-        # Refused rather than ignored: falling back to "newest" here would quietly
-        # open a different document than the one the citation quoted.
-        raise HTTPException(status_code=400, detail="Invalid document version.")
+    if document_version_id:
+        try:
+            uuid.UUID(document_version_id)
+        except ValueError:
+            # `document_versions.id` is a uuid column, so a string that is not one
+            # makes Postgres raise a type error — which S8's contract reads as a
+            # storage failure, answers 503 and marks storage down. A query parameter
+            # must not be able to manufacture an outage signal, so the shape is
+            # settled here and no query leaves the process.
+            raise HTTPException(status_code=400, detail="Invalid document version.")
 
     # 1. the corpus on disk — and the demo brain's only.
     #
@@ -2285,6 +2300,12 @@ def source(request: Request, name: str, dataset: str | None = None,
                             detail="source temporarily unavailable") from exc
     if durable_text:
         return {"ok": True, "name": name, "source": "durable", "text": durable_text}
+    if document_version_id:
+        # The citation pinned a version and the brain's own tables have no such
+        # version. The tenant read below is version-agnostic by construction, so
+        # reaching for it is exactly how a substituted document opens behind a
+        # citation that claimed to be pinned.
+        raise HTTPException(status_code=404, detail=f"No source document called '{name}'.")
 
     try:
         import cognee_cloud
