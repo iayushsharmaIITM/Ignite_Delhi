@@ -72,8 +72,9 @@ def truthy(label, value):
 
 
 class _Resp:
-    def __init__(self, payload):
+    def __init__(self, payload, status=200):
         self._p = payload
+        self.status_code = status
 
     def json(self):
         if isinstance(self._p, Exception):
@@ -81,14 +82,14 @@ class _Resp:
         return self._p
 
 
-def stub_token_endpoint(payload):
+def stub_token_endpoint(payload, status=200):
     """Swap connectors' requests.post for the OAuth token call only."""
     seen = {}
 
     def _post(url, data=None, timeout=None, **kw):
         seen["url"] = url
         seen["data"] = dict(data or {})
-        return _Resp(payload)
+        return _Resp(payload, status)
 
     cx.requests.post = _post
     return seen
@@ -253,6 +254,119 @@ def main() -> int:
     check("network blip -> stale token", cx.google_access_token(IDENT), "ya29.STALE")
     check("network blip stays connected", cx.connection_state("google", IDENT),
           "connected")
+
+    # An unreadable body is a blip too, for the same reason: the provider answering
+    # with garbage is not evidence that THIS user's grant died.
+    stub_token_endpoint(ValueError("no json here"))
+    cx.put_credential("google", IDENT, {"access_token": "ya29.STALE",
+                                        "refresh_token": "1//TEST",
+                                        "expires_at": int(time.time()) - 10})
+    check("unreadable body -> stale token, same blip rule",
+          cx.google_access_token(IDENT), "ya29.STALE")
+    check("unreadable body stays connected", cx.connection_state("google", IDENT),
+          "connected")
+
+    section("a refusal is not always the user's disconnect")
+    # Three different things the token endpoint can say used to collapse into one
+    # answer. invalid_client / unauthorized_client mean OUR OAuth client is wrong:
+    # flipping every caller to needs_reconnect sent each of them through re-consent
+    # while the real fault — a bad GOOGLE_OAUTH_CLIENT_SECRET — never surfaced.
+    # 429 and 5xx are provider weather and must not touch anyone's row either.
+    def reset_cred(refresh="1//TEST", expires=None):
+        cx.put_credential("google", IDENT, {
+            "access_token": "ya29.STALE", "refresh_token": refresh,
+            "expires_at": expires if expires is not None else int(time.time()) - 10})
+
+    reset_cred()
+    stub_token_endpoint({"error": "invalid_client"}, status=401)
+    check("client credential refused -> no token", cx.google_access_token(IDENT), None)
+    check("client credential refused -> user row NOT flipped",
+          cx.connection_state("google", IDENT), "connected")
+
+    reset_cred()
+    stub_token_endpoint({"error": "unauthorized_client"}, status=400)
+    check("unauthorised client -> no token", cx.google_access_token(IDENT), None)
+    check("unauthorised client -> user row stays connected",
+          cx.connection_state("google", IDENT), "connected")
+
+    reset_cred()
+    stub_token_endpoint({"error": "rate_limit_exceeded"}, status=429)
+    check("rate limited -> no token", cx.google_access_token(IDENT), None)
+    check("rate limited -> user row stays connected",
+          cx.connection_state("google", IDENT), "connected")
+
+    reset_cred()
+    stub_token_endpoint({}, status=503)
+    check("provider 5xx -> no token", cx.google_access_token(IDENT), None)
+    check("provider 5xx -> user row stays connected",
+          cx.connection_state("google", IDENT), "connected")
+
+    reset_cred()
+    stub_token_endpoint({"error": "invalid_grant"})
+    check("a revoked grant STILL flips the row", cx.google_access_token(IDENT), None)
+    check("revoked grant still needs reconnect", cx.connection_state("google", IDENT),
+          "needs_reconnect")
+
+    section("a grant that cannot be renewed is not handed back expired")
+    # With no refresh token nothing can renew this grant, yet a tracked expiry that had
+    # already passed was still returned — the caller then took a 401 it could not
+    # explain, because the row still said 'connected'. An UNTRACKED expiry keeps
+    # meaning 'never expires' (Slack bot tokens, Google grants without expires_in), and
+    # those must go on working.
+    reset_cred(refresh="", expires=int(time.time()) + 3600)
+    check("no refresh token, expiry in the future -> still usable",
+          cx.google_access_token(IDENT), "ya29.STALE")
+    reset_cred(refresh="", expires=int(time.time()) - 10)
+    check("no refresh token, expiry passed -> no token",
+          cx.google_access_token(IDENT), None)
+    reset_cred(refresh="", expires=0)
+    check("no refresh token, no expiry tracked -> unchanged",
+          cx.google_access_token(IDENT), "ya29.STALE")
+
+    section("a rotated refresh token is not lost in silence")
+    # Google hands back a NEW refresh token on rotation. When the vault write failed the
+    # result was `except: pass` — the request was served from the new access token, and
+    # the new refresh token was gone forever while the stored one went stale. Weeks
+    # later the user is told to reconnect and nothing anywhere says why.
+    reset_cred(refresh="1//OLD")
+    stub_token_endpoint({"access_token": "ya29.ROTATED", "expires_in": 3600,
+                         "refresh_token": "1//NEW"})
+    real_put = cx.put_credential
+    attempts = {"n": 0}
+
+    def failing_put(*a, **kw):
+        attempts["n"] += 1
+        raise RuntimeError("vault write refused")
+
+    cx.put_credential = failing_put
+    try:
+        got = cx.google_access_token(IDENT)
+    finally:
+        cx.put_credential = real_put
+    check("the request is still served with the fresh access token", got, "ya29.ROTATED")
+    check("a failed persist is retried once instead of swallowed", attempts["n"], 2)
+    truthy("the loss is recorded where an operator can see it",
+           cx.rotation_losses()["count"] >= 1)
+    check("and the stored grant really is the stale one",
+          cx.get_credential("google", IDENT)["refresh_token"], "1//OLD")
+
+    section("oauth state is bounded")
+    # mint_state only ever added. Nothing pruned expired states and nothing capped the
+    # outstanding set, so abandoned connect clicks accumulated for the life of the
+    # process — reproduced at 10,000 retained after their TTL had passed.
+    stale = [cx.mint_state(IDENT, "google") for _ in range(25)]
+    for t in stale:
+        cx._states[t]["exp"] = time.time() - 1   # past the TTL, without waiting it out
+    live = cx.mint_state(IDENT, "google")
+    truthy("minting prunes what has already expired",
+           all(t not in cx._states for t in stale))
+    truthy("and keeps the live one", live in cx._states)
+    cx.STATE_CAP = 8
+    for _ in range(40):
+        cx.mint_state(IDENT, "google")
+    truthy("outstanding states are capped", len(cx._states) <= 8)
+    cx.STATE_CAP = 2000
+    cx._states.clear()
 
     section("state binding")
     s1 = cx.mint_state(IDENT, "google")

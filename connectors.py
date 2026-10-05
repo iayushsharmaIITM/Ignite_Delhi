@@ -28,12 +28,15 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import secrets
 import time
 import urllib.parse
 
 import requests
+
+log = logging.getLogger("kestrel.connectors")
 
 # --------------------------------------------------------------------------
 # provider registry (OAuth endpoints + minimal scopes — never more)
@@ -67,7 +70,36 @@ PROVIDERS = {
 }
 
 STATE_TTL = 600
+# Upper bound on outstanding (unconsumed, unexpired) OAuth states. mint_state used to
+# only ever add, so abandoned connect clicks accumulated until the process restarted.
+STATE_CAP = 2000
 _states: dict[str, dict] = {}   # state token -> {identity, provider, exp}
+
+# A rotated refresh token we could not persist. The request still succeeds on its
+# access token, so this is not an error the caller can act on — but it is an error the
+# operator must be able to see, because the stored grant silently goes stale.
+_rotation_losses: dict = {"count": 0, "owner": "", "at": 0.0}
+
+# The five OAuth codes that mean THIS grant is dead. Anything else the provider says
+# is either our application's problem or provider weather — see refresh_failure().
+REVOKED_GRANT_ERRORS = frozenset({"invalid_grant", "invalid_token", "access_denied"})
+APPLICATION_CONFIG_ERRORS = frozenset({"invalid_client", "unauthorized_client"})
+
+
+def rotation_losses() -> dict:
+    """{count, owner, at} — the last rotation whose new refresh token could not be saved."""
+    return dict(_rotation_losses)
+
+
+def _prune_states() -> None:
+    """Forget expired OAuth states, then keep the outstanding set inside STATE_CAP."""
+    now = time.time()
+    for token, rec in list(_states.items()):
+        if rec["exp"] < now:
+            _states.pop(token, None)
+    while len(_states) > STATE_CAP:
+        oldest = min(_states, key=lambda t: _states[t]["exp"])
+        _states.pop(oldest, None)
 
 
 # --------------------------------------------------------------------------
@@ -507,10 +539,14 @@ def mint_state(identity: dict | None, provider: str,
     if extra:
         rec["extra"] = extra
     _states[token] = rec
+    # After the insert, so the map never sits above the cap rather than returning to it.
+    # The token just minted has the latest expiry, so pruning cannot evict it.
+    _prune_states()
     return token
 
 
 def pop_state(token: str, provider: str) -> dict | None:
+    _prune_states()
     rec = _states.pop(token, None)
     if not rec or rec.get("provider") != provider or rec["exp"] < time.time():
         return None
@@ -520,6 +556,7 @@ def pop_state(token: str, provider: str) -> dict | None:
 def pop_state_full(token: str, provider: str) -> dict | None:
     """Whole state record (identity + extra) or None. The scope-picker flow
     needs the extra payload — the choices that were consented to."""
+    _prune_states()
     rec = _states.pop(token, None)
     if not rec or rec.get("provider") != provider or rec["exp"] < time.time():
         return None
@@ -589,6 +626,22 @@ def exchange_code(provider: str, code: str) -> tuple[dict, str]:
     }, data.get("scope", ""))
 
 
+def refresh_failure(status: int, payload: dict) -> str:
+    """Read a token endpoint's refusal as 'revoked', 'config', or 'temporary'.
+
+    Only a dead grant belongs to the user. `invalid_client` / `unauthorized_client`
+    mean our own OAuth client is misconfigured — flipping every caller to
+    needs_reconnect sends each of them through re-consent while the real fault never
+    surfaces. 429/5xx and a body with no recognisable code are provider weather.
+    """
+    code = str((payload or {}).get("error") or "")
+    if code in REVOKED_GRANT_ERRORS:
+        return "revoked"
+    if code in APPLICATION_CONFIG_ERRORS:
+        return "config"
+    return "temporary"
+
+
 def google_access_token(identity: dict | None,
                         stored: dict | None = None) -> str | None:
     """Valid access token: stored one if fresh, else silent refresh.
@@ -604,6 +657,11 @@ def google_access_token(identity: dict | None,
         return cred["access_token"]
     refresh = cred.get("refresh_token") or ""
     if not refresh:
+        if exp and exp <= time.time():
+            # Nothing can renew this grant, so a tracked expiry we are already past is
+            # a dead token. Handing it back only bought a 401 the caller could not
+            # explain, because the row still said 'connected'.
+            return None
         return cred["access_token"]  # no expiry tracked: use until refused
     cfg = PROVIDERS["google"]
     try:
@@ -613,31 +671,60 @@ def google_access_token(identity: dict | None,
             "grant_type": "refresh_token",
             "refresh_token": refresh,
         }, timeout=30)
-        data = r.json()
+        status, data = r.status_code, r.json()
     except Exception:
         # Transport blip (DNS, timeout, 5xx) is NOT a dead grant. Leave the row
         # 'connected' so a flaky network never forces a re-consent, and hand
         # back the stale token — the Gmail call will 401 if it truly died.
         return cred["access_token"]
     if "access_token" not in data:
-        # Google answering means the grant itself is gone (revoked, or the
-        # refresh token was rotated away). That is the only case that should
-        # downgrade the row to needs_reconnect.
-        if str(data.get("error", "")) in (
-                "invalid_grant", "invalid_token", "unauthorized_client",
-                "invalid_client", "access_denied"):
+        outcome = refresh_failure(status, data)
+        if outcome == "revoked":
+            # Google answered and the grant itself is gone (revoked, or the refresh
+            # token was rotated away). The only case that downgrades the row.
             mark_needs_reconnect("google", identity)
+        elif outcome == "config":
+            # Our application credentials are wrong for EVERY user. Say so at operator
+            # level and leave their rows alone — a reconnect prompt cannot fix this.
+            # Never log the token or the secret, only the code the provider returned.
+            log.error("google token refresh refused at the application level (error=%s, "
+                      "http=%s) — check GOOGLE_OAUTH_CLIENT_ID/CLIENT_SECRET; no user "
+                      "connection was changed", str(data.get("error")), status)
+        else:
+            log.warning("google token refresh deferred (http=%s, error=%s) — treated as "
+                        "temporary, connection state untouched",
+                        status, str(data.get("error")) or "-")
         return None
     fresh = dict(cred)
     fresh["access_token"] = data["access_token"]
     fresh["expires_at"] = int(time.time()) + int(data.get("expires_in") or 3600)
-    if data.get("refresh_token"):
+    rotated = bool(data.get("refresh_token"))
+    if rotated:
         fresh["refresh_token"] = data["refresh_token"]
+    scopes = " ".join(PROVIDERS["google"]["scopes"])
     try:
-        put_credential("google", identity, fresh,
-                       scopes=" ".join(PROVIDERS["google"]["scopes"]))
-    except Exception:
-        pass
+        put_credential("google", identity, fresh, scopes=scopes)
+    except Exception as exc:
+        if not rotated:
+            # Only the access token moved; the stored refresh token is still current.
+            return fresh["access_token"]
+        try:
+            put_credential("google", identity, fresh, scopes=scopes)
+        except Exception as retry_exc:
+            # The new refresh token is now the only one Google accepts, and it is not
+            # on disk. Serve this request on the access token, say so loudly, and
+            # record the loss — without it the owner's row goes stale in silence and
+            # they are told to reconnect weeks later with no trace of a cause.
+            # No token values are ever logged.
+            _rotation_losses.update(count=_rotation_losses["count"] + 1,
+                                    owner=_owner_key(identity), at=time.time())
+            log.error("google rotated its refresh token and the vault write failed twice "
+                      "(%s: %s then %s: %s) — the stored grant for this owner is now "
+                      "stale", type(exc).__name__, str(exc)[:120],
+                      type(retry_exc).__name__, str(retry_exc)[:120])
+        else:
+            log.warning("google refresh token rotation persisted on retry after a failed "
+                        "first write (%s)", type(exc).__name__)
     return fresh["access_token"]
 
 
