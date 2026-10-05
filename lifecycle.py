@@ -246,6 +246,20 @@ def _cancel_requested(cur, job_id: str) -> bool:
     return bool(row and row["cancel_requested_at"])
 
 
+def _publishable(state: str, is_rebuild: bool) -> bool:
+    """The one rule both publish fences ask: may THIS job publish into a brain in THIS state?
+
+    A CREATE may only publish a brain that is still CREATING — that is the proof no
+    other worker got there first, and it stays. A REBUILD is a different shape of work:
+    `stage_rebuild()` deliberately leaves the brain alone (the old generation stays
+    ACTIVE, and `_fail()` only moves a brain to FAILED while it is CREATING) so a failed
+    rebuild cannot break a live company brain. Requiring CREATING there described a
+    create, not a rebuild, and every rebuild ended RECONCILIATION_REQUIRED instead of
+    publishing — A-58/E13.
+    """
+    return state == "READY" if is_rebuild else state == "CREATING"
+
+
 def process_job(job: dict) -> None:
     job_id, brain_id, generation_id = job["id"], job["brain_id"], job["generation_id"]
     import documents as documents_mod
@@ -435,7 +449,7 @@ def process_job(job: dict) -> None:
         job_now = cur.execute(
             "select lease_owner, state, cancel_requested_at from brain_jobs where id=%s",
             (job_id,)).fetchone()
-        ok = (brain["state"] == "CREATING"
+        ok = (_publishable(brain["state"], is_rebuild)
               and brain["mutation_generation"] == mutation
               and job_now["lease_owner"] == WORKER_ID
               and not job_now["cancel_requested_at"]
@@ -564,7 +578,7 @@ def recover_reconciliation(max_attempts: int = 3) -> int:
     handled = 0
     with _conn() as conn, conn.cursor() as cur:
         jobs = cur.execute(
-            """select id, brain_id, generation_id, attempt from brain_jobs
+            """select id, brain_id, generation_id, kind, attempt from brain_jobs
                where state='RECONCILIATION_REQUIRED'
                  and (lease_expires_at is null or lease_expires_at < now())
                order by created_at limit 5 for update skip locked""").fetchall()
@@ -598,7 +612,8 @@ def recover_reconciliation(max_attempts: int = 3) -> int:
                 verified = _verify_provenance(job_id, brain_id, generation_id, ds_id)
                 brain = cur.execute(
                     "select state, mutation_generation from brains where id=%s", (brain_id,)).fetchone()
-                if verified == 0 or brain["state"] != "CREATING":
+                if verified == 0 or not _publishable(brain["state"],
+                                                     job["kind"] == "REBUILD"):
                     cur.execute(
                         """update brain_jobs set error_code='RECOVERY:INVENTORY_INCOMPLETE',
                                attempt=attempt+1, updated_at=now() where id=%s""", (job_id,))

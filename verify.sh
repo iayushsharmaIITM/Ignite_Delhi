@@ -327,6 +327,19 @@ else
   FAILS=$((FAILS + 1))
 fi
 
+# --- 6b6. rebuild publish fence (A-58/E13, hermetic) ---------------------------
+# Both publish fences described a CREATE (brain.state == 'CREATING'), but a REBUILD
+# starts from a brain that is deliberately left READY so a failed rebuild cannot break
+# a live company brain — so no rebuild could ever publish, in the job path or the
+# recovery path. One predicate now carries the rule, and this tier pins both halves:
+# the rebuild is allowed through, and the create's double-publish guard is not loosened.
+if python3 tests/test_rebuild_publish.py > /tmp/kestrel_verify_rebuild_fence.log 2>&1; then
+  note rebuild-fence "PASS  $(tally /tmp/kestrel_verify_rebuild_fence.log)"
+else
+  note rebuild-fence "FAIL — see /tmp/kestrel_verify_rebuild_fence.log"
+  FAILS=$((FAILS + 1))
+fi
+
 # --- 6a. doc freshness --------------------------------------------------------
 # A stale route inside an instruction document is not cosmetic: an agent obeys it.
 # CLAUDE_CONTEXT.md used to tell agents to verify with pytest, which this file's own
