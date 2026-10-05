@@ -85,6 +85,8 @@ check("a scoped usage summary still includes brains nobody registered",
 print("LEGACY VISIBILITY (characterisation of today's rule):", "FAIL" if FAILS else "PASS")
 if FAILS:
     print(f"  {len(FAILS)} of {CHECKS} checks failed: {', '.join(FAILS)}")
-print("  NOTE: nothing here is a security gate. These checks describe who can see what")
-print("        right now, so that a future change is a decision and not a surprise.")
+print("  NOTE: not a security gate, and not an end-to-end visibility test — with no")
+print("        database in the CI fast lane this reads the PREDICATE that decides who")
+print("        sees what, which is where the rule lives. A PASS describes today; it is")
+print("        not an approval of it.")
 sys.exit(1 if FAILS else 0)

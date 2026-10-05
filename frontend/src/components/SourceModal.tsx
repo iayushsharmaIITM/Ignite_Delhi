@@ -37,9 +37,10 @@ export function SourceModal({ title, excerpt, version, brain, onClose }: Props) 
         const text = d.text || ""
         plainRef.current = text
         // Since corpus/ became the demo brain's alone, anything not from the corpus
-        // came out of this brain's own storage — durable or tenant, both "yours".
+        // came out of this brain's own storage. "Yours" would be wrong in a shared
+        // brain — the document may belong to a colleague.
         setWhere(
-          (d.source === "corpus" ? "from the corpus" : "from your upload") +
+          (d.source === "corpus" ? "from the corpus" : "from this brain") +
             " · " + text.length.toLocaleString() + " chars",
         )
         // locate the cited passage (first 90 chars, whitespace-flattened)

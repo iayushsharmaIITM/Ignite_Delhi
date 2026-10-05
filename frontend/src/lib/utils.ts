@@ -34,7 +34,13 @@ export function useDialog<T extends HTMLElement>(open: boolean, onClose: () => v
     if (panel) (items()[0] ?? panel).focus()
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        e.stopPropagation()
+        // The previous handlers used stopPropagation, which does not reach listeners
+        // already queued on the same target — so with two overlays open the key
+        // dismissed both. stopImmediatePropagation is the one that can actually halt
+        // a same-target listener; a later-registering handler still runs after an
+        // earlier one, so this narrows the double-close without pretending to order it.
+        e.stopImmediatePropagation()
+        e.preventDefault()
         close.current()
         return
       }

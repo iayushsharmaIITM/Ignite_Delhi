@@ -668,12 +668,13 @@ def section_deep_links_history(suite: Suite, base: str) -> None:
         suite.check(f"after {marker} the round-trip param is gone",
                     marker.split("=")[0] not in page.url, page.url)
         suite.check(f"after {marker} the connectors view is what is rendered",
-                    page.locator("textarea#q").count() == 0,
-                    f"url={page.url} composers={page.locator('textarea#q').count()}")
+                    page.locator("h1", has_text="Connectors").count() == 1,
+                    f"url={page.url} h1s={page.locator('h1').all_text_contents()}")
         page.reload(wait_until="networkidle")
         page.wait_for_timeout(1500)
         suite.check(f"{marker} survives a reload on the same view",
-                    page.locator("textarea#q").count() == 0 and "view=connectors" in page.url,
+                    page.locator("h1", has_text="Connectors").count() == 1
+                    and "view=connectors" in page.url,
                     page.url)
 
     # The owner's report, one step further along than CH-4: from ANY other

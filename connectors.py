@@ -686,13 +686,16 @@ def google_access_token(identity: dict | None,
         elif outcome == "config":
             # Our application credentials are wrong for EVERY user. Say so at operator
             # level and leave their rows alone — a reconnect prompt cannot fix this.
-            # Never log the token or the secret, only the code the provider returned.
-            log.error("google token refresh refused at the application level (error=%s, "
-                      "http=%s) — check GOOGLE_OAUTH_CLIENT_ID/CLIENT_SECRET; no user "
-                      "connection was changed", str(data.get("error")), status)
+            # Never log the token or the secret, only the code the provider returned —
+            # truncated, because an unbounded provider string in a log line is a
+            # newline-injection and rotation hazard.
+            log.error("google token refresh refused at the application level "
+                      "(error=%.120s, http=%s) — check GOOGLE_OAUTH_CLIENT_ID/"
+                      "CLIENT_SECRET; no user connection was changed",
+                      str(data.get("error")), status)
         else:
-            log.warning("google token refresh deferred (http=%s, error=%s) — treated as "
-                        "temporary, connection state untouched",
+            log.warning("google token refresh deferred (http=%s, error=%.120s) — "
+                        "treated as temporary, connection state untouched",
                         status, str(data.get("error")) or "-")
         return None
     fresh = dict(cred)

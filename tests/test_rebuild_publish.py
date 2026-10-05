@@ -84,12 +84,20 @@ src = open(os.path.join(HERE, "lifecycle.py"), encoding="utf-8").read()
 # Read the file with the helper itself blanked out, so what is left is the call sites.
 helper = re.search(r"def _publishable\(.*?(?=^def |\Z)", src, re.S | re.M)
 outside = src[:helper.start()] + src[helper.end():] if helper else src
-inline = [m.group(0) for m in re.finditer(r'brain\["state"\]\s*[!=]=\s*"CREATING"', outside)]
+inline = [m.group(0) for m in re.finditer(r'[A-Za-z_"\[\] ]{0,24}[!=]=\s*"CREATING"', outside)]
 check("no publish fence compares brain state inline any more", not inline,
       f"found {inline}")
-calls = len(re.findall(r"_publishable\(", outside))
-check("and both fences route through the one rule", calls >= 2,
-      f"{calls} call sites outside the helper")
+def body_of(name):
+    """One top-level function's source, so a guard cannot hide in the wrong one."""
+    m = re.search(rf"^def {name}\(.*?(?=^def |\Z)", src, re.S | re.M)
+    return m.group(0) if m else ""
+
+
+for fn in ("process_job", "recover_reconciliation"):
+    check(f"the fence inside {fn} asks the one rule",
+          "_publishable(" in body_of(fn),
+          "this is the fence that rejected every rebuild; a literal comparison "
+          "re-opened here would put A-58 back with no tier to catch it")
 
 print("REBUILD PUBLISH FENCE (A-58):", "FAIL" if FAILS else "PASS")
 if FAILS:
