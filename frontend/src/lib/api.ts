@@ -295,11 +295,11 @@ export type JobStatus = {
   files?: { client_file_id: string; stage: string; outcome?: string | null }[]
 }
 
-export async function getJob(jobId: string): Promise<JobStatus | null> {
-  const r = await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}`)
+export async function getJob(jobId: string, signal?: AbortSignal): Promise<JobStatus | null> {
+  const r = await apiFetch(`/api/jobs/${encodeURIComponent(jobId)}`, { signal })
   if (!r.ok) return null
-  const d = await r.json()
-  return { state: d.job.state, error_code: d.job.error_code, files: d.files }
+  const d = await r.json().catch(() => ({}))
+  return { state: d.job?.state, error_code: d.job?.error_code, files: d.files }
 }
 
 // greeting() lived here as hardcoded English. The shell now resolves the

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { brainCreateV2Enabled, createBrainLegacy, createBrainV2, getJob, type JobStatus } from "@/lib/api"
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
@@ -28,6 +28,57 @@ export function CreateBrainDialog({ open, onClose }: Props) {
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // A-72: Reset state whenever the dialog closes so reopening is fresh and not stuck
+  useEffect(() => {
+    if (!open) {
+      setName("")
+      setFiles([])
+      setJob(null)
+      setJobId(null)
+      setError(null)
+      setBusy(false)
+    }
+  }, [open])
+
+  // A-72: Controlled polling for v2 jobs: abort on unmount, close (jobId cleared),
+  // or terminal state (SUCCEEDED / FAILED / RECONCILIATION_REQUIRED)
+  useEffect(() => {
+    if (!jobId) return
+    let active = true
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const ac = new AbortController()
+
+    const tick = async () => {
+      try {
+        const st = await getJob(jobId, ac.signal)
+        if (!active) return
+        if (st) {
+          setJob(st)
+          if (
+            st.state === "SUCCEEDED" ||
+            st.state === "FAILED" ||
+            st.state === "RECONCILIATION_REQUIRED"
+          ) {
+            return
+          }
+        }
+      } catch {
+        if (!active) return
+      }
+      if (active) {
+        timer = setTimeout(tick, 5000)
+      }
+    }
+
+    tick()
+
+    return () => {
+      active = false
+      ac.abort()
+      if (timer) clearTimeout(timer)
+    }
+  }, [jobId])
+
   // Module scope: an idempotency key is not render state, and Date.now()/
   // Math.random() inside the component body trips the purity rule.
   const submit = async () => {
@@ -51,7 +102,6 @@ export function CreateBrainDialog({ open, onClose }: Props) {
         return
       }
       setJobId(r.job_id)
-      poll(r.job_id)
       return
     }
     // No durable job path on this server: use the create route that answers,
@@ -63,19 +113,6 @@ export function CreateBrainDialog({ open, onClose }: Props) {
       return
     }
     onClose(r.name || name.trim())
-  }
-
-  const poll = (id: string) => {
-    const tick = async () => {
-      const st = await getJob(id)
-      if (st) {
-        setJob(st)
-        if (st.state === "SUCCEEDED") return
-        if (st.state === "FAILED" || st.state === "RECONCILIATION_REQUIRED") return
-      }
-      setTimeout(tick, 5000)
-    }
-    tick()
   }
 
   return (

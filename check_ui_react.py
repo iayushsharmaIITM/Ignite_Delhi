@@ -34,6 +34,7 @@ import json
 import os
 import re
 import sys
+import time
 
 from playwright.sync_api import Page, sync_playwright
 
@@ -599,6 +600,55 @@ def section_brains_page(suite: Suite, base: str) -> None:
         suite.check("create dialog closes on success",
                     page.locator("#brain-name").count() == 0)
     page.unroute("**/api/brains")
+
+    # A-72: v2 job polling lifecycle and dialog clean state on reopen
+    page.route("**/api/config", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"ok": True, "brainCreateV2": True, "provider": "mock"})))
+    page.reload(wait_until="networkidle")
+    page.wait_for_timeout(500)
+    new_btn = page.locator("button", has_text="New brain").first
+
+    page.route("**/api/brains/v2", lambda route: route.fulfill(
+        status=202, content_type="application/json",
+        body=json.dumps({"ok": True, "job_id": "job_a72", "brain_id": "brain_a72"})))
+    job_polls = []
+    job_state = {"state": "POLLING"}
+    page.route("**/api/jobs/job_a72*", lambda route: (
+        job_polls.append(time.time()),
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"ok": True, "job": {"state": job_state["state"], "error_code": None}, "files": []}))
+    ))
+
+    if new_btn.count() > 0:
+        new_btn.click()
+        page.wait_for_timeout(400)
+        page.fill("#brain-name", "v2_test_brain")
+        page.set_input_files("#brain-file-input", {"name": "doc.txt", "mimeType": "text/plain", "buffer": b"test content"})
+        page.locator("button", has_text="Create brain").first.click()
+        page.wait_for_timeout(800)
+        suite.check("v2 creation enters polling state", page.locator("text=Job job_a72").count() > 0)
+        suite.check("create button displays Working while polling",
+                    page.locator("button", has_text="Working…").count() > 0)
+
+        # Close dialog while polling is active
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(500)
+        suite.check("v2 create dialog closes on Escape", page.locator("#brain-name").count() == 0)
+
+        # Reopen: state MUST be fresh, not stale/stuck
+        new_btn.click()
+        page.wait_for_timeout(400)
+        suite.check("dialog reopen clears stale brain name", page.locator("#brain-name").input_value() == "")
+        suite.check("dialog reopen resets Working button to Create brain",
+                    page.locator("button", has_text="Create brain").count() > 0
+                    and page.locator("button", has_text="Working…").count() == 0)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+
+    page.unroute("**/api/config")
+    page.unroute("**/api/brains/v2")
+    page.unroute("**/api/jobs/job_a72*")
 
     del_btn = page.locator("button", has_text="Delete").first
     if del_btn.count():
