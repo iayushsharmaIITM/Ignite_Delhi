@@ -1,3 +1,22 @@
+## Wave 0: Integrity & Honesty Invariant (2026-10-06)
+
+1. **P0-1: Remove Fabricated Slack Workspace Fallback (`connectors.py`, `app.py`)**:
+   - Fixed `slack_put_user_workspace`: when a custom Slack bot token is supplied, it must validate via `auth.test`. If validation fails, it raises `ValueError` and surfaces HTTP 400 with the exact error detail rather than silently catching exceptions and generating synthetic `T_<slug>_<hash>` workspaces and mock channels.
+   - Verified that a rejected token leaves zero traces in the connector credential vault.
+2. **P0-2: Remove Fabricated Google Connection & Synthetic Refresh Tokens (`connectors.py`, `app.py`)**:
+   - Added `google_validate_token`: validates Google OAuth access tokens live against `https://www.googleapis.com/oauth2/v3/tokeninfo`. Invalid tokens fail with HTTP 400.
+   - Removed hardcoded fallback to `user@company.com` and synthetic refresh token `1//refresh-token` in non-demo mode.
+3. **P0-3: Gate Demo Routes Behind Explicit `KESTREL_DEMO=1` (`app.py`, `connectors.py`)**:
+   - Added `is_demo_mode()` check: `/api/connectors/slack/demo/connect` and `/api/connectors/google/demo/connect` now return HTTP 403 Forbidden in production unless `KESTREL_DEMO=1` is explicitly enabled.
+4. **P0-8: Indirect Prompt-Injection Defence for Ingested Connector Content (`connectors.py`, `app.py`)**:
+   - Added `sanitize_connector_text`: strips null bytes, non-printable control characters, and neutralizes prompt delimiter tokens (`<|im_start|>`, `<|system|>`, `[INST]`, `<<SYS>>`, etc.) before connector text is ingested into the memory layer.
+   - Applied sanitization to all Slack, Gmail, and IMAP message ingest paths in `/api/connectors/import`.
+5. **Battery & Invariant Verification**:
+   - Extended `tests/test_slack_live_connector.py` to 30 comprehensive checks (including rejection of invalid tokens, 403 demo route gating, and prompt sanitizer tests).
+   - Ran `./verify.sh --quick` with lab database on port 5434: **`ran 24 tier(s), skipped 2, failing 0`**.
+   - Validated `./ops/check_secrets.sh --all` and `--staged` exit 0 (clean).
+   - Live server `:8000` restarted and verified healthy (`/health` ok).
+
 ## Live Slack & External Connectors Platform Wrap-Up (2026-10-05)
 
 1. **Slack Integration & Multi-Workspace Live Feature**:
