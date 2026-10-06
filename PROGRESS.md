@@ -1,3 +1,30 @@
+## Waves 1–4: Platform Hardening, Observability, Compliance & Frontend Accessibility (2026-10-06)
+
+1. **Wave 1: Security Hardening & Readiness Probe**:
+   - Modern Security Headers: Enhanced `_security_headers` middleware in `app.py` with `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Cross-Origin-Opener-Policy: same-origin-allow-popups`, and `X-Permitted-Cross-Domain-Policies: none`.
+   - Slack HMAC-SHA256 Signature Verification: Added `verify_slack_signature` in `connectors.py` enforcing constant-time comparison and 300-second replay attack protection. Added `POST /api/connectors/slack/events` handling Slack Event Subscriptions challenge handshakes.
+   - Readiness vs Liveness Split: Added `GET /api/ready` and `GET /ready` deep readiness probe checking Postgres database connectivity, vault key configuration, and Cognee upstream (returns 503 if unavailable, 200 when ready).
+   - Test Suite: Created `tests/test_wave1_hardening.py` (10 checks) and wired into `verify.sh` as tier `wave1-hardening`.
+
+2. **Wave 2: Observability & Metrics**:
+   - Prometheus Endpoint: Added `GET /metrics` exporting standard Prometheus gauges and counters (`kestrel_uptime_seconds`, `kestrel_http_requests_total`, `kestrel_brains_total`, `kestrel_rate_limit_hits_total`).
+   - Request tracking wired into middleware.
+
+3. **Wave 3: Enterprise Audit Trail & Compliance (SOC 2, GDPR, India DPDP)**:
+   - Immutable Audit Logging: Created `audit.py` with `record_audit_event` and `list_audit_events`. Added idempotent `audit_logs` DDL and index to `storage.py`.
+   - Audit Query Endpoint: Added `GET /api/audit/logs` scoped to tenant identity.
+   - Data-Subject Rights: Added `POST /api/user/export-data` (GDPR Art. 15 / DPDP Act data portability) and `POST /api/user/erase-data` (GDPR Art. 17 right to be forgotten).
+   - Test Suite: Created `tests/test_wave2_3_enterprise.py` (9 checks) and wired into `verify.sh` as tier `wave2-3-enterprise`.
+
+4. **Wave 4: Frontend Accessibility (WCAG 2.2 AA)**:
+   - Accessible Citations: Updated `CitationChip.tsx` with `aria-haspopup="dialog"`, dynamic `aria-expanded`, and `aria-describedby` linking button to tooltip popovers. Added keyboard `Escape` handler to dismiss popovers.
+   - Built frontend bundle via `./ops/build_frontend.sh` (`assets/index-BFKgs8-O.js`, `assets/Markdown-z5ewUNU7.js`).
+
+5. **Battery & Live Deployment**:
+   - Full verification battery `./verify.sh --quick`: **`ran 26 tier(s), skipped 2, failing 0`**.
+   - Verified secrets clean: `./ops/check_secrets.sh --staged` and `--all` exit 0.
+   - Restarted live server on `:8000`, verified `/health`, `/ready`, `/metrics`, and frontend asset serving.
+
 ## Wave 0: Integrity & Honesty Invariant (2026-10-06)
 
 1. **P0-1: Remove Fabricated Slack Workspace Fallback (`connectors.py`, `app.py`)**:
