@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
-import { Hash, Link2, Lock, MessageSquare, Plug, Plus, RefreshCw, Send } from "lucide-react"
+import { Hash, Link2, Lock, MessageSquare, Plug, Plus, RefreshCw, Send, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { SlackAccessDialog } from "@/components/SlackAccessDialog"
@@ -290,9 +290,30 @@ export function Connectors({ brain = "" }: { brain?: string }) {
                 </p>
               </div>
             </div>
-            <Button className="rounded-lg font-semibold" onClick={() => setDialogOpen(true)}>
-              Configure access
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                className="rounded-lg font-semibold"
+                onClick={() => {
+                  if (slackOAuth?.configured && (!workspaces || workspaces.length === 0)) {
+                    // transport-exempt: OAuth hand-off is a browser navigation
+                    window.location.href = "/api/connectors/slack/connect?mode=read_post&private=1"
+                  } else {
+                    setDialogOpen(true)
+                  }
+                }}
+              >
+                {workspaces && workspaces.length > 0 ? "Add Workspace" : "Connect Slack"}
+              </Button>
+              {workspaces && workspaces.length > 0 && (
+                <Button
+                  variant="outline"
+                  className="rounded-lg text-xs"
+                  onClick={() => setDialogOpen(true)}
+                >
+                  Configure
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -424,8 +445,9 @@ export function Connectors({ brain = "" }: { brain?: string }) {
                       type="button"
                       className="px-1 text-xs text-muted-foreground hover:text-foreground"
                       onClick={() => setShowAddChannel(false)}
+                      aria-label="Cancel"
                     >
-                      ✕
+                      <X className="h-3 w-3" />
                     </button>
                   </div>
                 )}

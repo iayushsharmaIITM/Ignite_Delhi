@@ -1596,14 +1596,15 @@ def connectors_oauth_callback(request: Request, provider: str,
     identity, extra = rec.get("identity") or {}, rec.get("extra") or {}
     try:
         tokens, scopes = _cx.exchange_code(provider, code)
-        if provider == "slack" and extra.get("mode"):
-            # scope-picker flow: one row per WORKSPACE, with the access
-            # level the user chose in the dialog
-            mode = extra.get("mode") or "read"
+        if provider == "slack":
+            # auto token exchange for slack: register workspace in vault & DB
+            mode = extra.get("mode") or "read_post"
+            private = bool(extra.get("private", True))
             _cx.slack_put_workspace(
                 identity, tokens.get("team_id") or "unknown",
-                tokens.get("team") or "", tokens, scopes,
-                mode, bool(extra.get("private")),
+                tokens.get("team") or tokens.get("team_id") or "Slack Workspace",
+                tokens, scopes,
+                mode, private,
                 bot_user_id=tokens.get("bot_user_id", ""))
         _cx.put_credential(provider, identity, tokens, scopes=scopes)
     except Exception as exc:

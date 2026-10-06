@@ -26,6 +26,12 @@ export function SlackAccessDialog({ open, onClose }: Props) {
   const handleAuthorize = async () => {
     setSubmitting(true)
     try {
+      if (!customToken.trim()) {
+        // transport-exempt: OAuth hand-off is a browser navigation
+        // Auto token exchange for connection when clicked configure:
+        window.location.href = `/api/connectors/slack/connect?mode=${encodeURIComponent(mode)}&private=${priv ? "1" : "0"}`
+        return
+      }
       const r = await apiFetch("/api/connectors/slack/authorize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -165,10 +171,14 @@ export function SlackAccessDialog({ open, onClose }: Props) {
           disabled={submitting}
           onClick={handleAuthorize}
         >
-          {submitting ? "Connecting…" : "Authorize & Connect Slack"}
+          {submitting
+            ? "Connecting…"
+            : customToken.trim()
+            ? "Authorize with Custom Token"
+            : "Authorize & Connect with Slack (Auto OAuth)"}
         </Button>
         <p className="-mt-2 text-center text-xs text-muted-foreground">
-          Any user can authorize directly. Instantly links channels for live messaging and AI brain grounding.
+          Auto token exchange: 1-click authorization links your workspace channels and syncs them automatically.
         </p>
       </DialogContent>
     </Dialog>

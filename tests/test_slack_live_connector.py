@@ -248,6 +248,49 @@ def main() -> int:
           "\x00" not in sanitized and "<|im_start|>" not in sanitized and "[INST]" not in sanitized,
           f"got: {sanitized}")
 
+    # 14. Slack OAuth Auto Token Exchange (1-Click connect flow)
+    import unittest.mock as mock
+    import urllib.parse
+    os.environ["SLACK_CLIENT_ID"] = "test-slack-client-id"
+    os.environ["SLACK_CLIENT_SECRET"] = "test-slack-client-secret"
+
+    r_conn = client.get("/api/connectors/slack/connect?mode=read_post&private=1", follow_redirects=False)
+    check("slack connect redirects to slack authorize URL",
+          r_conn.status_code == 302 and "slack.com/oauth/v2/authorize" in r_conn.headers.get("location", ""),
+          f"status={r_conn.status_code} loc={r_conn.headers.get('location')}")
+    loc = r_conn.headers.get("location", "")
+    parsed_query = urllib.parse.parse_qs(urllib.parse.urlparse(loc).query)
+    slack_state = parsed_query.get("state", [""])[0]
+    check("state parameter minted in authorize URL", bool(slack_state))
+
+    # Stub Slack token endpoint response for auto exchange
+    mock_resp = mock.MagicMock()
+    mock_resp.json.return_value = {
+        "ok": True,
+        "access_token": "valid-auto-bot-token",
+        "scope": "channels:history,channels:read,groups:history,groups:read,users:read,chat:write",
+        "team": {"name": "Auto Corp", "id": "T_AUTO_EXCHANGE"},
+        "authed_user": {"id": "U_AUTO_USER", "access_token": "valid-auto-user-token"},
+        "bot_user_id": "U_BOT_AUTO",
+    }
+    with mock.patch("requests.post", return_value=mock_resp):
+        r_cb = client.get(f"/api/connectors/oauth/slack/callback?code=auto_code_123&state={slack_state}",
+                          follow_redirects=False)
+    check("oauth callback redirects to /?connected=slack",
+          r_cb.status_code == 302 and r_cb.headers.get("location") == "/?connected=slack",
+          f"status={r_cb.status_code} loc={r_cb.headers.get('location')}")
+
+    auto_teams = [w for w in cx.slack_list_workspaces(ident) if w.get("team_id") == "T_AUTO_EXCHANGE"]
+    check("auto token exchange registered team in vault workspaces",
+          len(auto_teams) == 1 and auto_teams[0].get("team_name") == "Auto Corp",
+          f"got: {auto_teams}")
+
+    r_ws = client.get("/api/connectors/slack/workspaces")
+    api_team_ids = [w["team_id"] for w in r_ws.json().get("workspaces", [])]
+    check("API workspaces endpoint returns auto-exchanged team",
+          "T_AUTO_EXCHANGE" in api_team_ids,
+          f"got: {api_team_ids}")
+
     print("\nSLACK & CONNECTORS INTEGRATION TEST:", "FAIL" if FAILS else "PASS")
     if FAILS:
         print(f"  {len(FAILS)} of {CHECKS} checks failed: {', '.join(FAILS)}")

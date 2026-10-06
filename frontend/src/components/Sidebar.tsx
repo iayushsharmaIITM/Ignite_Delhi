@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import { ChevronLeft } from "lucide-react"
 import { t } from "@/lib/i18n"
 import { SlideRail } from "@/components/Animations"
 
@@ -370,7 +371,9 @@ export function Sidebar({
           <div className="sub">Company Brain</div>
         </div>
         <div className="grow" />
-        <button type="button" className="sb-collapse" title="Retract sidebar" aria-label="Retract sidebar" onClick={onToggle}>«</button>
+        <button type="button" className="sb-collapse" title="Retract sidebar" aria-label="Retract sidebar" onClick={onToggle}>
+          <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
       </div>
 
       <nav className="nav" ref={navRef}>

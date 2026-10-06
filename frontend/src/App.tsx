@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { toast } from "sonner"
+import { Menu } from "lucide-react"
 import { Sidebar, type SidebarUser } from "@/components/Sidebar"
 import { Connectors } from "@/components/Connectors"
 import { BrainsPage } from "@/components/BrainsPage"
@@ -1598,7 +1599,7 @@ export default function App() {
           else setMobileOpen((o) => !o)
         }}
       >
-        ☰
+        <Menu className="h-5 w-5" aria-hidden="true" />
       </button>
 
       <Sidebar
