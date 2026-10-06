@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { ChevronLeft } from "lucide-react"
 import { t } from "@/lib/i18n"
 import { SlideRail } from "@/components/Animations"
+import { KestrelMark } from "@/components/Logo"
 
 // The sidebar keeps the shell's `aside.shell` DOM contract (the class names the
 // retired static/shell.js used to build in buildLinks/chatGroup/renderUser),
@@ -403,7 +404,9 @@ export function Sidebar({
   return (
     <aside className={"shell" + (mobileOpen ? " open" : "")} aria-label="Kestrel navigation">
       <div className="brand">
-        <div className="mark">◆</div>
+        <div className="mark" aria-hidden="true">
+          <KestrelMark size={20} variant="emblem" />
+        </div>
         <div>
           <div className="name">Kestrel</div>
           <div className="sub">Company Brain</div>
