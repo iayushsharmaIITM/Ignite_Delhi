@@ -223,6 +223,20 @@ def init() -> bool:
                      ms int
                    )"""
             )
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS audit_logs (
+                     id SERIAL PRIMARY KEY,
+                     timestamp timestamptz NOT NULL DEFAULT now(),
+                     actor_id text,
+                     org_id text,
+                     action text NOT NULL,
+                     resource_type text NOT NULL,
+                     resource_id text,
+                     details jsonb DEFAULT '{}'::jsonb,
+                     ip_address text
+                   )"""
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_org_ts ON audit_logs (org_id, timestamp DESC)")
             cur.execute("CREATE INDEX IF NOT EXISTS chats_brain_idx ON chats(brain, updated DESC)")
             # O5: metering grows one row per ask with no index and no purge —
             # unbounded disk, linearly slower /api/usage. Index the hot filter

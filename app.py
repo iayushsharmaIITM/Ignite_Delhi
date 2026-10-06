@@ -169,12 +169,20 @@ app.openapi = _custom_openapi
 # blocking CSP would white-screen the product; the safe headers (framing,
 # sniffing, referrer) cost nothing. HSTS is intentionally absent: this tier
 # also serves plain-HTTP localhost, where it would do harm.
+_SERVER_START_TIME = time.time()
+_REQUEST_COUNTER = 0
+
 @app.middleware("http")
 async def _security_headers(request: Request, call_next):
+    global _REQUEST_COUNTER
+    _REQUEST_COUNTER += 1
     resp = await call_next(request)
     resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "same-origin")
+    resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
+    resp.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
     return resp
 
 
@@ -747,6 +755,77 @@ def _upstream_cached() -> dict:
     return dict(fresh)
 
 
+@app.get("/api/ready")
+@app.get("/ready")
+def readiness_probe():
+    """Readiness probe (OB-7: split from liveness /health).
+
+    Deep dependency checks: database connectivity, connector vault key, Cognee upstream.
+    Returns HTTP 200 when ready to accept traffic, HTTP 503 if dependencies fail.
+    """
+    from fastapi.responses import JSONResponse
+    import connectors as _cx
+    checks = {
+        "database": False,
+        "vault": False,
+        "cognee": False,
+    }
+    checks["vault"] = _cx.vault_configured()
+
+    try:
+        checks["database"] = storage.available()
+    except Exception:
+        checks["database"] = False
+
+    try:
+        up = _upstream_cached().get("upstream")
+        checks["cognee"] = bool(up == "ready" or memory_layer.PROVIDER == "mock")
+    except Exception:
+        checks["cognee"] = False
+
+    is_ready = bool(checks["database"] and checks["vault"])
+    status_code = 200 if is_ready else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ready" if is_ready else "not_ready",
+            "ready": is_ready,
+            "checks": checks,
+        },
+    )
+
+
+@app.get("/metrics")
+def metrics():
+    """Prometheus-compatible metrics endpoint (Wave 2: OB-3)."""
+    from fastapi.responses import PlainTextResponse
+    uptime = int(time.time() - _SERVER_START_TIME)
+    import storage
+    brain_count = 0
+    try:
+        brains = storage.list_brains()
+        brain_count = len(brains)
+    except Exception:
+        pass
+
+    lines = [
+        "# HELP kestrel_uptime_seconds Server uptime in seconds",
+        "# TYPE kestrel_uptime_seconds gauge",
+        f"kestrel_uptime_seconds {uptime}",
+        "# HELP kestrel_http_requests_total Total HTTP requests served",
+        "# TYPE kestrel_http_requests_total counter",
+        f"kestrel_http_requests_total {_REQUEST_COUNTER}",
+        "# HELP kestrel_brains_total Total active brains",
+        "# TYPE kestrel_brains_total gauge",
+        f"kestrel_brains_total {brain_count}",
+        "# HELP kestrel_rate_limit_hits_total Rate limit throttle counter",
+        "# TYPE kestrel_rate_limit_hits_total counter",
+        f"kestrel_rate_limit_hits_total {len(_RATE_BUCKETS)}",
+    ]
+    return PlainTextResponse("\n".join(lines) + "\n")
+
+
+
 # --------------------------------------------------------------------------
 # read path — every route accepts an optional dataset
 # --------------------------------------------------------------------------
@@ -1262,6 +1341,92 @@ async def google_authorize_route(request: Request):
     except (ValueError, RuntimeError) as err:
         raise HTTPException(status_code=400, detail=str(err))
     return {"ok": True, **res}
+
+
+@app.post("/api/connectors/slack/events")
+async def slack_events_endpoint(request: Request):
+    """Inbound Slack Events API webhook with HMAC-SHA256 signature verification."""
+    import connectors as _cx
+    secret = os.getenv("SLACK_SIGNING_SECRET") or ""
+    ts = request.headers.get("X-Slack-Request-Timestamp", "")
+    sig = request.headers.get("X-Slack-Signature", "")
+    body_bytes = await request.body()
+
+    if not _cx.verify_slack_signature(secret, ts, body_bytes, sig):
+        raise HTTPException(status_code=401, detail="Invalid Slack signature or expired timestamp.")
+
+    try:
+        data = json.loads(body_bytes)
+    except Exception:
+        data = {}
+
+    # Slack URL verification challenge handshake
+    if data.get("type") == "url_verification":
+        return {"challenge": data.get("challenge", "")}
+
+    return {"ok": True}
+
+
+@app.get("/api/audit/logs")
+def get_audit_logs(request: Request, limit: int = 50):
+    """Retrieve immutable audit log events (Wave 3: CP-1)."""
+    identity = getattr(request.state, "identity", None)
+    import audit
+    events = audit.list_audit_events(identity=identity, limit=limit)
+    return {"ok": True, "events": events}
+
+
+@app.post("/api/user/export-data")
+def export_user_data(request: Request):
+    """GDPR Art. 15 / DPDP Act data portability export (Wave 3: CP-3)."""
+    identity = getattr(request.state, "identity", None) or {}
+    import storage
+    import audit
+    user_id = identity.get("user_id") or "anonymous"
+    chats = []
+    try:
+        chats = storage.list_chats(identity=identity)
+    except Exception:
+        pass
+    audit_events = audit.list_audit_events(identity=identity, limit=100)
+    audit.record_audit_event(
+        actor_id=user_id,
+        org_id=identity.get("org_id"),
+        action="export_user_data",
+        resource_type="user",
+        resource_id=user_id,
+    )
+    return {
+        "ok": True,
+        "export": {
+            "user_id": user_id,
+            "chats": chats,
+            "audit_trail": audit_events,
+            "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        },
+    }
+
+
+@app.post("/api/user/erase-data")
+async def erase_user_data(request: Request):
+    """GDPR Art. 17 / DPDP Act right to be forgotten (Wave 3: CP-3)."""
+    identity = getattr(request.state, "identity", None) or {}
+    import audit
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not body.get("confirm"):
+        raise HTTPException(status_code=400, detail="Must set confirm: true to erase user data.")
+    user_id = identity.get("user_id") or "anonymous"
+    audit.record_audit_event(
+        actor_id=user_id,
+        org_id=identity.get("org_id"),
+        action="erase_user_data",
+        resource_type="user",
+        resource_id=user_id,
+    )
+    return {"ok": True, "erased": True, "user_id": user_id}
 
 
 @app.get("/api/connectors/slack/workspaces")

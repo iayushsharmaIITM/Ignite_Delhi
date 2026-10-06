@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -584,6 +585,29 @@ def sanitize_connector_text(text: str) -> str:
     )
     cleaned = _INJECTION_TOKENS_RE.sub("[filtered-token]", cleaned)
     return cleaned.strip()
+
+
+def verify_slack_signature(signing_secret: str, timestamp: str, body: bytes, signature: str) -> bool:
+    """Verify inbound Slack webhook / Events API request using HMAC-SHA256.
+
+    Enforces 5-minute (300-second) replay protection window and constant-time comparison.
+    """
+    if not signing_secret or not timestamp or not signature:
+        return False
+    try:
+        req_ts = int(timestamp)
+    except (ValueError, TypeError):
+        return False
+    if abs(time.time() - req_ts) > 300:
+        return False
+    try:
+        body_text = body.decode("utf-8", errors="replace")
+        sig_basestring = f"v0:{timestamp}:{body_text}".encode("utf-8")
+        computed = "v0=" + hmac.new(signing_secret.encode("utf-8"), sig_basestring, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(computed, signature)
+    except Exception:
+        return False
+
 
 
 

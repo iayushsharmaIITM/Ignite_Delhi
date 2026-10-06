@@ -363,6 +363,22 @@ else
   FAILS=$((FAILS + 1))
 fi
 
+# --- 6b8b. wave 1 hardening: security headers, slack HMAC, readiness probe ---
+if python3 tests/test_wave1_hardening.py > /tmp/kestrel_verify_wave1_hardening.log 2>&1; then
+  note wave1-hardening "PASS  $(tally /tmp/kestrel_verify_wave1_hardening.log)"
+else
+  note wave1-hardening "FAIL — see /tmp/kestrel_verify_wave1_hardening.log"
+  FAILS=$((FAILS + 1))
+fi
+
+# --- 6b8c. wave 2 & 3 enterprise: metrics, audit logs, gdpr / dpdp ------------
+if python3 tests/test_wave2_3_enterprise.py > /tmp/kestrel_verify_wave2_3_enterprise.log 2>&1; then
+  note wave2-3-enterprise "PASS  $(tally /tmp/kestrel_verify_wave2_3_enterprise.log)"
+else
+  note wave2-3-enterprise "FAIL — see /tmp/kestrel_verify_wave2_3_enterprise.log"
+  FAILS=$((FAILS + 1))
+fi
+
 # --- 6b9. legacy visibility, characterised (NOT a security gate) --------------
 # B05/B06/X-USAGE came in as vulnerabilities and are documented grandfathering: a row
 # with both owner columns NULL is readable by every authenticated identity, membership
