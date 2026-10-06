@@ -384,7 +384,14 @@ def require_tenant(request: Request):
     X-API-Key tenants gate still applies when Clerk is off and tenants are
     configured."""
     if auth.active():
-        identity = auth.identity_from_request(request.headers.get("authorization"))
+        auth_header = request.headers.get("authorization")
+        session_cookie = request.cookies.get("__session")
+        query_token = request.query_params.get("token")
+        identity = auth.identity_from_request(
+            auth_header=auth_header,
+            cookie=session_cookie,
+            query_token=query_token,
+        )
         if identity is None:
             raise HTTPException(
                 status_code=401,

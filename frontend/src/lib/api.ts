@@ -75,6 +75,25 @@ export async function authHeaders(): Promise<Record<string, string>> {
 }
 
 /**
+ * Generate a URL for browser navigations (e.g. OAuth hand-off) that carries
+ * the caller's Clerk session token when auth is active.
+ */
+export async function getAuthenticatedRedirectUrl(
+  path: string,
+  params?: Record<string, string>,
+): Promise<string> {
+  const cfg = await apiConfig()
+  const qs = new URLSearchParams(params || {})
+  if (cfg.authMode === "clerk") {
+    await awaitClerkBoot()
+    const token = await getClerkToken()
+    if (token) qs.set("token", token)
+  }
+  const queryStr = qs.toString()
+  return queryStr ? `${path}?${queryStr}` : path
+}
+
+/**
  * fetch() with the caller's credentials attached, retrying once on 401 with a
  * freshly minted token.
  *

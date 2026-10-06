@@ -922,6 +922,43 @@ def section_sidebar_hover_rail(suite: Suite, base: str) -> None:
     suite.check("all three row types were measured", len(worst) == 3, str(worst))
 
 
+def section_sidebar_sort_options(suite: Suite, base: str) -> None:
+    """The sidebar view & sort menu (#sb-viewmenu) must open cleanly in-viewport
+    below .head-btn, allow toggling sort modes, and persist selections."""
+    page = suite.page
+    suite.section("sidebar view & sort")
+    reset(suite, base)
+    page.wait_for_timeout(600)
+    btn = page.locator(".head-btn")
+    if not btn.count():
+        suite.check("head-btn exists in sidebar", False, "none found")
+        return
+    suite.check("head-btn exists and is visible", btn.is_visible())
+    btn.click()
+    page.wait_for_timeout(400)
+    menu = page.locator("#sb-viewmenu")
+    suite.check("clicking head-btn opens #sb-viewmenu", menu.is_visible())
+    if menu.is_visible():
+        box = menu.bounding_box()
+        suite.check("#sb-viewmenu opens in viewport (y >= 0)", box is not None and box["y"] >= 0,
+                    f"y={box['y'] if box else None}")
+        alpha = menu.locator("button", has_text="Alphabetical")
+        if alpha.count():
+            alpha.click()
+            page.wait_for_timeout(400)
+            suite.check("selecting option closes #sb-viewmenu", not menu.is_visible())
+            stored = page.evaluate("() => localStorage.getItem('kestrel.sidebar.view')")
+            suite.check("sort=title persisted to localStorage", "title" in (stored or ""), stored)
+            btn.click()
+            page.wait_for_timeout(300)
+            menu.locator("button", has_text="Updated").click()
+            page.wait_for_timeout(400)
+            stored2 = page.evaluate("() => localStorage.getItem('kestrel.sidebar.view')")
+            suite.check("sort=updated persisted to localStorage", "updated" in (stored2 or ""), stored2)
+        else:
+            suite.check("Alphabetical option exists", False, "missing from menu")
+
+
 def section_stale_bundle(suite: Suite, base: str) -> None:
     """A deploy replaces the hashed bundle and deletes the previous one, so a tab
     still holding the old index.html asks for files that no longer exist. That used
@@ -1246,6 +1283,7 @@ SECTIONS = [
     ("graph view", section_graph_view),
     ("deep links / history", section_deep_links_history),
     ("sidebar hover rail", section_sidebar_hover_rail),
+    ("sidebar view & sort", section_sidebar_sort_options),
     ("sidebar retract motion", section_sidebar_motion),
     ("stale bundle", section_stale_bundle),
 ]

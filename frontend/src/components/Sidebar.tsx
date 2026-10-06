@@ -85,10 +85,16 @@ const FOLD_KEY = "kestrel.sidebar.collapsed" // legacy: JSON list of folded brai
 const CHAT_CAP = 16
 const PER_BRAIN = 5
 
-function readView(): { mode: "brain" | "timeline"; sort: "updated" | "created" } {
+type ChatSort = "updated" | "created" | "title"
+type ChatMode = "brain" | "timeline"
+
+function readView(): { mode: ChatMode; sort: ChatSort } {
   try {
     const v = JSON.parse(localStorage.getItem(VIEW_KEY) || "")
-    if (v?.mode === "timeline" || v?.mode === "brain") return { mode: v.mode, sort: v.sort === "created" ? "created" : "updated" }
+    if (v?.mode === "timeline" || v?.mode === "brain") {
+      const sort: ChatSort = v.sort === "created" ? "created" : v.sort === "title" ? "title" : "updated"
+      return { mode: v.mode, sort }
+    }
   } catch { /* first run or quota — legacy defaults */ }
   return { mode: "brain", sort: "updated" }
 }
@@ -158,7 +164,15 @@ export function Sidebar({
   const [showAllBrains, setShowAllBrains] = useState<string[]>([])
 
   const sorted = useMemo(() => {
-    const keyOf = (c: ChatSummary) => (chatView.sort === "created" ? c.created || c.at : c.at)
+    if (chatView.sort === "title") {
+      return [...chats].sort((a, b) =>
+        (a.title || "Untitled").localeCompare(b.title || "Untitled", undefined, { sensitivity: "base" })
+      )
+    }
+    const keyOf = (c: ChatSummary) => {
+      const ts = chatView.sort === "created" ? (c.created || c.at) : c.at
+      return typeof ts === "number" && !Number.isNaN(ts) ? ts : 0
+    }
     return [...chats].sort((a, b) => keyOf(b) - keyOf(a))
   }, [chats, chatView.sort])
 
@@ -187,7 +201,7 @@ export function Sidebar({
     return () => { document.removeEventListener("click", close); document.removeEventListener("keydown", onKey) }
   }, [viewMenuOpen])
 
-  const persistView = (v: { mode: "brain" | "timeline"; sort: "updated" | "created" }) => {
+  const persistView = (v: { mode: ChatMode; sort: ChatSort }) => {
     setChatView(v)
     try { localStorage.setItem(VIEW_KEY, JSON.stringify(v)) } catch { /* quota */ }
   }
@@ -279,8 +293,8 @@ export function Sidebar({
     ) : chatView.mode === "timeline" ? (
       <>
         {sorted.slice(0, showAllBrains.includes("*") ? sorted.length : 14).map((c) => {
-          const key = c.created || c.at
-          return chatRow(c.brain || currentBrain, c, relTime(key))
+          const key = chatView.sort === "created" ? (c.created || c.at) : c.at
+          return chatRow(c.brain || currentBrain, c, chatView.sort === "title" ? undefined : relTime(key))
         })}
         {sorted.length > 14 && (
           <button
@@ -293,7 +307,14 @@ export function Sidebar({
               : t("view.show_all_n", "Show all {n}").replace("{n}", String(sorted.length))}
           </button>
         )}
-        <div className="view-note">{t("view.timeline", "Timeline")} · {t("view.sorted", "sorted by")} {chatView.sort === "created" ? t("view.created", "Created") : t("view.updated", "Updated")}</div>
+        <div className="view-note">
+          {t("view.timeline", "Timeline")} · {t("view.sorted", "sorted by")}{" "}
+          {chatView.sort === "created"
+            ? t("view.created", "Created")
+            : chatView.sort === "title"
+            ? t("view.alphabetical", "Alphabetical (A–Z)")
+            : t("view.updated", "Updated")}
+        </div>
         {chatsTruncated && (
           <div className="view-note">{`Showing ${chats.length} of ${chatsTotal ?? chats.length} — the rest are older.`}</div>
         )}
@@ -368,7 +389,11 @@ export function Sidebar({
         })}
         <div className="view-note">
           {t("view.grouped", "Grouped by brain")} · {t("view.sorted", "sorted by")}{" "}
-          {chatView.sort === "created" ? t("view.created", "Created") : t("view.updated", "Updated")}
+          {chatView.sort === "created"
+            ? t("view.created", "Created")
+            : chatView.sort === "title"
+            ? t("view.alphabetical", "Alphabetical (A–Z)")
+            : t("view.updated", "Updated")}
           {chats.length > 0 ? ` · ${chats.length}` : ""}
           {chatsTruncated ? ` · ${chatsTotal ?? chats.length} total` : ""}
         </div>
@@ -403,7 +428,7 @@ export function Sidebar({
             <span className="nav-label">{t("nav.chats", "Chats")}</span>
             <button
               type="button"
-              className="head-btn"
+              className={"head-btn" + (viewMenuOpen ? " active" : "")}
               title={t("view.toggle", "View and sort")}
               aria-label={t("view.toggle", "View and sort")}
               onClick={() => setViewMenuOpen((v) => !v)}
@@ -412,7 +437,7 @@ export function Sidebar({
             </button>
           </div>
           {viewMenuOpen && (
-            <div className="pop sb-pop" id="sb-viewmenu">
+            <div className="pop sb-pop" id="sb-viewmenu" role="menu" aria-label="View and sort">
               <div className="pop-note">{t("view.title", "View")}</div>
               <button type="button" onClick={() => { persistView({ ...chatView, mode: "brain" }); setViewMenuOpen(false) }}>
                 <span>{t("view.by_brain", "By brain")}</span>{chatView.mode === "brain" && <span className="tick">✓</span>}
@@ -427,6 +452,9 @@ export function Sidebar({
               </button>
               <button type="button" onClick={() => { persistView({ ...chatView, sort: "created" }); setViewMenuOpen(false) }}>
                 <span>{t("view.created", "Created")}</span>{chatView.sort === "created" && <span className="tick">✓</span>}
+              </button>
+              <button type="button" onClick={() => { persistView({ ...chatView, sort: "title" }); setViewMenuOpen(false) }}>
+                <span>{t("view.alphabetical", "Alphabetical (A–Z)")}</span>{chatView.sort === "title" && <span className="tick">✓</span>}
               </button>
             </div>
           )}

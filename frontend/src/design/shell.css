@@ -100,15 +100,22 @@
   #go:disabled { opacity:.3; cursor:default; background:var(--panel-3); color:var(--muted); }
   #go.stop { background:var(--bad); color:#161616; }
 
-  /* pop-up menus open UP from the bar */
-  .pop { position:absolute; bottom:calc(100% + 8px); right:10px; z-index:50;
+  /* pop-up menus open UP from the bar (except #sb-viewmenu which drops down from the header) */
+  .pop:not(#sb-viewmenu) { position:absolute; bottom:calc(100% + 8px); right:10px; z-index:50;
          min-width:230px; padding:6px; border-radius:12px;
          background:var(--panel-2); border:1px solid var(--line-2);
          box-shadow:var(--shadow-lg);
          transform-origin:bottom right;
          animation:pop .16s ease; }
+  #sb-viewmenu.pop { position:absolute; top:42px; bottom:auto; right:6px; left:auto; z-index:60;
+         min-width:190px; max-width:calc(100% - 12px); padding:6px; border-radius:12px;
+         background:var(--panel-2); border:1px solid var(--line-2);
+         box-shadow:var(--shadow-lg);
+         transform-origin:top right;
+         animation:popDown .16s ease; }
   .pop[hidden] { display:none; }
   @keyframes pop { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  @keyframes popDown { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
   .pop button { display:flex; align-items:center; gap:9px; width:100%; text-align:left;
                 padding:8px 10px; border-radius:8px; border:0; background:transparent;
                 color:var(--fg-2); font-size:13px; cursor:pointer; white-space:nowrap;

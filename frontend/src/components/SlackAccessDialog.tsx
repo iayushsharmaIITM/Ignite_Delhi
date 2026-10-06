@@ -10,7 +10,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
-import { apiFetch } from "@/lib/api"
+import { apiFetch, getAuthenticatedRedirectUrl } from "@/lib/api"
 
 type Props = { open: boolean; onClose: () => void }
 
@@ -29,7 +29,11 @@ export function SlackAccessDialog({ open, onClose }: Props) {
       if (!customToken.trim()) {
         // transport-exempt: OAuth hand-off is a browser navigation
         // Auto token exchange for connection when clicked configure:
-        window.location.href = `/api/connectors/slack/connect?mode=${encodeURIComponent(mode)}&private=${priv ? "1" : "0"}`
+        const url = await getAuthenticatedRedirectUrl("/api/connectors/slack/connect", {
+          mode,
+          private: priv ? "1" : "0",
+        })
+        window.location.href = url
         return
       }
       const r = await apiFetch("/api/connectors/slack/authorize", {

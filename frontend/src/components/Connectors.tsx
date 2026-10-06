@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { SlackAccessDialog } from "@/components/SlackAccessDialog"
 import { GoogleAccessDialog } from "@/components/GoogleAccessDialog"
-import { apiFetch, serverError } from "@/lib/api"
+import { apiFetch, getAuthenticatedRedirectUrl, serverError } from "@/lib/api"
 import { t } from "@/lib/i18n"
 
 type Status = {
@@ -293,10 +293,14 @@ export function Connectors({ brain = "" }: { brain?: string }) {
             <div className="flex items-center gap-2">
               <Button
                 className="rounded-lg font-semibold"
-                onClick={() => {
+                onClick={async () => {
                   if (slackOAuth?.configured && (!workspaces || workspaces.length === 0)) {
                     // transport-exempt: OAuth hand-off is a browser navigation
-                    window.location.href = "/api/connectors/slack/connect?mode=read_post&private=1"
+                    const url = await getAuthenticatedRedirectUrl("/api/connectors/slack/connect", {
+                      mode: "read_post",
+                      private: "1",
+                    })
+                    window.location.href = url
                   } else {
                     setDialogOpen(true)
                   }
@@ -554,10 +558,11 @@ export function Connectors({ brain = "" }: { brain?: string }) {
             <Button
               variant="secondary"
               className="rounded-lg"
-              onClick={() => {
+              onClick={async () => {
                 if (googleOAuth?.configured) {
                   // transport-exempt: OAuth hand-off is a browser navigation
-                  window.location.href = "/api/connectors/oauth/google/start"
+                  const url = await getAuthenticatedRedirectUrl("/api/connectors/oauth/google/start")
+                  window.location.href = url
                 } else {
                   setGoogleDialogOpen(true)
                 }

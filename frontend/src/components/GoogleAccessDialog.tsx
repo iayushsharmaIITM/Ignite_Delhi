@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { apiFetch } from "@/lib/api"
+import { apiFetch, getAuthenticatedRedirectUrl } from "@/lib/api"
 
 type Props = { open: boolean; onClose: () => void }
 
@@ -23,7 +23,8 @@ export function GoogleAccessDialog({ open, onClose }: Props) {
     try {
       if (!token.trim()) {
         // transport-exempt: OAuth hand-off is a browser navigation
-        window.location.href = "/api/connectors/oauth/google/start"
+        const url = await getAuthenticatedRedirectUrl("/api/connectors/oauth/google/start")
+        window.location.href = url
         return
       }
       const r = await apiFetch("/api/connectors/google/authorize", {

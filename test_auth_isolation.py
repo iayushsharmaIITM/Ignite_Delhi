@@ -133,6 +133,14 @@ def test_garbage_token_fails_closed():
     assert auth.identity_from_request(None) is None
 
 
+def test_verify_cookie_and_query_token():
+    raw = token("user_A", "org_A")
+    assert auth.identity_from_request(None, cookie=raw) == {"user_id": "user_A", "org_id": "org_A"}
+    assert auth.identity_from_request(None, query_token=raw) == {"user_id": "user_A", "org_id": "org_A"}
+    assert auth.identity_from_request(None, cookie="bad") is None
+    assert auth.identity_from_request(None, query_token="bad") is None
+
+
 def test_brain_access_rules():
     storage.init()
     storage.register_brain("acme_isolated", "org_A", "user_A")

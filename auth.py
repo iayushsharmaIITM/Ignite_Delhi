@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import urllib.parse
 import urllib.request
 
 import jwt
@@ -191,17 +192,27 @@ def verify_token(token: str) -> dict | None:
     return {"user_id": payload.get("sub"), "org_id": org_id}
 
 
-def identity_from_request(auth_header: str | None) -> dict | None:
-    """Resolve the caller identity from the Authorization header.
+def identity_from_request(auth_header: str | None = None,
+                          cookie: str | None = None,
+                          query_token: str | None = None) -> dict | None:
+    """Resolve the caller identity from the Authorization header, session cookie,
+    or query token parameter.
 
     off mode  → single local user (backward compatible: everything allowed).
     clerk     → Bearer JWT required; None means 401 for the caller.
     """
     if not active():
         return {"user_id": "local", "org_id": None}
-    if not auth_header or not auth_header.lower().startswith("bearer "):
+    token = None
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+    elif cookie:
+        token = urllib.parse.unquote(cookie.strip()).strip('"')
+    elif query_token:
+        token = urllib.parse.unquote(query_token.strip()).strip('"')
+    if not token:
         return None
-    return verify_token(auth_header.split(" ", 1)[1].strip())
+    return verify_token(token)
 
 
 # --- test seam: swap the key source so the isolation suite can sign tokens

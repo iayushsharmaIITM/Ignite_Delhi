@@ -625,10 +625,10 @@ export function ViewMenu({
 }: {
   open: boolean
   mode: "brain" | "timeline"
-  sort: "updated" | "created"
+  sort: "updated" | "created" | "title"
   onClose?: () => void
   onModeChange: (m: "brain" | "timeline") => void
-  onSortChange: (s: "updated" | "created") => void
+  onSortChange: (s: "updated" | "created" | "title") => void
 }) {
   if (!open) return null
   return (
@@ -651,6 +651,10 @@ export function ViewMenu({
       <button type="button" className="view-item" onClick={() => onSortChange("created")} role="menuitem">
         <span>Created</span>
         {sort === "created" && <span className="tick">✓</span>}
+      </button>
+      <button type="button" className="view-item" onClick={() => onSortChange("title")} role="menuitem">
+        <span>Alphabetical (A–Z)</span>
+        {sort === "title" && <span className="tick">✓</span>}
       </button>
     </div>
   )
