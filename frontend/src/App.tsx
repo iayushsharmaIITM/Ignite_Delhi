@@ -1449,7 +1449,15 @@ export default function App() {
                     className="att"
                     key={`${a.name}-${ai}`}
                     title={a.url ? a.name : `${a.name} — session only (too large to store)`}
+                    role={a.url ? "button" : undefined}
+                    tabIndex={a.url ? 0 : undefined}
                     onClick={() => { if (a.url) window.open(a.url, "_blank", "noopener") }}
+                    onKeyDown={(e) => {
+                      if (a.url && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault()
+                        window.open(a.url, "_blank", "noopener")
+                      }
+                    }}
                   >
                     {a.kind === "image" && a.url ? (
                       <img src={a.url} alt={a.name} />
@@ -1485,7 +1493,16 @@ export default function App() {
             <div
               className={"working-head" + (logDone ? " toggle" : "")}
               title={logDone ? (logOpen ? "Hide the steps" : "Show the steps") : undefined}
+              role={logDone ? "button" : undefined}
+              tabIndex={logDone ? 0 : undefined}
+              aria-expanded={logDone ? logOpen : undefined}
               onClick={logDone ? () => setExpandedLogs((prev) => ({ ...prev, [i]: !logOpen })) : undefined}
+              onKeyDown={logDone ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  setExpandedLogs((prev) => ({ ...prev, [i]: !logOpen }))
+                }
+              } : undefined}
             >
               {!logDone && <span className="spin" />}
               <span className="w-elapsed">{(logDone ? "Worked · " : "Working · ") + workedSeconds.toFixed(1) + "s"}</span>

@@ -317,7 +317,16 @@ export function Sidebar({
               <div
                 className={"brain-row" + (isFolded ? " folded" : "")}
                 title="Expand or collapse"
+                role="button"
+                tabIndex={0}
+                aria-expanded={!isFolded}
                 onClick={() => toggleFold(brain)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    toggleFold(brain)
+                  }
+                }}
               >
                 <svg className="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d={CARET_D} /></svg>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={FOLDER_D} /></svg>

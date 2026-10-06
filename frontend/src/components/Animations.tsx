@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
-import { ArrowDown, Loader2 } from "lucide-react"
+import { ArrowDown, Loader2, X } from "lucide-react"
 import { cn, useDialog } from "@/lib/utils"
 import { resolvedTheme } from "@/theme"
 import { t } from "@/lib/i18n"
@@ -767,7 +767,9 @@ export function UsageModal({ open, onClose }: UsageModalProps) {
            aria-label={t("usage.title", "Usage stats")}>
         <div className="km-head">
           <h2>{t("usage.title", "Usage stats")}</h2>
-          <button type="button" className="km-x" onClick={onClose} aria-label={t("src.close", "Close")}>✕</button>
+          <button type="button" className="km-x" onClick={onClose} aria-label={t("src.close", "Close")}>
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
         <p className="km-sub">{t("usage.sub", "Last 30 days · estimated tokens")}</p>
         {state === "loading" && <p className="u-empty">{t("usage.loading", "Loading…")}</p>}
@@ -827,7 +829,9 @@ export function UpgradeModal({ open, onClose }: UsageModalProps) {
            aria-label={t("set.upgrade", "Upgrade")}>
         <div className="km-head">
           <h2>{t("set.upgrade", "Upgrade")}</h2>
-          <button type="button" className="km-x" onClick={onClose} aria-label={t("src.close", "Close")}>✕</button>
+          <button type="button" className="km-x" onClick={onClose} aria-label={t("src.close", "Close")}>
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
         <p className="km-sub">{t("upg.sub", "Simple plans that scale with your company brain.")}</p>
         <div className="tiers">

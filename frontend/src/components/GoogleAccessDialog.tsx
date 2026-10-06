@@ -21,6 +21,11 @@ export function GoogleAccessDialog({ open, onClose }: Props) {
   const handleAuthorize = async () => {
     setSubmitting(true)
     try {
+      if (!token.trim()) {
+        // transport-exempt: OAuth hand-off is a browser navigation
+        window.location.href = "/api/connectors/oauth/google/start"
+        return
+      }
       const r = await apiFetch("/api/connectors/google/authorize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -93,7 +98,11 @@ export function GoogleAccessDialog({ open, onClose }: Props) {
           disabled={submitting}
           onClick={handleAuthorize}
         >
-          {submitting ? "Connecting…" : "Authorize Google Workspace"}
+          {submitting
+            ? "Connecting…"
+            : token.trim()
+            ? "Authorize with Custom Token"
+            : "Authorize & Connect Google (Auto OAuth)"}
         </Button>
         <p className="-mt-2 text-center text-xs text-muted-foreground">
           Enables importing Gmail threads and Google Drive documents into any knowledge brain.

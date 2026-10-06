@@ -46,7 +46,11 @@ export function useDialog<T extends HTMLElement>(open: boolean, onClose: () => v
       }
       if (e.key !== "Tab") return
       const inside = items()
-      if (!inside.length) return
+      if (!inside.length) {
+        e.preventDefault()
+        panel?.focus()
+        return
+      }
       const first = inside[0]
       const last = inside[inside.length - 1]
       const at = document.activeElement
@@ -54,7 +58,7 @@ export function useDialog<T extends HTMLElement>(open: boolean, onClose: () => v
       if (e.shiftKey && (at === first || outside)) {
         e.preventDefault()
         last.focus()
-      } else if (!e.shiftKey && at === last) {
+      } else if (!e.shiftKey && (at === last || outside)) {
         e.preventDefault()
         first.focus()
       }

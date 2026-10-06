@@ -264,7 +264,7 @@ export function Connectors({ brain = "" }: { brain?: string }) {
 
   return (
     <div className="flex-1 overflow-y-auto" aria-label="Connectors">
-      <div className="mx-auto max-w-[680px] px-6 py-10">
+      <div className="mx-auto max-w-[780px] px-6 py-10">
         <h1 className="text-[22px] font-semibold tracking-tight text-foreground">Connectors</h1>
         <p className="mt-1 text-[13.5px] text-muted-foreground">
           Bring external conversations into a brain. Disconnecting stops future syncs —
