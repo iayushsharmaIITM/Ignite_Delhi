@@ -58,8 +58,16 @@ export function CitationChip({ index, source, inline, onOpenSource }: Props) {
         onClick={() => {
           if (!isUnresolved) onOpenSource(source)
         }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            setHovered(false)
+          }
+        }}
         title={isUnresolved ? t("src.unresolved", "Unresolved source") : source.source}
         aria-label={isUnresolved ? "Unresolved source" : `Source ${index}: ${source.source}`}
+        aria-haspopup={!isUnresolved ? "dialog" : undefined}
+        aria-expanded={!isUnresolved ? hovered : undefined}
+        aria-describedby={hovered && !isUnresolved ? `popover-citation-${index}` : undefined}
       >
         {inline ? (
           <span className="src-num">{index}</span>
@@ -72,7 +80,7 @@ export function CitationChip({ index, source, inline, onOpenSource }: Props) {
       </button>
 
       {hovered && !isUnresolved && (
-        <span className="src-popover" role="tooltip">
+        <span id={`popover-citation-${index}`} className="src-popover" role="tooltip">
           <span className="pop-head">
             <span className="pop-idx">[{index}]</span>
             <span className="pop-title">{source.source}</span>
