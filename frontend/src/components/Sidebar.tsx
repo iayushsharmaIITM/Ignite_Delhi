@@ -313,7 +313,7 @@ export function Sidebar({
             return chatRow(brain, c)
           })
           return (
-            <div key={brain}>
+            <div key={brain} className="brain-group">
               <div
                 className={"brain-row" + (isFolded ? " folded" : "")}
                 title="Expand or collapse"
@@ -346,18 +346,22 @@ export function Sidebar({
                   {groupArmed ? <span>× Remove</span> : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d={TRASH_D} /></svg>}
                 </button>
               </div>
-              {rows}
-              {!isFolded && list.length > PER_BRAIN && (
-                <button
-                  type="button"
-                  className="view-more"
-                  onClick={() => setShowAllBrains((prev) =>
-                    prev.includes(brain) ? prev.filter((b) => b !== brain) : [...prev, brain])}
-                >
-                  {expanded
-                    ? t("view.show_less", "Show fewer")
-                    : t("view.show_all_n", "Show all {n}").replace("{n}", String(list.length))}
-                </button>
+              {!isFolded && (
+                <div className="brain-subchats">
+                  {rows}
+                  {list.length > PER_BRAIN && (
+                    <button
+                      type="button"
+                      className="view-more"
+                      onClick={() => setShowAllBrains((prev) =>
+                        prev.includes(brain) ? prev.filter((b) => b !== brain) : [...prev, brain])}
+                    >
+                      {expanded
+                        ? t("view.show_less", "Show fewer")
+                        : t("view.show_all_n", "Show all {n}").replace("{n}", String(list.length))}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )

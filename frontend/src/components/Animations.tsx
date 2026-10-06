@@ -122,10 +122,11 @@ export function JumpToLatest({
       type="button"
       className={cn("jump-latest", visible && "visible")}
       onClick={onClick}
-      aria-label="Jump to latest"
-      title="Jump to latest"
+      aria-label="Skip to bottom"
+      title="Skip to bottom"
     >
       <ArrowDown className="h-4 w-4" />
+      <span>Skip to bottom</span>
     </button>
   )
 }
@@ -144,10 +145,29 @@ export function LeftRail({
   const [activeIdx, setActiveIdx] = useState<number | null>(null)
   const railRef = useRef<HTMLDivElement>(null)
   const tickRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const suppressScrollRef = useRef(false)
+  const suppressTimer = useRef<number | null>(null)
+
+  const userIndices = turns.reduce<number[]>((acc, t, i) => {
+    if (t.role === "user") acc.push(i)
+    return acc
+  }, [])
 
   useEffect(() => {
     const onScroll = () => {
-      const focus = window.innerHeight * 0.35
+      if (suppressScrollRef.current) return
+      const scrollHeight = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)
+      const scrollTop = window.scrollY || document.documentElement.scrollTop
+      const clientHeight = window.innerHeight || document.documentElement.clientHeight
+      if (scrollTop <= 40) {
+        setActiveIdx(0)
+        return
+      }
+      if (clientHeight + scrollTop >= scrollHeight - 60) {
+        setActiveIdx(userIndices.length - 1)
+        return
+      }
+      const focus = clientHeight * 0.35
       let best: number | null = null
       let bestDist = Infinity
       tickRefs.current.forEach((el, i) => {
@@ -159,16 +179,11 @@ export function LeftRail({
           best = i
         }
       })
-      setActiveIdx(best)
+      setActiveIdx(best ?? 0)
     }
     window.addEventListener("scroll", onScroll, { passive: true })
     return () => window.removeEventListener("scroll", onScroll)
-  }, [])
-
-  const userIndices = turns.reduce<number[]>((acc, t, i) => {
-    if (t.role === "user") acc.push(i)
-    return acc
-  }, [])
+  }, [userIndices.length])
 
   if (userIndices.length === 0) return null
 
@@ -181,7 +196,15 @@ export function LeftRail({
           type="button"
           className={cn("tick", activeIdx === i && "here")}
           style={{ animation: `railIn .3s ease ${i * 40}ms backwards` }}
-          onClick={() => onJump(turnIdx)}
+          onClick={() => {
+            setActiveIdx(i)
+            suppressScrollRef.current = true
+            if (suppressTimer.current) clearTimeout(suppressTimer.current)
+            suppressTimer.current = window.setTimeout(() => {
+              suppressScrollRef.current = false
+            }, 600)
+            onJump(turnIdx)
+          }}
           aria-label={`Jump to: ${turns[turnIdx].text.slice(0, 40)}`}
           title={turns[turnIdx].text.slice(0, 60)}
         />

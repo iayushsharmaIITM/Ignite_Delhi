@@ -24,7 +24,7 @@ import {
 } from "@/lib/api"
 import { t, fmt, setLang, getLang, getLangs, type LangCode } from "@/lib/i18n"
 import { applyTheme, setTheme } from "@/theme"
-import { loadClerk } from "@/lib/clerk"
+import { loadClerk, getClerkAppearance } from "@/lib/clerk"
 import { CitationChip } from "@/components/CitationChip"
 
 const Markdown = lazy(() => import("@/components/Markdown"))
@@ -382,6 +382,8 @@ export default function App() {
   const turnEls = useRef<Record<number, HTMLElement | null>>({})
   const [railHere, setRailHere] = useState<number | null>(null)
   const [railTip, setRailTip] = useState<{ x: number; y: number; label: string; answer: string } | null>(null)
+  const suppressScrollRailRef = useRef(false)
+  const suppressScrollTimer = useRef<number | null>(null)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [view, setView] = useState<"chat" | "brains" | "connectors" | "graph">(
@@ -545,19 +547,49 @@ export default function App() {
       if (raf) return
       raf = requestAnimationFrame(() => {
         raf = 0
-        const stick = window.innerHeight + window.scrollY >= document.body.scrollHeight - 160
+        const scrollHeight = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)
+        const scrollTop = window.scrollY || document.documentElement.scrollTop
+        const clientHeight = window.innerHeight || document.documentElement.clientHeight
+        const stick = clientHeight + scrollTop >= scrollHeight - 120
         stickRef.current = stick
         setJumpVisible(!stick && turns.length > 0)
-        const focus = window.innerHeight * 0.35
+
+        if (suppressScrollRailRef.current) return
+
+        const userIndices = turns
+          .map((t, idx) => (t.role === "user" ? idx : -1))
+          .filter((idx) => idx !== -1)
+
+        if (userIndices.length === 0) {
+          setRailHere(null)
+          return
+        }
+
+        // Top of page: strictly clamp to first user turn
+        if (scrollTop <= 40) {
+          setRailHere(userIndices[0])
+          return
+        }
+        // Bottom of page: strictly clamp to last user turn
+        if (clientHeight + scrollTop >= scrollHeight - 60) {
+          setRailHere(userIndices[userIndices.length - 1])
+          return
+        }
+
+        const focus = clientHeight * 0.35
         let best: number | null = null
         let bestDist = Infinity
-        for (const [idx, el] of Object.entries(turnEls.current)) {
-          if (!el || turns[Number(idx)]?.role !== "user") continue
+        for (const idx of userIndices) {
+          const el = turnEls.current[idx]
+          if (!el) continue
           const r = el.getBoundingClientRect()
           const dist = Math.abs(r.top + r.height / 2 - focus)
-          if (dist < bestDist) { bestDist = dist; best = Number(idx) }
+          if (dist < bestDist) {
+            bestDist = dist
+            best = idx
+          }
         }
-        setRailHere(best)
+        setRailHere(best ?? userIndices[0])
       })
     }
     window.addEventListener("scroll", onScroll, { passive: true })
@@ -664,11 +696,24 @@ export default function App() {
   // per chunk jitters and fights the reader).
   const stickRef = useRef(true)
   const scrollBottom = (instant = false) => {
-    window.scrollTo({ top: document.body.scrollHeight, behavior: instant ? "auto" : "smooth" })
+    window.scrollTo({
+      top: Math.max(document.body.scrollHeight, document.documentElement.scrollHeight),
+      behavior: instant ? "auto" : "smooth",
+    })
   }
   const scrollIfStuck = () => {
     if (stickRef.current) scrollBottom(true)
   }
+
+  // Keep user pinned to bottom during response streaming when stuck to bottom
+  useEffect(() => {
+    if (streaming && stickRef.current) {
+      window.scrollTo({
+        top: Math.max(document.body.scrollHeight, document.documentElement.scrollHeight),
+        behavior: "auto",
+      })
+    }
+  }, [turns, streaming])
 
   const patchTurn = useCallback((idx: number, patch: Partial<Turn>) => {
     setTurns((t) => {
@@ -1185,8 +1230,8 @@ export default function App() {
     w.Clerk?.signOut?.().catch(() => {})
   }
   const clerkOpenProfile = () => {
-    const w = window as unknown as { Clerk?: { openUserProfile?: () => void } }
-    w.Clerk?.openUserProfile?.()
+    const w = window as unknown as { Clerk?: { openUserProfile?: (opts?: unknown) => void } }
+    w.Clerk?.openUserProfile?.({ appearance: getClerkAppearance() })
   }
 
   // Theme helpers — the tick marks the stored MODE, not the resolved theme, or
@@ -1907,8 +1952,8 @@ export default function App() {
       <button
         type="button"
         id="jump-latest"
-        title="Jump to latest"
-        aria-label="Jump to latest"
+        title="Skip to bottom"
+        aria-label="Skip to bottom"
         onClick={() => {
           stickRef.current = true
           scrollBottom()
@@ -1916,6 +1961,7 @@ export default function App() {
         }}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d={JUMP_D} /></svg>
+        <span className="jump-label">Skip to bottom</span>
       </button>
 
       {/* One announcement per finished answer, instead of a screen reader
@@ -1936,7 +1982,15 @@ export default function App() {
               className={"tick" + (railHere === i ? " here" : "")}
               style={{ animation: `railIn .3s ease ${i * 40}ms backwards` }}
               aria-label={`Jump to: ${(turn.text || "message").slice(0, 40)}`}
-              onClick={() => turnEls.current[i]?.scrollIntoView({ behavior: "smooth", block: "center" })}
+              onClick={() => {
+                setRailHere(i)
+                suppressScrollRailRef.current = true
+                if (suppressScrollTimer.current) clearTimeout(suppressScrollTimer.current)
+                suppressScrollTimer.current = window.setTimeout(() => {
+                  suppressScrollRailRef.current = false
+                }, 600)
+                turnEls.current[i]?.scrollIntoView({ behavior: "smooth", block: "center" })
+              }}
               onMouseEnter={(e) => {
                 const answer = turns[i + 1] && turns[i + 1].role === "bot" ? cleanText(turns[i + 1].text).slice(0, 110) : ""
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect()

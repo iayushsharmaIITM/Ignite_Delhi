@@ -7,9 +7,42 @@
 //      runs the dev-browser handshake and wires the UI renderer
 //   4. After load() resolves, openSignIn/mountSignIn are ready to use
 
+import { resolvedTheme } from "@/theme"
+
 const CLERK_CDN = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js'
 
 let bootPromise: Promise<void> | null = null
+
+export function getClerkAppearance(): Record<string, unknown> {
+  const isDark = resolvedTheme() === "dark"
+  return {
+    variables: isDark
+      ? {
+          colorBackground: "#1e1e1e",
+          colorInputBackground: "#282828",
+          colorInputText: "#f0f0f0",
+          colorText: "#f0f0f0",
+          colorTextSecondary: "#a0a0a0",
+          colorPrimary: "#f49d54",
+          colorDanger: "#ef4444",
+          colorSuccess: "#22c55e",
+          colorNeutral: "#f0f0f0",
+          colorShimmer: "rgba(255,255,255,0.08)",
+        }
+      : {
+          colorBackground: "#ffffff",
+          colorInputBackground: "#f5f5f5",
+          colorInputText: "#18181b",
+          colorText: "#18181b",
+          colorTextSecondary: "#71717a",
+          colorPrimary: "#d96f1f",
+          colorDanger: "#ef4444",
+          colorSuccess: "#22c55e",
+          colorNeutral: "#18181b",
+          colorShimmer: "rgba(0,0,0,0.08)",
+        },
+  }
+}
 
 export function loadClerk(publishableKey: string): Promise<void> {
   if (bootPromise) return bootPromise
