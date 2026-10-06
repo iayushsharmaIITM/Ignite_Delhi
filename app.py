@@ -1206,14 +1206,17 @@ async def slack_user_authorize(request: Request):
     mode = body.get("mode") or "read_post"
     private = bool(body.get("private", True))
 
-    res = _cx.slack_put_user_workspace(
-        identity,
-        team_name=team_name,
-        channel_name=channel_name,
-        bot_token=bot_token,
-        mode=mode,
-        private=private,
-    )
+    try:
+        res = _cx.slack_put_user_workspace(
+            identity,
+            team_name=team_name,
+            channel_name=channel_name,
+            bot_token=bot_token,
+            mode=mode,
+            private=private,
+        )
+    except (ValueError, RuntimeError) as err:
+        raise HTTPException(status_code=400, detail=str(err))
     return {"ok": True, **res}
 
 
@@ -1221,6 +1224,8 @@ async def slack_user_authorize(request: Request):
 def slack_demo_connect(request: Request):
     identity = require_tenant(request)
     import connectors as _cx
+    if not _cx.is_demo_mode():
+        raise HTTPException(status_code=403, detail="Demo connector mode is disabled. Set KESTREL_DEMO=1 to enable.")
     if not _cx.vault_configured():
         raise HTTPException(status_code=503, detail="Connector vault has no key (CONNECTOR_VAULT_KEY).")
     _cx.slack_put_demo_workspace(identity, mode="read_post", private=True)
@@ -1231,6 +1236,8 @@ def slack_demo_connect(request: Request):
 def google_demo_connect(request: Request):
     identity = require_tenant(request)
     import connectors as _cx
+    if not _cx.is_demo_mode():
+        raise HTTPException(status_code=403, detail="Demo connector mode is disabled. Set KESTREL_DEMO=1 to enable.")
     if not _cx.vault_configured():
         raise HTTPException(status_code=503, detail="Connector vault has no key (CONNECTOR_VAULT_KEY).")
     _cx.google_put_demo_credential(identity)
@@ -1250,7 +1257,10 @@ async def google_authorize_route(request: Request):
         body = {}
     email_addr = (body.get("email") or "").strip()
     token = (body.get("token") or "").strip()
-    res = _cx.google_put_user_credential(identity, email=email_addr, token=token)
+    try:
+        res = _cx.google_put_user_credential(identity, email=email_addr, token=token)
+    except (ValueError, RuntimeError) as err:
+        raise HTTPException(status_code=400, detail=str(err))
     return {"ok": True, **res}
 
 
@@ -1616,7 +1626,8 @@ async def connectors_import(request: Request):
     results = []
     for d in docs[:limit]:
         try:
-            await memory_layer.remember(d["text"][:50000], brain, d["name"])
+            clean_text = _cx.sanitize_connector_text(d["text"])
+            await memory_layer.remember(clean_text[:50000], brain, d["name"])
             results.append({"name": d["name"], "ok": True})
         except Exception as exc:  # noqa: BLE001 - report per-doc failures
             results.append({"name": d["name"], "ok": False, "error": str(exc)[:150]})

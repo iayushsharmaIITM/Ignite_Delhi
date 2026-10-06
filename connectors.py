@@ -559,6 +559,34 @@ def is_demo_token(token: str | None) -> bool:
     return bool(t and (t.startswith("demo-") or t == DEMO_SLACK_BOT_TOKEN))
 
 
+_INJECTION_TOKENS_RE = re.compile(
+    r"(<\|im_start\|>|<\|im_end\|>|<\|system\|>|<\|user\|>|<\|assistant\|>|<\|endoftext\|>|\[INST\]|\[/INST\]|<<SYS>>|<</SYS>>)",
+    re.IGNORECASE,
+)
+
+
+def is_demo_mode() -> bool:
+    """Whether explicit demo mode is enabled (KESTREL_DEMO=1)."""
+    return os.environ.get("KESTREL_DEMO", "").strip().lower() in ("1", "true", "yes")
+
+
+def sanitize_connector_text(text: str) -> str:
+    """Sanitize external connector messages (Slack, Gmail) against prompt injection.
+
+    Strips null bytes, non-printable control characters, and neutralizes raw
+    prompt delimiter tokens before content is indexed into the memory layer.
+    """
+    if not text:
+        return ""
+    cleaned = "".join(
+        ch for ch in text
+        if ch in ("\n", "\r", "\t") or (32 <= ord(ch) <= 126) or ord(ch) > 127
+    )
+    cleaned = _INJECTION_TOKENS_RE.sub("[filtered-token]", cleaned)
+    return cleaned.strip()
+
+
+
 def slack_put_demo_workspace(identity: dict | None, mode: str = "read_post", private: bool = False) -> None:
     _demo_token_to_team[DEMO_SLACK_BOT_TOKEN] = DEMO_SLACK_TEAM_ID
     _demo_token_to_team[DEMO_SLACK_USER_TOKEN] = DEMO_SLACK_TEAM_ID
@@ -608,30 +636,33 @@ def slack_put_user_workspace(
     if custom_token and not is_demo_token(custom_token):
         try:
             auth_info = _slack_get(custom_token, "auth.test")
-            if auth_info.get("ok"):
-                real_team_id = auth_info.get("team_id") or "T_SLACK"
-                real_team_name = (team_name or "").strip() or auth_info.get("team") or "Slack Workspace"
-                bot_user_id = auth_info.get("user_id") or "U_BOT"
-                tokens = {
-                    "bot_token": custom_token,
-                    "user_token": "",
-                    "bot_user_id": bot_user_id,
-                    "access_token": custom_token,
-                    "team": real_team_name,
-                    "team_id": real_team_id,
-                }
-                slack_put_workspace(
-                    identity, real_team_id, real_team_name, tokens, scopes, mode, private, bot_user_id=bot_user_id
-                )
-                put_credential("slack", identity, tokens, scopes=scopes)
-                return {
-                    "team_id": real_team_id,
-                    "team_name": real_team_name,
-                    "channel_name": clean_channel,
-                    "live": True,
-                }
-        except Exception:
-            pass
+        except Exception as e:
+            raise ValueError(f"Slack authentication failed: {e}")
+        if not auth_info.get("ok"):
+            err = auth_info.get("error", "invalid_auth")
+            raise ValueError(f"Slack authentication failed: {err}")
+
+        real_team_id = auth_info.get("team_id") or "T_SLACK"
+        real_team_name = (team_name or "").strip() or auth_info.get("team") or "Slack Workspace"
+        bot_user_id = auth_info.get("user_id") or "U_BOT"
+        tokens = {
+            "bot_token": custom_token,
+            "user_token": "",
+            "bot_user_id": bot_user_id,
+            "access_token": custom_token,
+            "team": real_team_name,
+            "team_id": real_team_id,
+        }
+        slack_put_workspace(
+            identity, real_team_id, real_team_name, tokens, scopes, mode, private, bot_user_id=bot_user_id
+        )
+        put_credential("slack", identity, tokens, scopes=scopes)
+        return {
+            "team_id": real_team_id,
+            "team_name": real_team_name,
+            "channel_name": clean_channel,
+            "live": True,
+        }
 
     slug = re.sub(r"[^A-Za-z0-9]", "", clean_name)[:8].upper() or "TEAM"
     h = hashlib.sha256(f"{clean_name}-{time.time()}".encode()).hexdigest()[:6].upper()
@@ -748,20 +779,64 @@ def google_put_demo_credential(identity: dict | None) -> None:
     put_credential("google", identity, tokens, scopes=scopes)
 
 
+def google_validate_token(token: str) -> dict:
+    """Validate Google OAuth access token using Google tokeninfo API."""
+    import requests
+    t = (token or "").strip()
+    if not t:
+        raise ValueError("Google OAuth token is required.")
+    try:
+        r = requests.get(
+            "https://www.googleapis.com/oauth2/v3/tokeninfo",
+            params={"access_token": t},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            err_data = {}
+            try:
+                err_data = r.json()
+            except Exception:
+                pass
+            err_msg = err_data.get("error_description") or err_data.get("error") or f"HTTP {r.status_code}"
+            raise ValueError(f"Google token validation failed: {err_msg}")
+        return r.json()
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"Google token validation failed: {e}")
+
+
 def google_put_user_credential(identity: dict | None, email: str | None = None, token: str | None = None) -> dict:
     scopes = " ".join(PROVIDERS["google"]["scopes"])
     t = (token or "").strip()
-    clean_email = (email or "").strip() or "user@company.com"
+    if t == DEMO_GOOGLE_TOKEN or (not t and os.environ.get("KESTREL_DEMO") == "1"):
+        clean_email = (email or "").strip() or "demo-user@company.com"
+        tokens = {
+            "access_token": DEMO_GOOGLE_TOKEN,
+            "email": clean_email,
+            "refresh_token": "1//demo-refresh",
+            "expires_at": int(time.time()) + 86400 * 30,
+        }
+        put_credential("google", identity, tokens, scopes=scopes)
+        return {"ok": True, "connected": "google", "email": clean_email}
+
     if not t:
-        t = DEMO_GOOGLE_TOKEN
+        raise ValueError("Google OAuth token is required for direct authorization.")
+
+    info = google_validate_token(t)
+    validated_email = info.get("email") or (email or "").strip()
+    if not validated_email:
+        raise ValueError("Could not determine email address from Google token.")
+    expires_in = int(info.get("expires_in") or 3600)
+
     tokens = {
         "access_token": t,
-        "email": clean_email,
-        "refresh_token": "1//refresh-token",
-        "expires_at": int(time.time()) + 86400 * 30,
+        "email": validated_email,
+        "refresh_token": "",
+        "expires_at": int(time.time()) + expires_in,
     }
     put_credential("google", identity, tokens, scopes=scopes)
-    return {"ok": True, "connected": "google", "email": clean_email}
+    return {"ok": True, "connected": "google", "email": validated_email}
 
 
 def slack_channels(token: str, types: str = "public_channel,private_channel", cursor: str = "", limit: int = 100, team_id: str = "") -> dict:
