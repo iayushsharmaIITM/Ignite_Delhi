@@ -10,7 +10,7 @@ import { DraftBox, type EmailDraftData } from "@/components/DraftBox"
 import { CreateBrainDialog } from "@/components/CreateBrainDialog"
 import { GraphView } from "@/components/GraphView"
 import { Toaster } from "@/components/ui/sonner"
-import { PopMenu, AuthGate, SettingsMenu, UsageModal, UpgradeModal } from "@/components/Animations"
+import { PopMenu, AuthGate, SettingsMenu, UsageModal, UpgradeModal, Watermark } from "@/components/Animations"
 import {
   DEFAULT_BRAIN,
   apiConfig,
@@ -1735,7 +1735,7 @@ export default function App() {
         ) : (
           <>
             <div id="home">
-              <div className="watermark">◆</div>
+              <Watermark />
               <div className="greeting" id="greeting">{greet}</div>
             </div>
             <div id="thread-wrap">

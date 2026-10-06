@@ -4,6 +4,7 @@ import { cn, useDialog } from "@/lib/utils"
 import { resolvedTheme } from "@/theme"
 import { t } from "@/lib/i18n"
 import { apiFetch, serverError } from "@/lib/api"
+import { KestrelMark } from "./Logo"
 
 /* ========================================================================
    Animation utility components — ported from legacy shell.css / index.html
@@ -323,8 +324,8 @@ export function SuggestionChips({
 
 export function Watermark() {
   return (
-    <div className="watermark" aria-hidden="true">
-      ◆
+    <div className="watermark" aria-hidden="true" style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+      <KestrelMark size={110} variant="emblem" style={{ opacity: 0.18 }} />
     </div>
   )
 }
@@ -445,18 +446,20 @@ export function AuthGate({
       <div className="auth-card">
         <div
           style={{
-            width: 34,
-            height: 34,
-            borderRadius: 9,
-            background: "linear-gradient(155deg,#f49d54,#d96f1f 78%)",
-            display: "grid",
-            placeItems: "center",
-            color: "#161616",
-            fontSize: 14,
+            width: 42,
+            height: 42,
+            borderRadius: 11,
+            background: "var(--panel-2)",
+            border: "1px solid var(--line-2)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             margin: "0 auto 14px",
+            boxShadow: "0 4px 14px rgba(0,0,0,0.25)",
           }}
+          aria-hidden="true"
         >
-          ◆
+          <KestrelMark size={26} variant="emblem" />
         </div>
         <div className="auth-title">{t("gate.title", "Sign in to Kestrel")}</div>
         <div className="auth-sub">{t("gate.sub", "Your company's answers, grounded in your documents.")}</div>
