@@ -212,7 +212,12 @@ body.sb-collapsed .sb-toggle { display: inline-flex; align-items: center; justif
               border-radius .2s ease, background .2s ease;
   will-change: top, height; }
 .sb-slide.tick { left: 10px; right: auto; width: 46px; height: 2px;
-  border-radius: 1px; background: var(--line-3); }
+  border-radius: 1px; background: var(--line-3);
+  animation: activeSlideTick 2.2s ease-in-out infinite; }
+@keyframes activeSlideTick {
+  0%, 100% { opacity: 0.8; box-shadow: 0 0 3px var(--accent-soft); }
+  50% { opacity: 1; box-shadow: 0 0 8px var(--accent); }
+}
 body.sb-slide-on .nav .nav-item:hover,
 body.sb-slide-on .nav .brain-row:hover { background: transparent; }
 .nav .brain-row { position: relative; z-index: 1; }

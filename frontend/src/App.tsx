@@ -1762,14 +1762,6 @@ export default function App() {
                   {turns.length === 0 && <div className="placeholder" id="empty" />}
                   {turns.map((turn, i) => renderTurn(turn, i))}
                 </div>
-                {draft && (
-                  <DraftBox
-                    draft={draft}
-                    busy={draftBusy}
-                    onBodyChange={(body) => setDraft((d) => (d ? { ...d, body } : d))}
-                    onClose={() => setDraft(null)}
-                  />
-                )}
               </div>
             </div>
           </>
@@ -2076,6 +2068,15 @@ export default function App() {
         onClose={() => setConnectorsOpen(false)}
         brain={brain}
       />
+
+      {draft && (
+        <DraftBox
+          draft={draft}
+          busy={draftBusy}
+          onBodyChange={(body) => setDraft((d) => (d ? { ...d, body } : d))}
+          onClose={() => setDraft(null)}
+        />
+      )}
 
       {/* Language sub-menu */}
       {langMenuOpen && (

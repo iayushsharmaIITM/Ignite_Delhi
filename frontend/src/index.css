@@ -208,3 +208,42 @@ body.locked .app-main, body.locked form#f {
 /* Graph affordances — SVG geometry (r) transitions on hover */
 svg .node-dot { transition: r 150ms ease-out, fill 150ms ease-out, stroke-width 150ms ease-out; }
 svg .node-dot:hover { r: 9; stroke-width: 2.5; }
+
+/* ==========================================================================
+   Clickable elements: index finger pointer across all surfaces
+   ========================================================================== */
+button:not(:disabled),
+a[href],
+[role="button"],
+[role="menuitem"],
+[role="tab"],
+[role="option"],
+[role="switch"],
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+input[type="checkbox"],
+input[type="radio"],
+label[for],
+.tick,
+.chip,
+.src-chip,
+.starter-chip,
+.nav-item,
+.chat-row,
+.brain-row,
+.set-item,
+.clickable,
+.working-head.toggle,
+.src-open-full,
+.src-card-close,
+.km-x,
+.x,
+.tier,
+.msg-acts button,
+.conn-btn,
+.doc-btn,
+.tag,
+.badge-btn {
+  cursor: pointer !important;
+}
