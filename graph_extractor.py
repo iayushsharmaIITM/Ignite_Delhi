@@ -178,8 +178,9 @@ def extract_from_chunk(text: str, model: Optional[str] = None) -> ExtractionResu
     import requests
     import llm
 
-    base_url, api_key, default_model = llm.chat_endpoint()
-    chosen_model = model or default_model
+    chat_url = llm.chat_url() or "https://tokenharbor.ai/v1/chat/completions"
+    api_key = llm.api_key()
+    chosen_model = model or llm.default_model()
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -195,7 +196,7 @@ def extract_from_chunk(text: str, model: Optional[str] = None) -> ExtractionResu
     }
 
     resp = requests.post(
-        f"{base_url.rstrip('/')}/chat/completions",
+        chat_url,
         headers=headers,
         json=payload,
         timeout=60,

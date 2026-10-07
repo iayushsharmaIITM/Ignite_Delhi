@@ -91,6 +91,23 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False,
     prewarm = asyncio.ensure_future(_prewarm(dataset))
     yield {"stage": "step", "label": "Orchestrator: planning retrieval agents"}
 
+    # --- Native Knowledge Graph sub-agent: fast k-hop expansion ---------------
+    native_ctx, native_refs = "", []
+    try:
+        import graph_retriever
+        t_kg = time.time()
+        native_ctx, native_refs = await asyncio.to_thread(
+            graph_retriever.build_graph_context, query, dataset or "company_brain"
+        )
+        if native_ctx:
+            yield {
+                "stage": "step",
+                "label": "Knowledge Graph: multi-hop context retrieved",
+                "ms": int((time.time() - t_kg) * 1000),
+            }
+    except Exception:  # noqa: BLE001
+        pass
+
     race = os.getenv("KESTREL_RACE_RETRIEVAL", "1") != "0"
 
     if not race:
@@ -243,6 +260,8 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False,
     answer_text, evidence = cognee_cloud.split_evidence(raw)
 
     items = [] if smalltalk else (cognee_cloud.references(results) or evidence)
+    if native_refs and not smalltalk:
+        items = list(items) + [f"data_id: {r}" for r in native_refs if f"data_id: {r}" not in items]
     refs_task = None
     if items:
         import citations

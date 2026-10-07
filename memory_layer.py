@@ -66,6 +66,26 @@ async def remember(text: str, dataset: str | None = None,
     `filename` becomes the stored document's name, so later evidence can cite
     the file the user actually uploaded instead of `text_<hash>`.
     """
+    target = dataset or default_dataset()
+
+    # 1. Native PostgreSQL Knowledge Graph (KNGE) ingest
+    try:
+        import graph_extractor
+        import storage
+
+        # Extract entities and relations from text
+        result = await asyncio.to_thread(graph_extractor.extract_from_chunk, text)
+        if result.entities or result.relations:
+            await asyncio.to_thread(
+                storage.ingest_graph_triples,
+                target,
+                result.entities,
+                result.relations,
+                filename,
+            )
+    except Exception:  # noqa: BLE001 - non-blocking
+        pass
+
     if PROVIDER == "mock":
         return
     import cognee_cloud

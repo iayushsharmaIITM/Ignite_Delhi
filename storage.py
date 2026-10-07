@@ -295,6 +295,10 @@ def init() -> bool:
             )
             cur.execute("CREATE INDEX IF NOT EXISTS kg_communities_brain_idx ON kg_communities(brain)")
         _status = {"storage": "postgres", "detail": DATABASE_URL.split("@")[-1]}
+        try:
+            seed_demo_graph_if_empty()
+        except Exception:  # noqa: BLE001
+            pass
         return True
     except Exception as exc:  # noqa: BLE001 - persistence degrades, never raises
         _status = {"storage": "unavailable", "detail": str(exc)[:160]}
@@ -968,4 +972,60 @@ def delete_brain_graph(brain: str) -> bool:
     except Exception as exc:
         mark_down(f"delete_brain_graph: {exc}")
         return False
+
+
+def seed_demo_graph_if_empty(brain: str = "company_brain") -> int:
+    """Pre-seed the demo brain's knowledge graph from fixtures/graph.json if empty."""
+    import os
+    import json
+    import uuid
+    import graph_extractor
+
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS c FROM kg_entities WHERE brain = %s", (brain,))
+            row = cur.fetchone()
+            if row and row["c"] > 0:
+                return int(row["c"])
+
+            here = os.path.dirname(os.path.abspath(__file__))
+            fixture_path = os.path.join(here, "fixtures", "graph.json")
+            if not os.path.exists(fixture_path):
+                return 0
+
+            with open(fixture_path, encoding="utf-8") as fh:
+                data = json.load(fh)
+
+            nodes = data.get("nodes", [])
+            edges = data.get("edges", [])
+
+            for n in nodes:
+                nid = str(n.get("id"))
+                lbl = str(n.get("label") or nid)
+                canon = graph_extractor.canonicalize_entity_name(lbl)
+                ntype = str(n.get("type") or "Concept")
+                cur.execute(
+                    """INSERT INTO kg_entities (id, brain, name, canonical_name, entity_type, description, aliases, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, now())
+                       ON CONFLICT (brain, canonical_name, entity_type) DO NOTHING""",
+                    (nid, brain, lbl, canon, ntype, "", "[]"),
+                )
+
+            for e in edges:
+                eid = str(uuid.uuid4())
+                src = str(e.get("source"))
+                tgt = str(e.get("target"))
+                rel = str(e.get("label") or "RELATED_TO")
+                cur.execute(
+                    """INSERT INTO kg_relations (id, brain, source_id, target_id, relation_type, description, confidence, evidence_text, source_reference_ids, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, now())
+                       ON CONFLICT (brain, source_id, target_id, relation_type) DO NOTHING""",
+                    (eid, brain, src, tgt, rel, "", 1.0, "", "[]"),
+                )
+
+            return len(nodes)
+    except Exception as exc:  # noqa: BLE001 - non-blocking best-effort seeding
+        mark_down(f"seed_demo_graph_if_empty: {exc}")
+        return 0
+
 
