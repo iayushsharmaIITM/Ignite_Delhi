@@ -1127,7 +1127,29 @@ async def extract_attachment(request: Request):
     # exact failure _read_capped was written to remove, left in on this path.
     data = await _read_capped(upload, documents.MAX_FILE_BYTES)
     name = upload.filename or "attachment"
+    content_type = getattr(upload, "content_type", "") or ""
     ocr_used = False
+
+    is_image = (
+        name.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"))
+        or content_type.startswith("image/")
+    )
+    if is_image:
+        if not ocr.available():
+            raise HTTPException(
+                status_code=400,
+                detail="Vision OCR is not configured on this instance to read images.",
+            )
+        try:
+            text, _model = await asyncio.to_thread(
+                ocr.read_image, data, content_type or "image/png"
+            )
+            ocr_used = True
+        except RuntimeError as ocr_exc:
+            raise HTTPException(status_code=400, detail=str(ocr_exc))
+        return {"ok": True, "name": name, "chars": len(text),
+                "text": text, "ocr": ocr_used}
+
     try:
         text = documents.extract(name, data)
     except documents.ExtractError as exc:

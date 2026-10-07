@@ -147,21 +147,24 @@ async function buildContext(files: File[], signal: AbortSignal | undefined): Pro
       if (texty) {
         const content = (await f.slice(0, 16 * 1024).text()).slice(0, 2400)
         context = `Attached file "${f.name}":\n${content}\n\n${context}`
-      } else if (!imagey) {
+      } else {
         const fd = new FormData()
         fd.append("file", f)
         const r = await apiFetch("/api/extract", { method: "POST", body: fd, signal })
         const d = await r.json()
         if (r.ok && d.text) {
-          context = `Attached file "${f.name}":\n${String(d.text).slice(0, 2400)}\n\n${context}`
-          if (d.ocr) toast.message(`${f.name} has no text layer — read via OCR`)
+          const prefix = imagey ? `Attached screenshot/image "${f.name}":\n` : `Attached file "${f.name}":\n`
+          context = `${prefix}${String(d.text).slice(0, 2400)}\n\n${context}`
+          if (d.ocr) {
+            toast.message(imagey ? `Read ${f.name} via vision model` : `${f.name} has no text layer — read via OCR`)
+          }
         } else {
-          toast.warning(`Could not read ${f.name} — added to the brain only`)
+          toast.warning(imagey ? `Could not read ${f.name} via vision OCR` : `Could not read ${f.name} — added to the brain only`)
         }
       }
     } catch (e) {
       if (signal?.aborted) throw e
-      toast.warning(`Could not read ${f.name} — added to the brain only`)
+      toast.warning(`Could not read ${f.name}`)
     }
   }
   return context.slice(0, CONTEXT_CAP)
@@ -934,12 +937,13 @@ export default function App() {
       // (static/index.html:1237-1239 → app.py:1164-1194).
       let context = turnsRef.current
         .slice(-3)
-        .map((t) => (t.role === "user" ? "Earlier question: " : "Earlier answer: ") + (t.text || "").slice(0, 700))
+        .map((t) => (t.role === "user" ? "Earlier question: " : "Earlier answer: ") + (t.text || "").slice(0, 1200))
         .join("\n")
         .trim()
 
       if (files.length) {
-        addWorkStep(botIdx, "Reading attached files…")
+        const hasImages = files.some((f) => (f.type || "").startsWith("image/"))
+        addWorkStep(botIdx, hasImages ? "Analyzing attached screenshot / files with vision model…" : "Reading attached files…")
         const fileContext = await buildContext(files, controller.signal)
         if (fileContext) context = fileContext + (context ? "\n\n" + context : "")
         const ingestible = files.filter((f) => !(f.type || "").startsWith("image/"))

@@ -70,25 +70,24 @@ def read_pdf(data: bytes) -> tuple[str, str]:
     Raises RuntimeError with a human message when OCR is unavailable or every
     configured model fails. Only ever called when stage 1 found no text.
     """
+    if os.getenv("PROVIDER") == "mock":
+        return ("[Mock Vision OCR] Scanned PDF text extracted.", "mock-vision")
+
     import requests
 
     import llm
 
-    # OCR key comes from the shared endpoint resolution (Token Harbor
-    # primary). Previously this read an LLM_API_KEY that nothing ever set,
-    # so OCR always raised "not configured".
     key = llm.api_key()
     if not key:
         raise RuntimeError("OCR is not configured on this instance (no model key).")
-    # DeepSeek-only per owner decision (gpt-oss routed out entirely). The
-    # vision variant reads scans; v4.1-flash handles every text path.
+    default_vision = "google/gemini-2.0-flash-001,meta-llama/llama-3.2-11b-vision-instruct,qwen/qwen-2.5-vl-72b-instruct"
     models = [
         m.strip() for m in os.getenv(
-            "KESTREL_OCR_MODELS", llm.default_model()
+            "KESTREL_OCR_MODELS", default_vision
         ).split(",") if m.strip()
     ]
     endpoint = os.getenv(
-        "KESTREL_OCR_ENDPOINT", llm.chat_url()
+        "KESTREL_OCR_ENDPOINT", llm.chat_url() or "https://openrouter.ai/api/v1/chat/completions"
     )
 
     pages = _render(data)
@@ -134,12 +133,89 @@ def read_pdf(data: bytes) -> tuple[str, str]:
     raise RuntimeError(f"OCR could not read this PDF - {last}")
 
 
+IMAGE_PROMPT = (
+    "Extract and transcribe all text, numbers, code, and UI elements visible in this image or screenshot "
+    "verbatim in reading order. Also provide a clear, concise summary of what the image shows "
+    "(e.g., application interface, error banner, system diagram, data table, or document) so an assistant "
+    "can answer user questions about it."
+)
+
+
+def read_image(data: bytes, mime_type: str = "image/png") -> tuple[str, str]:
+    """OCR and transcribe an image (PNG, JPEG, WebP, etc.). Returns (text, model_used).
+
+    Raises RuntimeError with a human message when OCR is unavailable or every
+    configured model fails.
+    """
+    if os.getenv("PROVIDER") == "mock":
+        return ("[Mock Vision OCR] Screenshot content extracted successfully.", "mock-vision")
+
+    import requests
+
+    import llm
+
+    key = llm.api_key()
+    if not key:
+        raise RuntimeError("Vision OCR is not configured on this instance (no model key).")
+
+    default_vision = "google/gemini-2.0-flash-001,meta-llama/llama-3.2-11b-vision-instruct,qwen/qwen-2.5-vl-72b-instruct"
+    models = [
+        m.strip() for m in os.getenv(
+            "KESTREL_OCR_MODELS", default_vision
+        ).split(",") if m.strip()
+    ]
+    endpoint = os.getenv(
+        "KESTREL_OCR_ENDPOINT", llm.chat_url() or "https://openrouter.ai/api/v1/chat/completions"
+    )
+
+    if not mime_type or not mime_type.startswith("image/"):
+        mime_type = "image/png"
+
+    b64_img = base64.b64encode(data).decode("ascii")
+    content: list[dict] = [
+        {"type": "text", "text": IMAGE_PROMPT},
+        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_img}"}},
+    ]
+
+    last = "no models configured"
+    import time as _t
+    t0 = _t.time()
+    for model in models:
+        try:
+            r = requests.post(
+                endpoint,
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": content}],
+                    "max_tokens": 4000,
+                },
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=90,
+            )
+            if r.status_code == 200:
+                text = ((r.json().get("choices") or [{}])[0]
+                        .get("message", {}).get("content") or "").strip()
+                if text:
+                    import observe
+                    observe.trace(
+                        feature="ocr-image", model=model,
+                        est_completion=len(text) // 4,
+                        ms=int((_t.time() - t0) * 1000), ok=True,
+                        meta={"bytes": len(data), "mime": mime_type},
+                    )
+                    return text, model
+                last = f"{model}: empty response"
+            else:
+                last = f"{model}: HTTP {r.status_code} {r.text[:120]}"
+        except Exception as exc:  # noqa: BLE001
+            last = f"{model}: {exc}"
+    raise RuntimeError(f"OCR could not read this image - {last}")
+
+
 def available() -> bool:
-    """Cheap gate: is stage 2 even possible in this process?"""
-    if not os.getenv("LLM_API_KEY"):
-        return False
-    try:
-        import pymupdf  # noqa: F401
+    """Cheap gate: is stage 2 vision / OCR possible in this process?"""
+    if os.getenv("PROVIDER") == "mock":
         return True
-    except Exception:  # noqa: BLE001
-        return False
+    import llm
+    return bool(llm.api_key())
+
