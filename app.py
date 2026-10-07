@@ -1261,7 +1261,12 @@ def slack_connect(request: Request, mode: str = "read_post", private: int = 0,
     Redirects to Slack's consent screen; identity + choices bind into state."""
     from fastapi.responses import RedirectResponse
     import connectors as _cx
-    identity = require_tenant(request)
+    try:
+        identity = require_tenant(request)
+    except HTTPException as exc:
+        if exc.status_code == 401 and "text/html" in request.headers.get("accept", ""):
+            return RedirectResponse("/?view=connectors&error=Clerk+session+token+required+or+expired", status_code=302)
+        raise
     if not _cx.vault_configured():
         raise HTTPException(status_code=503, detail=(
             "Connector vault has no key (CONNECTOR_VAULT_KEY)."))
@@ -1338,7 +1343,12 @@ def connectors_oauth_start(request: Request, provider: str = "google"):
     on the identity that started the flow."""
     from fastapi.responses import RedirectResponse
     import connectors as _cx
-    identity = require_tenant(request)
+    try:
+        identity = require_tenant(request)
+    except HTTPException as exc:
+        if exc.status_code == 401 and "text/html" in request.headers.get("accept", ""):
+            return RedirectResponse("/?view=connectors&error=Clerk+session+token+required+or+expired", status_code=302)
+        raise
     if provider not in _cx.PROVIDERS:
         raise HTTPException(status_code=404, detail="Unknown provider.")
     if not _cx.vault_configured():
@@ -1584,24 +1594,6 @@ async def slack_disconnect_route(request: Request, team_id: str):
     return {"ok": True, "revoked": revoked, "removed": removed}
 
 
-@app.get("/api/connectors/oauth/{provider}/start")
-def connectors_oauth_start(request: Request, provider: str):
-    """302 the browser to the provider's consent screen. Identity is bound
-    server-side into `state` — the token that comes back can only ever land
-    on the identity that started the flow."""
-    from fastapi.responses import RedirectResponse
-    import connectors as _cx
-    identity = require_tenant(request)
-    if provider not in _cx.PROVIDERS:
-        raise HTTPException(status_code=404, detail="Unknown provider.")
-    if not _cx.vault_configured():
-        raise HTTPException(status_code=503, detail=(
-            "Connector vault has no key (CONNECTOR_VAULT_KEY)."))
-    if not _cx.provider_configured(provider):
-        raise HTTPException(status_code=503, detail=(
-            f"{provider} OAuth is not configured on this instance."))
-    return RedirectResponse(_cx.authorize_url(provider, identity),
-                            status_code=302)
 
 
 @app.get("/api/connectors/oauth/{provider}/callback")

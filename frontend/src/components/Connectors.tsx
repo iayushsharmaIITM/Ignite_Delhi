@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { SlackAccessDialog } from "@/components/SlackAccessDialog"
 import { GoogleAccessDialog } from "@/components/GoogleAccessDialog"
-import { apiFetch, getAuthenticatedRedirectUrl, serverError } from "@/lib/api"
+import { apiFetch, serverError } from "@/lib/api"
 import { t } from "@/lib/i18n"
 
 type Status = {
@@ -307,18 +307,7 @@ export function Connectors({ brain = "", onClose }: { brain?: string; onClose?: 
             <div className="flex items-center gap-2">
               <Button
                 className="rounded-lg font-semibold"
-                onClick={async () => {
-                  if (slackOAuth?.configured && (!workspaces || workspaces.length === 0)) {
-                    // transport-exempt: OAuth hand-off is a browser navigation
-                    const url = await getAuthenticatedRedirectUrl("/api/connectors/slack/connect", {
-                      mode: "read_post",
-                      private: "1",
-                    })
-                    window.location.href = url
-                  } else {
-                    setDialogOpen(true)
-                  }
-                }}
+                onClick={() => setDialogOpen(true)}
               >
                 {workspaces && workspaces.length > 0 ? "Add Workspace" : "Connect Slack"}
               </Button>
@@ -572,15 +561,7 @@ export function Connectors({ brain = "", onClose }: { brain?: string; onClose?: 
             <Button
               variant="secondary"
               className="rounded-lg"
-              onClick={async () => {
-                if (googleOAuth?.configured) {
-                  // transport-exempt: OAuth hand-off is a browser navigation
-                  const url = await getAuthenticatedRedirectUrl("/api/connectors/oauth/google/start")
-                  window.location.href = url
-                } else {
-                  setGoogleDialogOpen(true)
-                }
-              }}
+              onClick={() => setGoogleDialogOpen(true)}
             >
               {googleOAuth?.configured
                 ? googleOAuth?.state === "connected"
