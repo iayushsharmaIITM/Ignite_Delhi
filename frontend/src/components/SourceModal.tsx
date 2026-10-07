@@ -71,6 +71,7 @@ export function SourceModal({ title, excerpt, version, brain, onClose }: Props) 
     }
   }, [title, excerpt, brain, version])
 
+  const [isExpanded, setIsExpanded] = useState(false)
   const panelRef = useDialog<HTMLDivElement>(true, onClose)
 
   return (
@@ -84,11 +85,20 @@ export function SourceModal({ title, excerpt, version, brain, onClose }: Props) 
       // Legacy closes the sheet on a backdrop click (index.html:1812-1815).
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="sheet">
+      <div className={`sheet ${isExpanded ? "expanded" : ""}`}>
         <div className="head">
           <span className="nm" id="src-name">{title}</span>
           <span className="where" id="src-where">{where}</span>
           <span className="sp">
+            <button
+              type="button"
+              id="src-expand"
+              title={isExpanded ? t("src.restore", "Restore size") : t("src.expand", "Expand")}
+              aria-label={isExpanded ? "Restore size" : "Expand"}
+              onClick={() => setIsExpanded((e) => !e)}
+            >
+              {isExpanded ? t("src.restore", "Restore") : t("src.expand", "Expand")}
+            </button>
             <button
               type="button"
               id="src-copy"

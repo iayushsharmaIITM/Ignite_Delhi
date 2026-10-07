@@ -322,14 +322,42 @@
   .turn.bot .bubble tr:last-child td { border-bottom:0; }
 
   /* ---- sources & Perplexity citation chips ------------------------------------ */
-  .turn .srcs { display:flex; flex-wrap:wrap; gap:7px; margin-top:8px; align-items:center; }
+  .turn .srcs {
+    display:flex; flex-direction:column; gap:8px; margin-top:10px; width:100%;
+    animation:popFade .15s ease-out;
+  }
+  .srcs-header {
+    display:flex; align-items:center; justify-content:space-between; padding:0 2px;
+  }
+  .srcs-title {
+    display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600;
+    color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; font-family:var(--mono);
+  }
+  .srcs-title svg {
+    width:13px; height:13px; color:var(--accent);
+  }
+  .srcs-count {
+    display:inline-flex; align-items:center; justify-content:center; font-size:10px;
+    padding:1px 6px; border-radius:9999px; background:var(--wash-2); color:var(--accent);
+    border:1px solid var(--line-2); font-weight:600;
+  }
+  .srcs-toggle-all {
+    background:transparent; border:0; padding:2px 7px; border-radius:6px;
+    font-size:11px; color:var(--muted-2); cursor:pointer; transition:all .15s ease;
+  }
+  .srcs-toggle-all:hover {
+    color:var(--fg); background:var(--panel-2);
+  }
+  .srcs-chips {
+    display:flex; flex-wrap:wrap; gap:7px; align-items:center;
+  }
   .citation-chip-wrap { position:relative; display:inline-flex; }
   .citation-chip-wrap.inline { vertical-align:super; font-size:10px; margin:0 2px; }
 
   .turn .srcs button, .src-chip {
-    display:inline-flex; align-items:center; gap:5px;
-    font-size:11px; color:var(--fg-2); background:var(--panel);
-    border:1px solid var(--line-2); padding:3px 9px; border-radius:9999px;
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:11.5px; color:var(--fg-2); background:var(--panel);
+    border:1px solid var(--line-2); padding:3.5px 10px; border-radius:9999px;
     cursor:pointer; transition:all .15s ease; font-family:var(--mono);
     box-shadow:0 1px 2px rgba(0,0,0,0.04);
   }
@@ -337,8 +365,19 @@
     color:var(--accent-2); border-color:var(--accent-soft);
     background:var(--panel-2); transform:translateY(-0.5px);
   }
+  .src-chip.expanded {
+    border-color:var(--accent); background:var(--wash-2);
+    color:var(--accent-2); box-shadow:0 0 0 1px var(--accent-soft);
+  }
   .src-chip .src-num {
     font-weight:600; color:var(--accent); font-size:10.5px;
+  }
+  .src-chip .src-chev {
+    width:10px; height:10px; opacity:0.6;
+    transition:transform .18s ease, opacity .15s ease;
+  }
+  .src-chip.expanded .src-chev {
+    transform:rotate(180deg); opacity:1;
   }
   .src-chip.inline {
     padding:1px 6px; border-radius:9999px; font-size:10px; line-height:1.2;
@@ -351,13 +390,73 @@
     opacity:0.6; cursor:not-allowed; border-style:dashed;
   }
 
+  /* ---- expanded tray & cards -------------------------------------------------- */
+  .srcs-tray {
+    display:flex; flex-direction:column; gap:8px; margin-top:2px;
+    animation:popFade .18s ease-out;
+  }
+  .src-expanded-card {
+    border:1px solid var(--line-2); border-radius:12px;
+    background:var(--panel); padding:10px 14px;
+    display:flex; flex-direction:column; gap:8px;
+    box-shadow:var(--shadow-sm); transition:border-color .15s ease;
+  }
+  .src-expanded-card:hover {
+    border-color:var(--line-3);
+  }
+  .src-card-head {
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+  }
+  .src-card-meta {
+    display:flex; align-items:center; gap:8px; min-width:0; flex:1;
+  }
+  .src-card-title {
+    font-size:12px; font-weight:600; color:var(--fg);
+    font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .src-card-badge {
+    font-size:9.5px; font-weight:500; font-family:var(--mono);
+    color:var(--muted); background:var(--wash-2);
+    padding:2px 6px; border-radius:4px; border:1px solid var(--line); flex:none;
+  }
+  .src-card-actions {
+    display:flex; align-items:center; gap:6px; flex:none;
+  }
+  .src-open-full {
+    display:inline-flex; align-items:center; gap:5px;
+    font-size:11px; color:var(--accent); background:var(--accent-dim);
+    border:1px solid var(--accent-soft); padding:3px 9px; border-radius:6px;
+    cursor:pointer; font-weight:550; transition:all .15s ease;
+  }
+  .src-open-full:hover {
+    background:var(--accent-soft); color:var(--accent-2);
+  }
+  .src-open-full svg {
+    width:11px; height:11px;
+  }
+  .src-card-close {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:22px; height:22px; border-radius:6px; border:0;
+    background:transparent; color:var(--muted-2); cursor:pointer;
+    font-size:16px; line-height:1; transition:all .15s ease;
+  }
+  .src-card-close:hover {
+    background:var(--panel-2); color:var(--fg);
+  }
+  .src-card-quote {
+    font-size:12px; line-height:1.6; color:var(--fg-2); font-style:italic;
+    background:var(--wash-2); border-left:2.5px solid var(--accent);
+    padding:9px 13px; border-radius:0 8px 8px 0;
+    max-height:160px; overflow-y:auto;
+  }
+
   /* ---- hover popover card ----------------------------------------------------- */
   .src-popover {
     position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%);
     width:280px; padding:10px 12px; border-radius:10px;
     background:var(--panel); border:1px solid var(--line-2);
     box-shadow:0 10px 25px -5px rgba(0,0,0,0.3), 0 8px 10px -6px rgba(0,0,0,0.2);
-    z-index:90; pointer-events:none; display:flex; flex-direction:column; gap:6px;
+    z-index:90; display:flex; flex-direction:column; gap:6px;
     text-align:left; animation:popFade .15s ease-out;
   }
   @keyframes popFade {
@@ -383,8 +482,12 @@
     font-style:italic; display:-webkit-box; -webkit-line-clamp:3;
     -webkit-box-orient:vertical; overflow:hidden;
   }
-  .src-popover .pop-foot {
-    font-size:9.5px; color:var(--accent); font-weight:500; align-self:flex-end;
+  .src-popover button.pop-foot, .src-popover .pop-foot {
+    font-size:9.5px; color:var(--accent); font-weight:550; align-self:flex-end;
+    background:transparent; border:0; padding:0; cursor:pointer;
+  }
+  .src-popover button.pop-foot:hover {
+    text-decoration:underline;
   }
 
   /* ---- hover-only message controls (ZCode anatomy) -----------------------------
@@ -417,7 +520,13 @@
     width:min(860px, 100%); max-height:100%; display:flex; flex-direction:column;
     background:var(--panel); border:1px solid var(--line-2);
     border-radius:var(--radius); box-shadow:var(--shadow-lg); overflow:hidden;
-    animation:sheet .16s ease;
+    animation:sheet .16s ease; transition:width .2s ease, max-height .2s ease;
+  }
+  #source-modal .sheet.expanded {
+    width:min(1360px, 96vw); max-height:92vh; height:92vh;
+  }
+  #source-modal .sheet.expanded pre {
+    max-height:calc(92vh - 65px);
   }
   @keyframes sheet { from { opacity:0; transform:scale(.98); } to { opacity:1; transform:none; } }
   #source-modal .head {

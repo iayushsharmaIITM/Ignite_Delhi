@@ -11,10 +11,19 @@ type Props = {
   index: number
   source: SourceItem
   inline?: boolean
+  expanded?: boolean
+  onToggleExpand?: () => void
   onOpenSource: (item: SourceItem) => void
 }
 
-export function CitationChip({ index, source, inline, onOpenSource }: Props) {
+export function CitationChip({
+  index,
+  source,
+  inline,
+  expanded,
+  onToggleExpand,
+  onOpenSource,
+}: Props) {
   const [hovered, setHovered] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUnresolved = !source || !source.source
@@ -43,6 +52,17 @@ export function CitationChip({ index, source, inline, onOpenSource }: Props) {
     ? (source.excerpt.length > 150 ? source.excerpt.slice(0, 150) + "…" : source.excerpt)
     : t("src.view_doc", "Click to inspect cited document")
 
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setHovered(false)
+    if (isUnresolved) return
+    if (onToggleExpand) {
+      onToggleExpand()
+    } else {
+      onOpenSource(source)
+    }
+  }
+
   return (
     <span
       className={`citation-chip-wrap ${inline ? "inline" : ""}`}
@@ -53,11 +73,9 @@ export function CitationChip({ index, source, inline, onOpenSource }: Props) {
     >
       <button
         type="button"
-        className={`src-chip ${inline ? "inline" : ""} ${isUnresolved ? "unresolved" : ""}`}
+        className={`src-chip ${inline ? "inline" : ""} ${isUnresolved ? "unresolved" : ""} ${expanded ? "expanded" : ""}`}
         disabled={isUnresolved}
-        onClick={() => {
-          if (!isUnresolved) onOpenSource(source)
-        }}
+        onClick={handleClick}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             setHovered(false)
@@ -66,7 +84,7 @@ export function CitationChip({ index, source, inline, onOpenSource }: Props) {
         title={isUnresolved ? t("src.unresolved", "Unresolved source") : source.source}
         aria-label={isUnresolved ? "Unresolved source" : `Source ${index}: ${source.source}`}
         aria-haspopup={!isUnresolved ? "dialog" : undefined}
-        aria-expanded={!isUnresolved ? hovered : undefined}
+        aria-expanded={!isUnresolved ? (expanded !== undefined ? expanded : hovered) : undefined}
         aria-describedby={hovered && !isUnresolved ? `popover-citation-${index}` : undefined}
       >
         {inline ? (
@@ -75,11 +93,23 @@ export function CitationChip({ index, source, inline, onOpenSource }: Props) {
           <>
             <span className="src-num">[{index}]</span>
             <span className="src-name">{isUnresolved ? t("src.unresolved", "Unresolved") : source.source}</span>
+            <svg
+              className={`src-chev ${expanded ? "expanded" : ""}`}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </>
         )}
       </button>
 
-      {hovered && !isUnresolved && (
+      {hovered && !isUnresolved && !expanded && (
         <span id={`popover-citation-${index}`} className="src-popover" role="tooltip">
           <span className="pop-head">
             <span className="pop-idx">[{index}]</span>
@@ -87,7 +117,16 @@ export function CitationChip({ index, source, inline, onOpenSource }: Props) {
             <span className="pop-badge">{originText}</span>
           </span>
           <span className="pop-excerpt">“{excerptText}”</span>
-          <span className="pop-foot">{t("src.click_to_open", "Click to inspect source")} ↗</span>
+          <button
+            type="button"
+            className="pop-foot"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenSource(source)
+            }}
+          >
+            {t("src.click_to_open", "Click to inspect source")} ↗
+          </button>
         </span>
       )}
     </span>

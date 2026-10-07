@@ -25,7 +25,7 @@ import {
 import { t, fmt, setLang, getLang, getLangs, type LangCode } from "@/lib/i18n"
 import { applyTheme, setTheme } from "@/theme"
 import { loadClerk, getClerkAppearance } from "@/lib/clerk"
-import { CitationChip } from "@/components/CitationChip"
+import { SourcesSection } from "@/components/SourcesSection"
 
 const Markdown = lazy(() => import("@/components/Markdown"))
 
@@ -314,6 +314,23 @@ export default function App() {
   const [input, setInput] = useState("")
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [sourcesPanel, setSourcesPanel] = useState<{ title: string; excerpt?: string; version?: string } | null>(null)
+  const [expandedSourcesByTurn, setExpandedSourcesByTurn] = useState<Record<number, Set<number>>>({})
+
+  const handleToggleSource = useCallback((turnIdx: number, srcIdx: number) => {
+    setExpandedSourcesByTurn((prev) => {
+      const current = new Set(prev[turnIdx] || [])
+      if (current.has(srcIdx)) {
+        current.delete(srcIdx)
+      } else {
+        current.add(srcIdx)
+      }
+      return { ...prev, [turnIdx]: current }
+    })
+    setTimeout(() => {
+      const el = document.getElementById(`src-expanded-${turnIdx}-${srcIdx}`)
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" })
+    }, 50)
+  }, [])
 
   // Stable object URLs for the previews above.
   const attachmentPreviews = useObjectUrls(pendingFiles)
@@ -1165,6 +1182,7 @@ export default function App() {
     history.replaceState(null, "", u)
     setChatId(null)
     setTurns([])
+    setExpandedSourcesByTurn({})
     // These two belong to the section being left, not to a fresh conversation.
     // /upload lands on ?view=brains&new=1 with the create dialog open, so without
     // this "New chat" returned the composer to the screen behind a modal.
@@ -1575,6 +1593,7 @@ export default function App() {
               <Markdown
                 sources={turn.sources}
                 onOpenSource={(item) => setSourcesPanel({ title: item.source, excerpt: item.excerpt, version: item.version })}
+                onToggleExpandSource={(srcIdx) => handleToggleSource(i, srcIdx)}
               >
                 {turn.text}
               </Markdown>
@@ -1582,16 +1601,13 @@ export default function App() {
           ) : null}
         </div>
         {turn.sources && turn.sources.length > 0 && (
-          <div className="srcs">
-            {turn.sources.map((s, si) => (
-              <CitationChip
-                key={si}
-                index={si + 1}
-                source={s}
-                onOpenSource={(item) => setSourcesPanel({ title: item.source, excerpt: item.excerpt, version: item.version })}
-              />
-            ))}
-          </div>
+          <SourcesSection
+            sources={turn.sources}
+            turnIndex={i}
+            expandedIndices={expandedSourcesByTurn[i]}
+            onToggleIndex={(srcIdx) => handleToggleSource(i, srcIdx)}
+            onOpenSource={(item) => setSourcesPanel({ title: item.source, excerpt: item.excerpt, version: item.version })}
+          />
         )}
         {!streamingHere && (
           <div className="msg-acts">
