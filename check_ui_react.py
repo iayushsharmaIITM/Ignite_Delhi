@@ -387,6 +387,13 @@ def section_composer_menus_keyboard(suite: Suite, base: str) -> None:
     page.wait_for_timeout(300)
     suite.check("brain menu opens", page.locator("#brainmenu").is_visible())
     suite.check("brain menu lists options", page.locator("#brainmenu button").count() >= 1)
+    b_box = page.locator("#brainmenu").bounding_box()
+    card_box = page.locator(".bar-card").bounding_box()
+    suite.check(
+        "brain menu has compact width (< 350px and not stretched to composer width)",
+        bool(b_box and card_box and b_box["width"] <= 350 and b_box["width"] < card_box["width"] * 0.7),
+        f"brainmenu width={b_box['width'] if b_box else None} vs composer width={card_box['width'] if card_box else None}",
+    )
     page.keyboard.press("Escape")
     page.wait_for_timeout(250)
     suite.check("Escape closes the brain menu", not page.locator("#brainmenu").is_visible())
