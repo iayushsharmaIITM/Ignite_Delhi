@@ -22,7 +22,7 @@ python3 -m alembic upgrade head 2>&1 | tail -1
 # AGENTS.md routes every schema change here for proof. Compare against the named
 # set instead: storage.init()'s five DDL tables plus everything 0002-0006 create.
 # Counting would also pass on a wrong set of the same size.
-EXPECTED="brain_access brain_generations brain_grants brain_job_events brain_job_files brain_job_staging brain_jobs brains chats deleted_chats document_versions documents generation_documents llm_calls source_references turns workspaces"
+EXPECTED="brain_access brain_generations brain_grants brain_job_events brain_job_files brain_job_staging brain_jobs brains chats deleted_chats document_versions documents generation_documents kg_communities kg_entities kg_relations llm_calls source_references turns workspaces"
 ACTUAL=$(docker exec bootstrap-pg psql -U kestrel -d kestrel -tAc \
   "select tablename from pg_tables where schemaname='public' order by 1")
 MISSING=""

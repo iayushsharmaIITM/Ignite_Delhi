@@ -243,6 +243,57 @@ def init() -> bool:
             # and retain 180 days (provider dashboards remain the audit source).
             cur.execute("CREATE INDEX IF NOT EXISTS llm_calls_ts_idx ON llm_calls(ts)")
             cur.execute("DELETE FROM llm_calls WHERE ts < now() - interval '180 days'")
+
+            # Native Knowledge Graph tables (matching migration 0007_native_knowledge_graph)
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS kg_entities (
+                     id text PRIMARY KEY,
+                     brain text NOT NULL,
+                     name text NOT NULL,
+                     canonical_name text NOT NULL,
+                     entity_type text NOT NULL,
+                     description text NOT NULL DEFAULT '',
+                     aliases jsonb NOT NULL DEFAULT '[]',
+                     metadata jsonb NOT NULL DEFAULT '{}',
+                     created_at timestamptz NOT NULL DEFAULT now(),
+                     CONSTRAINT uq_kg_entities_brain_canonical UNIQUE(brain, canonical_name, entity_type)
+                   )"""
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS kg_entities_brain_idx ON kg_entities(brain)")
+            cur.execute("CREATE INDEX IF NOT EXISTS kg_entities_canonical_idx ON kg_entities(brain, canonical_name)")
+
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS kg_relations (
+                     id text PRIMARY KEY,
+                     brain text NOT NULL,
+                     source_id text NOT NULL REFERENCES kg_entities(id) ON DELETE CASCADE,
+                     target_id text NOT NULL REFERENCES kg_entities(id) ON DELETE CASCADE,
+                     relation_type text NOT NULL,
+                     description text NOT NULL DEFAULT '',
+                     confidence double precision NOT NULL DEFAULT 1.0,
+                     evidence_text text NOT NULL DEFAULT '',
+                     source_reference_ids jsonb NOT NULL DEFAULT '[]',
+                     metadata jsonb NOT NULL DEFAULT '{}',
+                     created_at timestamptz NOT NULL DEFAULT now(),
+                     CONSTRAINT uq_kg_relations_triple UNIQUE(brain, source_id, target_id, relation_type)
+                   )"""
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS kg_relations_brain_idx ON kg_relations(brain)")
+            cur.execute("CREATE INDEX IF NOT EXISTS kg_relations_source_idx ON kg_relations(source_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS kg_relations_target_idx ON kg_relations(target_id)")
+
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS kg_communities (
+                     id text PRIMARY KEY,
+                     brain text NOT NULL,
+                     level int NOT NULL DEFAULT 0,
+                     name text NOT NULL,
+                     summary text NOT NULL,
+                     entity_ids jsonb NOT NULL DEFAULT '[]',
+                     created_at timestamptz NOT NULL DEFAULT now()
+                   )"""
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS kg_communities_brain_idx ON kg_communities(brain)")
         _status = {"storage": "postgres", "detail": DATABASE_URL.split("@")[-1]}
         return True
     except Exception as exc:  # noqa: BLE001 - persistence degrades, never raises
@@ -758,3 +809,163 @@ def _ms(value):
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Native Knowledge Graph Engine (KNGE) storage methods
+# ---------------------------------------------------------------------------
+
+def ingest_graph_triples(
+    brain: str,
+    entities: list,
+    relations: list,
+    source_ref_id: str | None = None,
+) -> tuple[bool, int, int]:
+    """Atomically ingest extracted entities and relationships into PostgreSQL.
+
+    Guarantees:
+    - Atomicity: executed inside ONE explicit database transaction.
+    - Idempotency: ON CONFLICT merges aliases and appends source_reference_ids.
+    - Deterministic Provenance: source_ref_id is attached to every created edge.
+    """
+    import uuid
+    import json
+    import graph_extractor
+
+    if not entities and not relations:
+        return True, 0, 0
+
+    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row, autocommit=False)
+    inserted_e = 0
+    inserted_r = 0
+
+    try:
+        with conn.cursor() as cur:
+            # 1. Upsert entities and build canonical lookup map
+            name_to_id: dict[str, str] = {}
+            for e in entities:
+                raw_name = getattr(e, "name", "")
+                c_name = graph_extractor.canonicalize_entity_name(raw_name)
+                if not c_name:
+                    continue
+
+                e_id = str(uuid.uuid4())
+                e_type = getattr(e, "entity_type", "Concept")
+                if hasattr(e_type, "value"):
+                    e_type = e_type.value
+                e_desc = getattr(e, "description", "") or ""
+                e_aliases = getattr(e, "aliases", []) or []
+
+                cur.execute(
+                    """INSERT INTO kg_entities (id, brain, name, canonical_name, entity_type, description, aliases, metadata, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, '{}'::jsonb, now())
+                       ON CONFLICT (brain, canonical_name, entity_type)
+                       DO UPDATE SET
+                         description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE kg_entities.description END,
+                         aliases = (SELECT jsonb_agg(DISTINCT elem) FROM jsonb_array_elements_text(kg_entities.aliases || EXCLUDED.aliases) elem)
+                       RETURNING id""",
+                    (e_id, brain, raw_name, c_name, str(e_type), e_desc, json.dumps(e_aliases)),
+                )
+                row = cur.fetchone()
+                final_id = row["id"] if row else e_id
+                name_to_id[c_name] = final_id
+                name_to_id[raw_name.strip().lower()] = final_id
+                inserted_e += 1
+
+            # 2. Upsert relationships
+            source_refs = [source_ref_id] if source_ref_id else []
+            for r in relations:
+                src_name = getattr(r, "source_entity", "")
+                tgt_name = getattr(r, "target_entity", "")
+                src_c = graph_extractor.canonicalize_entity_name(src_name)
+                tgt_c = graph_extractor.canonicalize_entity_name(tgt_name)
+
+                src_id = name_to_id.get(src_c) or name_to_id.get(src_name.strip().lower())
+                tgt_id = name_to_id.get(tgt_c) or name_to_id.get(tgt_name.strip().lower())
+
+                # If an entity wasn't in the chunk's entity list, look it up in this brain
+                if not src_id:
+                    cur.execute("SELECT id FROM kg_entities WHERE brain = %s AND canonical_name = %s", (brain, src_c))
+                    row = cur.fetchone()
+                    if row:
+                        src_id = row["id"]
+                if not tgt_id:
+                    cur.execute("SELECT id FROM kg_entities WHERE brain = %s AND canonical_name = %s", (brain, tgt_c))
+                    row = cur.fetchone()
+                    if row:
+                        tgt_id = row["id"]
+
+                if not src_id or not tgt_id or src_id == tgt_id:
+                    continue
+
+                r_id = str(uuid.uuid4())
+                r_type = getattr(r, "relation_type", "RELATED_TO")
+                if hasattr(r_type, "value"):
+                    r_type = r_type.value
+                r_desc = getattr(r, "description", "") or ""
+                r_conf = float(getattr(r, "confidence", 1.0) or 1.0)
+                r_evid = getattr(r, "evidence_text", "") or ""
+
+                cur.execute(
+                    """INSERT INTO kg_relations (id, brain, source_id, target_id, relation_type, description, confidence, evidence_text, source_reference_ids, metadata, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, '{}'::jsonb, now())
+                       ON CONFLICT (brain, source_id, target_id, relation_type)
+                       DO UPDATE SET
+                         confidence = EXCLUDED.confidence,
+                         evidence_text = CASE WHEN EXCLUDED.evidence_text <> '' THEN EXCLUDED.evidence_text ELSE kg_relations.evidence_text END,
+                         source_reference_ids = (SELECT jsonb_agg(DISTINCT elem) FROM jsonb_array_elements_text(kg_relations.source_reference_ids || EXCLUDED.source_reference_ids) elem)""",
+                    (r_id, brain, src_id, tgt_id, str(r_type), r_desc, r_conf, r_evid, json.dumps(source_refs)),
+                )
+                inserted_r += 1
+
+        conn.commit()
+        return True, inserted_e, inserted_r
+    except Exception as exc:
+        conn.rollback()
+        mark_down(f"ingest_graph_triples: {exc}")
+        raise
+    finally:
+        conn.close()
+
+
+def get_brain_graph(brain: str, limit: int = 500) -> dict:
+    """Retrieve the Labeled Property Graph for a brain in {nodes: [], edges: []} format."""
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, name as label, entity_type as type, description, aliases, created_at
+                   FROM kg_entities
+                   WHERE brain = %s
+                   ORDER BY created_at ASC
+                   LIMIT %s""",
+                (brain, limit),
+            )
+            nodes = cur.fetchall() or []
+
+            cur.execute(
+                """SELECT id, source_id as source, target_id as target, relation_type as label,
+                          description, confidence, evidence_text, source_reference_ids
+                   FROM kg_relations
+                   WHERE brain = %s
+                   LIMIT %s""",
+                (brain, limit * 2),
+            )
+            edges = cur.fetchall() or []
+
+            return {"nodes": nodes, "edges": edges}
+    except Exception as exc:
+        mark_down(f"get_brain_graph: {exc}")
+        return {"nodes": [], "edges": [], "error": str(exc)}
+
+
+def delete_brain_graph(brain: str) -> bool:
+    """Delete all knowledge graph entities, relations, and communities for a brain."""
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM kg_entities WHERE brain = %s", (brain,))
+            cur.execute("DELETE FROM kg_communities WHERE brain = %s", (brain,))
+        return True
+    except Exception as exc:
+        mark_down(f"delete_brain_graph: {exc}")
+        return False
+

@@ -607,6 +607,14 @@ def _load_graph(dataset: str | None = None):
     target = safe_dataset(dataset)
     cloud_error = None
 
+    # 1. Native PostgreSQL Knowledge Graph (KNGE)
+    try:
+        native = storage.get_brain_graph(target)
+        if native.get("nodes"):
+            return native, "postgres"
+    except Exception as exc:  # noqa: BLE001
+        pass
+
     try:
         import cognee_cloud
 
