@@ -1,4 +1,4 @@
-import { useDialog } from "@/lib/utils"
+import { useEffect, useRef } from "react"
 import { Connectors } from "@/components/Connectors"
 
 type Props = {
@@ -8,7 +8,24 @@ type Props = {
 }
 
 export function ConnectorsModal({ open, onClose, brain }: Props) {
-  const sheetRef = useDialog<HTMLDivElement>(open, onClose)
+  const sheetRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const sheet = sheetRef.current
+    if (sheet) {
+      sheet.focus()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      // If a child dialog is active on body, let it handle Escape
+      if (document.querySelector('[data-slot="dialog-content"]')) return
+      if (e.key === "Escape") {
+        onClose()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [open, onClose])
 
   if (!open) return null
 
