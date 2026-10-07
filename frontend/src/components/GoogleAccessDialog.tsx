@@ -21,17 +21,11 @@ export function GoogleAccessDialog({ open, onClose }: Props) {
   const handleAuthorize = async () => {
     setSubmitting(true)
     try {
-      if (!token.trim()) {
-        // transport-exempt: OAuth hand-off is a browser navigation
-        const url = await getAuthenticatedRedirectUrl("/api/connectors/oauth/google/start")
-        window.location.href = url
-        return
-      }
       const r = await apiFetch("/api/connectors/google/authorize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: email.trim(),
+          email: email.trim() || "user@company.com",
           token: token.trim(),
         }),
       })
@@ -43,6 +37,16 @@ export function GoogleAccessDialog({ open, onClose }: Props) {
       toast.error((err as Error).message)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleOAuthRedirect = async () => {
+    try {
+      // transport-exempt: OAuth hand-off is a browser navigation
+      const url = await getAuthenticatedRedirectUrl("/api/connectors/oauth/google/start")
+      window.location.href = url
+    } catch (err) {
+      toast.error((err as Error).message)
     }
   }
 
@@ -108,6 +112,16 @@ export function GoogleAccessDialog({ open, onClose }: Props) {
         <p className="-mt-2 text-center text-xs text-muted-foreground">
           Enables importing Gmail threads and Google Drive documents into any knowledge brain.
         </p>
+        <div className="flex items-center justify-between text-xs text-muted-foreground pt-0.5">
+          <span>Prefer external consent?</span>
+          <button
+            type="button"
+            className="text-primary hover:underline font-medium"
+            onClick={handleOAuthRedirect}
+          >
+            Launch Google OAuth →
+          </button>
+        </div>
       </DialogContent>
     </Dialog>
   )

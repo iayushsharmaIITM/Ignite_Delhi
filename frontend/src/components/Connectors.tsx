@@ -53,7 +53,7 @@ function StatusChip({ ok, label }: { ok: boolean | null; label: string }) {
   )
 }
 
-export function Connectors({ brain = "" }: { brain?: string }) {
+export function Connectors({ brain = "", onClose }: { brain?: string; onClose?: () => void }) {
   const [status, setStatus] = useState<Status | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -265,11 +265,25 @@ export function Connectors({ brain = "" }: { brain?: string }) {
   return (
     <div className="flex-1 overflow-y-auto" aria-label="Connectors">
       <div className="mx-auto max-w-[780px] px-6 py-10">
-        <h1 className="text-[22px] font-semibold tracking-tight text-foreground">Connectors</h1>
-        <p className="mt-1 text-[13.5px] text-muted-foreground">
-          Bring external conversations into a brain. Disconnecting stops future syncs —
-          already imported messages stay cited.
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-[22px] font-semibold tracking-tight text-foreground">Connectors</h1>
+            <p className="mt-1 text-[13.5px] text-muted-foreground">
+              Bring external conversations into a brain. Disconnecting stops future syncs —
+              already imported messages stay cited.
+            </p>
+          </div>
+          {onClose && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-lg text-xs gap-1.5 flex-none"
+              onClick={onClose}
+            >
+              ✕ Close
+            </Button>
+          )}
+        </div>
         {statusError && (
           <p className="mt-4 rounded-lg border border-border bg-card px-3.5 py-2.5 text-[12.5px] text-destructive">
             Could not read connector status: {statusError}

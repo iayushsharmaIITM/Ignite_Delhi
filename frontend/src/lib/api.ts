@@ -86,7 +86,11 @@ export async function getAuthenticatedRedirectUrl(
   const qs = new URLSearchParams(params || {})
   if (cfg.authMode === "clerk") {
     await awaitClerkBoot()
-    const token = await getClerkToken()
+    let token = await getClerkToken({ skipCache: true })
+    if (!token) {
+      await new Promise((r) => setTimeout(r, 200))
+      token = await getClerkToken({ skipCache: true })
+    }
     if (token) qs.set("token", token)
   }
   const queryStr = qs.toString()

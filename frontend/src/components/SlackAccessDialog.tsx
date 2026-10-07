@@ -26,16 +26,6 @@ export function SlackAccessDialog({ open, onClose }: Props) {
   const handleAuthorize = async () => {
     setSubmitting(true)
     try {
-      if (!customToken.trim()) {
-        // transport-exempt: OAuth hand-off is a browser navigation
-        // Auto token exchange for connection when clicked configure:
-        const url = await getAuthenticatedRedirectUrl("/api/connectors/slack/connect", {
-          mode,
-          private: priv ? "1" : "0",
-        })
-        window.location.href = url
-        return
-      }
       const r = await apiFetch("/api/connectors/slack/authorize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -55,6 +45,21 @@ export function SlackAccessDialog({ open, onClose }: Props) {
       toast.error((err as Error).message)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleOAuthRedirect = async () => {
+    try {
+      // transport-exempt: OAuth hand-off is a browser navigation
+      const url = await getAuthenticatedRedirectUrl("/api/connectors/slack/connect", {
+        mode,
+        private: priv ? "1" : "0",
+        team_name: workspaceName.trim() || "My Workspace",
+        channel_name: channelName.trim() || "general",
+      })
+      window.location.href = url
+    } catch (err) {
+      toast.error((err as Error).message)
     }
   }
 
@@ -179,11 +184,18 @@ export function SlackAccessDialog({ open, onClose }: Props) {
             ? "Connecting…"
             : customToken.trim()
             ? "Authorize with Custom Token"
-            : "Authorize & Connect with Slack (Auto OAuth)"}
+            : "Authorize & Connect (Auto Exchange)"}
         </Button>
-        <p className="-mt-2 text-center text-xs text-muted-foreground">
-          Auto token exchange: 1-click authorization links your workspace channels and syncs them automatically.
-        </p>
+        <div className="flex items-center justify-between text-xs text-muted-foreground pt-0.5">
+          <span>Prefer external consent?</span>
+          <button
+            type="button"
+            className="text-primary hover:underline font-medium"
+            onClick={handleOAuthRedirect}
+          >
+            Launch Slack.com OAuth →
+          </button>
+        </div>
       </DialogContent>
     </Dialog>
   )

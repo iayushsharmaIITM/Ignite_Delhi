@@ -266,6 +266,14 @@ else
   FAILS=$((FAILS + 1))
 fi
 
+# --- 6b1. AI agents & orchestrator (hermetic: no database, no browser) --------
+if python3 tests/test_ai_agents.py > /tmp/kestrel_verify_ai_agents.log 2>&1; then
+  note ai-agents "PASS  $(tally /tmp/kestrel_verify_ai_agents.log)"
+else
+  note ai-agents "FAIL — see /tmp/kestrel_verify_ai_agents.log"
+  FAILS=$((FAILS + 1))
+fi
+
 # --- 6b2. source precedence (hermetic: no provider call, no browser) -----------
 # /api/source used to read corpus/<filename> off disk before it consulted the
 # authorised brain, so a customer document sharing a demo corpus filename opened

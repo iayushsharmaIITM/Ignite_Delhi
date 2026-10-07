@@ -11,6 +11,7 @@ import { CreateBrainDialog } from "@/components/CreateBrainDialog"
 import { GraphView } from "@/components/GraphView"
 import { Toaster } from "@/components/ui/sonner"
 import { PopMenu, AuthGate, SettingsMenu, UsageModal, UpgradeModal, Watermark } from "@/components/Animations"
+import { ConnectorsModal } from "@/components/ConnectorsModal"
 import {
   DEFAULT_BRAIN,
   apiConfig,
@@ -375,6 +376,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [usageOpen, setUsageOpen] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
+  const [connectorsOpen, setConnectorsOpen] = useState(false)
   // Where the language/theme submenu sits: legacy anchors a .sub-pop to the
   // right of the settings item it came from (shell.js subMenu), falling back to
   // the left edge when there is no room.
@@ -1713,7 +1715,7 @@ export default function App() {
       <div className="app-main" id="kestrel-main" role="main">
         <h1 className="sr-only">Kestrel Company Brain</h1>
         {view === "connectors" ? (
-          <Connectors brain={brain} />
+          <Connectors brain={brain} onClose={() => openView("chat")} />
         ) : view === "graph" ? (
           <GraphView brain={brain} />
         ) : view === "brains" ? (
@@ -2061,7 +2063,7 @@ export default function App() {
         onTheme={() => openSubMenu("theme")}
         onUsage={() => { setSettingsOpen(false); setUsageOpen(true) }}
         onUpgrade={() => { setSettingsOpen(false); setUpgradeOpen(true) }}
-        onConnectors={() => { setSettingsOpen(false); openView("connectors") }}
+        onConnectors={() => { setSettingsOpen(false); setConnectorsOpen(true) }}
         onAccount={() => { setSettingsOpen(false); clerkOpenProfile() }}
         onSignOut={() => { setSettingsOpen(false); clerkSignOut() }}
         signedIn={signedIn}
@@ -2069,6 +2071,11 @@ export default function App() {
 
       <UsageModal open={usageOpen} onClose={() => setUsageOpen(false)} />
       <UpgradeModal open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
+      <ConnectorsModal
+        open={connectorsOpen}
+        onClose={() => setConnectorsOpen(false)}
+        brain={brain}
+      />
 
       {/* Language sub-menu */}
       {langMenuOpen && (

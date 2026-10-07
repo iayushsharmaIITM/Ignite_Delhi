@@ -139,6 +139,8 @@ def test_verify_cookie_and_query_token():
     assert auth.identity_from_request(None, query_token=raw) == {"user_id": "user_A", "org_id": "org_A"}
     assert auth.identity_from_request(None, cookie="bad") is None
     assert auth.identity_from_request(None, query_token="bad") is None
+    # regression: expired or bad browser cookie must not shadow a valid query_token
+    assert auth.identity_from_request(None, cookie="bad", query_token=raw) == {"user_id": "user_A", "org_id": "org_A"}
 
 
 def test_brain_access_rules():

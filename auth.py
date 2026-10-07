@@ -203,16 +203,22 @@ def identity_from_request(auth_header: str | None = None,
     """
     if not active():
         return {"user_id": "local", "org_id": None}
-    token = None
+    candidates: list[str] = []
     if auth_header and auth_header.lower().startswith("bearer "):
-        token = auth_header.split(" ", 1)[1].strip()
-    elif cookie:
-        token = urllib.parse.unquote(cookie.strip()).strip('"')
-    elif query_token:
-        token = urllib.parse.unquote(query_token.strip()).strip('"')
-    if not token:
-        return None
-    return verify_token(token)
+        candidates.append(auth_header.split(" ", 1)[1].strip())
+    if query_token:
+        candidates.append(urllib.parse.unquote(query_token.strip()).strip('"'))
+    if cookie:
+        candidates.append(urllib.parse.unquote(cookie.strip()).strip('"'))
+
+    for token in candidates:
+        if not token:
+            continue
+        ident = verify_token(token)
+        if ident is not None:
+            return ident
+
+    return None
 
 
 # --- test seam: swap the key source so the isolation suite can sign tokens

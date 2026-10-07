@@ -1330,6 +1330,26 @@ def google_demo_connect(request: Request):
     return {"ok": True, "connected": "google"}
 
 
+@app.get("/api/connectors/oauth/{provider}/start")
+@app.get("/api/connectors/google/connect")
+def connectors_oauth_start(request: Request, provider: str = "google"):
+    """302 the browser to the provider's consent screen. Identity is bound
+    server-side into `state` — the token that comes back can only ever land
+    on the identity that started the flow."""
+    from fastapi.responses import RedirectResponse
+    import connectors as _cx
+    identity = require_tenant(request)
+    if provider not in _cx.PROVIDERS:
+        raise HTTPException(status_code=404, detail="Unknown provider.")
+    if not _cx.vault_configured():
+        raise HTTPException(status_code=503, detail=(
+            "Connector vault has no key (CONNECTOR_VAULT_KEY)."))
+    if not _cx.provider_configured(provider):
+        raise HTTPException(status_code=503, detail=(
+            f"{provider} OAuth is not configured on this instance."))
+    return RedirectResponse(_cx.authorize_url(provider, identity), status_code=302)
+
+
 @app.post("/api/connectors/google/authorize")
 async def google_authorize_route(request: Request):
     """Direct Google / Gmail authorization: connect user's Google account."""
