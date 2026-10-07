@@ -154,8 +154,54 @@ check("second enriched item carries exact document_version_id",
       enriched[1].get("document_version_id") == "44444444-4444-4444-4444-444444444444")
 
 
+# --- 5. Attachment citation attribution & grounding filter -----------------------------
+import orchestrator
+
+sample_query = (
+    'Attached screenshot/image "media_1791410031306_61675e48.png":\n'
+    'App Credentials\nApp ID: A08ABCDEF\nClient ID: 12345.67890\nClient Secret: **********\n\n'
+    'Follow-up question: what is this screenshot about?'
+)
+
+extracted = orchestrator._extract_attachments(sample_query)
+check("attachment is extracted from query context",
+      len(extracted) == 1 and extracted[0]["source"] == "media_1791410031306_61675e48.png")
+check("extracted attachment carries extracted text and excerpt",
+      "App Credentials" in extracted[0]["text"] and bool(extracted[0]["excerpt"]))
+
+is_att_q = orchestrator._is_attachment_question(sample_query, extracted)
+check("query identified as an attachment question", is_att_q is True)
+
+answer_about_screenshot = (
+    "This screenshot shows the Slack API App Credentials page, including the App ID, "
+    "Client ID, and Client Secret for the application."
+)
+
+att_texts = [extracted[0]["text"]]
+fake_db_doc_1 = {
+    "source": "12_test_connection_pool.py",
+    "excerpt": "async def test_pool(): pool = await ConnectionPool.create(max_size=20)",
+}
+fake_db_doc_2 = {
+    "source": "04_chat_bluepeak-renewal.md",
+    "excerpt": "Bluepeak Technologies renewal discussion: ARR $180,000, 15% discount proposed",
+}
+
+check("ungrounded db doc 1 (12_test_connection_pool.py) is filtered out",
+      orchestrator._is_grounded_in_answer(fake_db_doc_1, answer_about_screenshot, att_texts, is_att_q=True) is False)
+check("ungrounded db doc 2 (04_chat_bluepeak-renewal.md) is filtered out",
+      orchestrator._is_grounded_in_answer(fake_db_doc_2, answer_about_screenshot, att_texts, is_att_q=True) is False)
+
+# --- 6. Attachment text lookup via /api/source ----------------------------------------
+app_module._cache_attachment_text("media_1791410031306_61675e48.png", "App Credentials\nApp ID: A08ABCDEF")
+r_att = client.get("/api/source", params={"name": "media_1791410031306_61675e48.png"})
+check("attachment source lookup returns 200 with attachment text",
+      r_att.status_code == 200 and r_att.json().get("source") == "attachment" and "A08ABCDEF" in r_att.json().get("text", ""))
+
+
 print("NUMBERED CITATIONS (1-based index, no fabricated sources):",
       "FAIL" if FAILS else "PASS")
 if FAILS:
     print(f"  {len(FAILS)} of {CHECKS} checks failed: {', '.join(FAILS)}")
 sys.exit(1 if FAILS else 0)
+

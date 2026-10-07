@@ -25,12 +25,14 @@ type Props = {
   // Which exact document version the answer was produced from. Optional: citations
   // made before the server knew cannot supply one, and then the newest is opened.
   version?: string
+  text?: string
+  is_attachment?: boolean
   sources?: SourceItem[]
   brain: string
   onClose: () => void
 }
 
-export type DocType = "pdf" | "docx" | "markdown" | "csv" | "code" | "text"
+export type DocType = "pdf" | "docx" | "markdown" | "csv" | "code" | "text" | "image"
 
 export function getDocType(filename: string): DocType {
   const ext = filename.split(".").pop()?.toLowerCase() || ""
@@ -38,6 +40,9 @@ export function getDocType(filename: string): DocType {
   if (ext === "docx" || ext === "doc") return "docx"
   if (ext === "md" || ext === "markdown") return "markdown"
   if (ext === "csv" || ext === "tsv") return "csv"
+  if (["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff"].includes(ext)) {
+    return "image"
+  }
   if (["json", "yaml", "yml", "js", "ts", "tsx", "py", "sh", "sql", "html", "xml", "css"].includes(ext)) {
     return "code"
   }
@@ -120,16 +125,18 @@ function parseCsvRows(text: string): { headers: string[]; rows: string[][] } {
   }
 }
 
-export function SourceModal({ title, excerpt, version, sources, brain, onClose }: Props) {
+export function SourceModal({ title, excerpt, version, text, is_attachment, sources, brain, onClose }: Props) {
   const [activeSource, setActiveSource] = useState<SourceItem>({
     source: title,
     excerpt,
     version,
+    text,
+    is_attachment,
   })
 
   useEffect(() => {
-    setActiveSource({ source: title, excerpt, version })
-  }, [title, excerpt, version])
+    setActiveSource({ source: title, excerpt, version, text, is_attachment })
+  }, [title, excerpt, version, text, is_attachment])
 
   const currentTitle = activeSource.source || title
   const currentExcerpt = activeSource.excerpt !== undefined ? activeSource.excerpt : excerpt
@@ -154,6 +161,17 @@ export function SourceModal({ title, excerpt, version, sources, brain, onClose }
     setLoading(true)
     setError(null)
 
+    // Direct text from attachment source item
+    const directText = activeSource.text || (activeSource.source === title ? text : undefined)
+    if (directText) {
+      setLoading(false)
+      setPlainText(directText)
+      setWhere(
+        "from attachment · " + directText.length.toLocaleString() + " chars",
+      )
+      return
+    }
+
     const params = new URLSearchParams({ name: currentTitle })
     if (brain) params.set("dataset", brain)
     if (currentVersion) params.set("document_version_id", currentVersion)
@@ -164,11 +182,17 @@ export function SourceModal({ title, excerpt, version, sources, brain, onClose }
         if (!alive) return
         setLoading(false)
         if (!ok) throw new Error(d.detail || "unavailable")
-        const text = d.text || ""
-        setPlainText(text)
+        const fetchedText = d.text || ""
+        setPlainText(fetchedText)
         setWhere(
-          (d.source === "corpus" ? "from the corpus" : "from this brain") +
-            " · " + text.length.toLocaleString() + " chars",
+          (d.source === "corpus"
+            ? "from the corpus"
+            : d.source === "attachment"
+            ? "from attachment"
+            : "from this brain") +
+            " · " +
+            fetchedText.length.toLocaleString() +
+            " chars",
         )
       })
       .catch((e) => {
@@ -182,7 +206,7 @@ export function SourceModal({ title, excerpt, version, sources, brain, onClose }
       alive = false
       ac.abort()
     }
-  }, [currentTitle, brain, currentVersion])
+  }, [currentTitle, brain, currentVersion, activeSource.text, text, title])
 
   // Automatically scroll the cited highlight into view when loaded
   useEffect(() => {
@@ -213,6 +237,8 @@ export function SourceModal({ title, excerpt, version, sources, brain, onClose }
 
   const renderBadge = () => {
     switch (docType) {
+      case "image":
+        return <span className="src-type-badge badge-code"><Eye className="h-3 w-3" /> Image / Screenshot</span>
       case "pdf":
         return <span className="src-type-badge badge-pdf"><FileText className="h-3 w-3" /> PDF</span>
       case "docx":
@@ -454,6 +480,51 @@ export function SourceModal({ title, excerpt, version, sources, brain, onClose }
     )
   }
 
+  const renderImageDoc = () => {
+    const paragraphs = plainText.split(/\n\n+/)
+    const needle = (excerpt || "").slice(0, 60).toLowerCase().trim()
+    let markMounted = false
+
+    return (
+      <div className="live-doc-page live-doc-txt">
+        <div className="live-doc-meta-bar">
+          <span className="font-semibold text-fg">Vision OCR / Screenshot Extraction</span>
+          <span>{title}</span>
+        </div>
+        <h1 className="live-doc-title text-xl font-bold mb-4">{title}</h1>
+        <div className="live-doc-body-text">
+          {paragraphs.map((p, idx) => {
+            const pLower = p.toLowerCase()
+            if (!markMounted && needle && pLower.includes(needle)) {
+              markMounted = true
+              const at = pLower.indexOf(needle)
+              const pBefore = p.slice(0, at)
+              const pMark = p.slice(at, at + Math.min(p.length - at, (excerpt || "").length || needle.length))
+              const pAfter = p.slice(at + pMark.length)
+              return (
+                <p key={idx} className="mb-4 text-sm leading-relaxed">
+                  <span>{pBefore}</span>
+                  <mark ref={markRef} className="src-mark-live">{pMark}</mark>
+                  <span>{pAfter}</span>
+                </p>
+              )
+            }
+            return (
+              <p key={idx} className="mb-4 text-sm leading-relaxed text-fg-2">
+                {p}
+              </p>
+            )
+          })}
+          {!markMounted && match && (
+            <p className="mt-4 border-t border-line pt-2 text-xs text-muted">
+              Cited section: <mark ref={markRef} className="src-mark-live">{plainText.slice(match.start, match.end)}</mark>
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const renderLiveContent = () => {
     if (loading) {
       return (
@@ -471,6 +542,8 @@ export function SourceModal({ title, excerpt, version, sources, brain, onClose }
     }
 
     switch (docType) {
+      case "image":
+        return renderImageDoc()
       case "markdown":
         return renderMarkdown()
       case "pdf":

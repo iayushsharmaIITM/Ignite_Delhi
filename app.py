@@ -1113,6 +1113,33 @@ async def summarize(request: Request):
     return {"summary": summary}
 
 
+_ATTACHMENT_TEXTS: dict[str, str] = {}
+_ATTACHMENT_LOCK = threading.Lock()
+
+
+def _cache_attachment_text(name: str, text: str, limit: int = 100) -> None:
+    """Bounded LRU cache for chat attachment and vision OCR texts."""
+    if not name or not text:
+        return
+    with _ATTACHMENT_LOCK:
+        _ATTACHMENT_TEXTS[name] = text
+        while len(_ATTACHMENT_TEXTS) > limit:
+            _ATTACHMENT_TEXTS.pop(next(iter(_ATTACHMENT_TEXTS)))
+
+
+def _get_attachment_text(name: str) -> str | None:
+    """Retrieve extracted attachment text from memory cache or storage."""
+    if not name:
+        return None
+    with _ATTACHMENT_LOCK:
+        if name in _ATTACHMENT_TEXTS:
+            return _ATTACHMENT_TEXTS[name]
+    try:
+        return storage.get_attachment_text(name)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @app.post("/api/extract")
 async def extract_attachment(request: Request):
     """Extract text from ONE chat attachment so the CURRENT answer can use it.
@@ -1155,6 +1182,7 @@ async def extract_attachment(request: Request):
             ocr_used = True
         except RuntimeError as ocr_exc:
             raise HTTPException(status_code=400, detail=str(ocr_exc))
+        _cache_attachment_text(name, text)
         return {"ok": True, "name": name, "chars": len(text),
                 "text": text, "ocr": ocr_used}
 
@@ -1181,6 +1209,7 @@ async def extract_attachment(request: Request):
         raise HTTPException(
             status_code=400, detail=f"Could not read this file: {exc}"
         ) from exc
+    _cache_attachment_text(name, text)
     return {"ok": True, "name": name, "chars": len(text),
             "text": text, "ocr": ocr_used}
 
@@ -1910,6 +1939,10 @@ async def ask(request: Request, q: str, dataset: str | None = None,
     # a decision that depends on a value a later line mutates is the whole bug class.
     raw_kind = memory_layer.phatic_kind(q)
     question = q if not context else f"{context.strip()}\n\nFollow-up question: {q}"
+    if context:
+        import orchestrator
+        for att in orchestrator._extract_attachments(context):
+            _cache_attachment_text(att["source"], att["text"])
     # The hint goes on the text the model actually reads. It used to be assigned to
     # `q`, which nothing downstream reads — `recall` is called with `question` — so
     # the note was built, dropped, and "what time is it?" was answered from the
@@ -2634,6 +2667,10 @@ def source(request: Request, name: str, dataset: str | None = None,
         if path.startswith(corpus_root + os.sep) and os.path.isfile(path):
             with open(path, encoding="utf-8", errors="replace") as fh:
                 return {"ok": True, "name": name, "source": "corpus", "text": fh.read()}
+        if not document_version_id:
+            att_text = _get_attachment_text(name)
+            if att_text is not None:
+                return {"ok": True, "name": name, "source": "attachment", "text": att_text}
         raise HTTPException(status_code=404, detail=f"No source document called '{name}'.")
 
     # 2. an uploaded document, read back from the tenant.
@@ -2651,6 +2688,10 @@ def source(request: Request, name: str, dataset: str | None = None,
                             detail="source temporarily unavailable") from exc
     if durable_text:
         return {"ok": True, "name": name, "source": "durable", "text": durable_text}
+    if not document_version_id:
+        att_text = _get_attachment_text(name)
+        if att_text is not None:
+            return {"ok": True, "name": name, "source": "attachment", "text": att_text}
     if document_version_id:
         # The citation pinned a version and the brain's own tables have no such
         # version. The tenant read below is version-agnostic by construction, so

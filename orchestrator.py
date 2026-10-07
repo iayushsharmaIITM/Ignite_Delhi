@@ -284,6 +284,8 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False,
     # trailing event; the UI renders them on arrival without blocking.
     yield {"stage": "done", "ms": int((time.time() - t_start) * 1000)}
 
+    rt0 = time.time()
+    enriched = []
     if refs_task is not None:
         # COR-4: citations are an optional enrichment — their failure must
         # never fail the stream. The answer already went out with `done`; a
@@ -293,13 +295,226 @@ async def answer(query: str, dataset: str | None, smalltalk: bool = False,
             enriched = await refs_task
         except Exception:  # noqa: BLE001 - answer stands, chips just absent
             enriched = []
-        if enriched:
-            grounded = sum(1 for e in enriched if e.get("source"))
-            yield {"stage": "step", "label": f"Grounded in {grounded} sources",
-                   "ms": int((time.time() - rt0) * 1000)}
-            yield {"type": "references", "items": enriched}
+
+    # --- Citations attribution & answer-grounding filter ---------------------
+    attachments = _extract_attachments(query)
+    is_att_q = _is_attachment_question(query, attachments)
+
+    # 1. Attachment citations (screenshots, images, attached files)
+    attachment_sources = []
+    if attachments and not smalltalk:
+        for att in attachments:
+            if is_att_q or _is_attachment_used(att["text"], answer_text):
+                excerpt = _best_excerpt(att["text"], answer_text, query)
+                attachment_sources.append({
+                    "source": att["source"],
+                    "excerpt": excerpt,
+                    "raw": att["raw"],
+                    "is_attachment": True,
+                    "text": att["text"],
+                })
+
+    # 2. Database citations: filter out ungrounded candidates
+    grounded_db_sources = []
+    if enriched and not smalltalk:
+        att_texts = [a["text"] for a in attachments] if attachments else []
+        for doc in enriched:
+            if not doc.get("source"):
+                continue
+            if _is_grounded_in_answer(doc, answer_text, att_texts, is_att_q=is_att_q):
+                grounded_db_sources.append(doc)
+
+    final_sources = attachment_sources + grounded_db_sources
+    # Standard non-attachment queries: preserve retrieved sources so RAG citations
+    # are not lost if phrasing in answer was purely abstract.
+    if not final_sources and not is_att_q and not attachments and enriched and not smalltalk:
+        final_sources = [d for d in enriched if d.get("source")]
+
+    if final_sources:
+        grounded = sum(1 for e in final_sources if e.get("source"))
+        yield {"stage": "step", "label": f"Grounded in {grounded} sources",
+               "ms": int((time.time() - rt0) * 1000)}
+        yield {"type": "references", "items": final_sources}
+    elif enriched or attachment_sources:
+        yield {"stage": "step", "label": "No sources cited",
+               "ms": int((time.time() - rt0) * 1000)}
+        yield {"type": "references", "items": []}
 
     await prewarm  # never raises (internally guarded)
+
+
+# --- Attachment & Citation Grounding Helpers ---------------------------------
+_ATTACHMENT_PATTERN = re.compile(
+    r'(?:^|\n\n|\n)'
+    r'Attached\s+(?:screenshot/image|file|screenshot|image)\s*["\']?([^"\':\n\r]+)["\']?:\s*\n'
+    r'([\s\S]*?)'
+    r'(?=(?:\n\n|\n)Attached\s+(?:screenshot/image|file|screenshot|image)|'
+    r'(?:\n\n|\n)Follow-up question:|'
+    r'(?:\n\n|\n)Earlier question:|'
+    r'(?:\n\n|\n)Earlier answer:|\Z)',
+    re.IGNORECASE,
+)
+
+_STOP_WORDS = frozenset({
+    "the", "and", "that", "this", "with", "from", "for", "have", "been",
+    "were", "what", "which", "will", "would", "there", "their", "about",
+    "into", "more", "other", "some", "such", "than", "then", "them",
+    "these", "they", "also", "your", "only", "first", "after", "over",
+    "under", "when", "where", "while", "here", "just", "like", "each",
+    "make", "made", "most", "show", "shows", "page", "text", "file",
+    "code", "user", "name", "using", "used", "does", "done", "shall",
+    "must", "should", "could", "data", "test", "item", "null", "none",
+    "true", "false", "type", "info", "view", "link", "open", "read",
+})
+
+
+def _extract_attachments(query: str) -> list[dict]:
+    """Parse any attached files or screenshots from the query context."""
+    attachments = []
+    if not query:
+        return attachments
+    for match in _ATTACHMENT_PATTERN.finditer(query):
+        filename = match.group(1).strip()
+        text = match.group(2).strip()
+        if not filename or not text:
+            continue
+        excerpt = re.sub(r"\s+", " ", text).strip()[:220]
+        attachments.append({
+            "source": filename,
+            "excerpt": excerpt,
+            "text": text,
+            "raw": f"Attachment {filename}",
+            "is_attachment": True,
+        })
+    return attachments
+
+
+def _is_attachment_question(query: str, attachments: list[dict] | None = None) -> bool:
+    """True if the query specifically asks about an attachment, screenshot or file."""
+    if not query:
+        return False
+    if attachments is not None and len(attachments) == 0:
+        return False
+
+    m = re.search(r"Follow-up question:\s*([\s\S]+)$", query, re.IGNORECASE)
+    if m:
+        question_text = m.group(1).strip()
+    else:
+        question_text = _ATTACHMENT_PATTERN.sub("", query)
+        question_text = re.sub(r"\[Client local time:[^\]]*\]", "", question_text)
+        question_text = re.sub(r"Earlier (?:question|answer):.*", "", question_text, flags=re.DOTALL)
+        question_text = question_text.strip() or query.strip()
+
+    q_lower = question_text.lower()
+    if re.search(r"\b(screenshot|screen\s*shot|image|photo|picture|pic|attachment|attached|upload|uploaded)\b", q_lower):
+        return True
+    if re.search(r"\b(this file|this document|this doc|this page|this screen)\b", q_lower):
+        return True
+    if any(p in q_lower for p in ("what is this", "what does this show", "what does this say",
+                                  "describe this", "summarize this", "explain this",
+                                  "what's this", "whats this", "read this", "transcribe this")):
+        return True
+    return False
+
+
+def _is_attachment_used(att_text: str, answer_text: str) -> bool:
+    """True if key terms from the attachment text appear in the generated answer."""
+    if not att_text or not answer_text:
+        return False
+    att_words = {
+        w.lower() for w in re.findall(r"\b[a-zA-Z0-9_-]{4,}\b", att_text)
+        if w.lower() not in _STOP_WORDS
+    }
+    ans_lower = answer_text.lower()
+    matches = {w for w in att_words if w in ans_lower}
+    return len(matches) >= 2
+
+
+def _best_excerpt(text: str, answer_text: str = "", query: str = "") -> str:
+    """Pick an excerpt from attachment text that best matches the answer or query."""
+    flat = re.sub(r"\s+", " ", text or "").strip()
+    if len(flat) <= 220:
+        return flat
+    candidates = [s.strip() for s in re.split(r"(?<=[.!?\n])\s+", text) if len(s.strip()) > 15]
+    if not candidates:
+        return flat[:220]
+
+    target_words = set(re.findall(r"\b[a-zA-Z0-9_-]{4,}\b", (answer_text + " " + query).lower()))
+    if not target_words:
+        return flat[:220]
+
+    best_score = -1
+    best_cand = candidates[0]
+    for cand in candidates:
+        words = set(re.findall(r"\b[a-zA-Z0-9_-]{4,}\b", cand.lower()))
+        score = len(words & target_words)
+        if score > best_score:
+            best_score = score
+            best_cand = cand
+
+    clean_best = re.sub(r"\s+", " ", best_cand).strip()
+    return clean_best[:220] if clean_best else flat[:220]
+
+
+def _is_grounded_in_answer(doc: dict, answer_text: str,
+                           attachment_texts: list[str] | None = None,
+                           is_att_q: bool = False) -> bool:
+    """Check if a retrieved document is actually grounded in answer_text.
+
+    Filters out accidental keyword matches from vector search when the answer
+    did not actually use or discuss that document.
+    """
+    if not doc or not doc.get("source"):
+        return False
+
+    source_name = str(doc.get("source") or "").strip()
+    source_stem = os.path.splitext(source_name)[0].strip()
+    ans_lower = (answer_text or "").lower()
+
+    # 1. Direct explicit mention of document filename or stem
+    if source_name.lower() in ans_lower:
+        return True
+    if len(source_stem) >= 4 and source_stem.lower() in ans_lower:
+        return True
+
+    excerpt = str(doc.get("excerpt") or "")
+    doc_words = {
+        w.lower() for w in re.findall(r"\b[a-zA-Z0-9_-]{4,}\b", excerpt)
+        if w.lower() not in _STOP_WORDS
+    }
+
+    # If attachment texts exist, remove words that overlap with the attachment
+    if attachment_texts:
+        att_words = set()
+        for at_text in attachment_texts:
+            att_words.update(w.lower() for w in re.findall(r"\b[a-zA-Z0-9_-]{4,}\b", at_text))
+        distinct_doc_words = doc_words - att_words
+    else:
+        distinct_doc_words = doc_words
+
+    if not distinct_doc_words:
+        return False
+
+    matches = {w for w in distinct_doc_words if w in ans_lower}
+
+    if is_att_q:
+        if len(matches) >= 3:
+            return True
+        excerpt_clean = re.sub(r"\s+", " ", excerpt).strip()
+        phrases = [
+            p.strip().lower()
+            for p in re.findall(r"\b(?:\w+\s+){2}\w+\b", excerpt_clean)
+            if not any(sw in p.lower().split() for sw in ("the", "and", "is", "to", "of", "in"))
+        ]
+        for phrase in phrases:
+            if len(phrase) >= 12 and phrase in ans_lower:
+                return True
+        return False
+
+    if len(matches) >= 2 or any(len(w) >= 6 for w in matches):
+        return True
+
+    return False
 
 
 async def _prewarm(dataset: str | None):

@@ -1029,3 +1029,23 @@ def seed_demo_graph_if_empty(brain: str = "company_brain") -> int:
         return 0
 
 
+def get_attachment_text(name: str) -> str | None:
+    """Retrieve text of an attachment from saved turn sources."""
+    if not available() or not name:
+        return None
+    try:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT elem->>'text' AS text
+                FROM turns, jsonb_array_elements(sources) AS elem
+                WHERE elem->>'source' = %s AND elem->>'text' IS NOT NULL AND length(elem->>'text') > 0
+                ORDER BY at DESC LIMIT 1
+            """, (name,))
+            row = cur.fetchone()
+            if row and row.get("text"):
+                return row["text"]
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+

@@ -30,7 +30,13 @@ import { SourcesSection } from "@/components/SourcesSection"
 
 const Markdown = lazy(() => import("@/components/Markdown"))
 
-type Source = { source: string; excerpt?: string; version?: string }
+type Source = {
+  source: string
+  excerpt?: string
+  version?: string
+  text?: string
+  is_attachment?: boolean
+}
 type Attachment = { name: string; kind: "image" | "file"; size: number; url?: string }
 type WorkStep = { label: string; at: number; ms?: number }
 type Turn = {
@@ -358,6 +364,8 @@ export default function App() {
     title: string
     excerpt?: string
     version?: string
+    text?: string
+    is_attachment?: boolean
     sources?: Source[]
   } | null>(null)
 
@@ -1022,8 +1030,13 @@ export default function App() {
           } else if (ev.type === "references") {
             const items: Source[] = (ev.items || [])
               .filter((s) => s && s.source)
-              .map((s) => ({ source: s.source as string, excerpt: s.excerpt,
-                             version: s.document_version_id }))
+              .map((s) => ({
+                source: s.source as string,
+                excerpt: s.excerpt,
+                version: s.document_version_id,
+                text: (s as any).text,
+                is_attachment: (s as any).is_attachment,
+              }))
             const idx = botIdxRef.current >= 0 ? botIdxRef.current : turnsRef.current.length - 1
             setTurns((t) => {
               const copy = [...t]
@@ -1628,6 +1641,8 @@ export default function App() {
                     title: item.source,
                     excerpt: item.excerpt,
                     version: item.version,
+                    text: item.text,
+                    is_attachment: item.is_attachment,
                     sources: all || turn.sources,
                   })
                 }
@@ -1646,6 +1661,8 @@ export default function App() {
                 title: item.source,
                 excerpt: item.excerpt,
                 version: item.version,
+                text: item.text,
+                is_attachment: item.is_attachment,
                 sources: all || turn.sources,
               })
             }
@@ -2065,6 +2082,8 @@ export default function App() {
           title={sourcesPanel.title}
           excerpt={sourcesPanel.excerpt}
           version={sourcesPanel.version}
+          text={sourcesPanel.text}
+          is_attachment={sourcesPanel.is_attachment}
           sources={sourcesPanel.sources}
           brain={brain}
           onClose={() => setSourcesPanel(null)}

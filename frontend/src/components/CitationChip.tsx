@@ -5,6 +5,8 @@ export type SourceItem = {
   source: string
   excerpt?: string
   version?: string
+  text?: string
+  is_attachment?: boolean
 }
 
 type Props = {
@@ -40,7 +42,9 @@ export function CitationChip({
     }
   }, [])
 
-  const originText = source.version
+  const originText = source.is_attachment
+    ? t("src.attachment", "Attached screenshot / file")
+    : source.version
     ? `v.${source.version.slice(0, 8)}`
     : t("src.verified", "Verified source")
 
