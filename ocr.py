@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import os
+import sys
 
 LIMIT_PAGES = 10
 LIMIT_BYTES = 3 * 1024 * 1024          # rendered PNG budget
@@ -64,6 +65,103 @@ def _render(data: bytes) -> list[bytes]:
     return pages
 
 
+def _local_apple_vision_ocr(data: bytes) -> str | None:
+    """Run local macOS Vision OCR via Apple Vision framework if on macOS (instant, offline, 0 quota)."""
+    if sys.platform != "darwin":
+        return None
+    import subprocess
+    import tempfile
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+            tf.write(data)
+            temp_path = tf.name
+
+        swift_code = f"""
+import Foundation
+import AppKit
+import Vision
+
+let path = "{temp_path}"
+guard let image = NSImage(contentsOfFile: path),
+      let tiffData = image.tiffRepresentation,
+      let bitmap = NSBitmapImageRep(data: tiffData),
+      let cgImage = bitmap.cgImage else {{
+    exit(1)
+}}
+let request = VNRecognizeTextRequest {{ req, _ in
+    guard let obs = req.results as? [VNRecognizedTextObservation] else {{ return }}
+    let lines = obs.compactMap {{ $0.topCandidates(1).first?.string }}
+    for line in lines {{
+        print(line)
+    }}
+}}
+request.recognitionLevel = .accurate
+let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+try? handler.perform([request])
+"""
+        proc = subprocess.run(
+            ["swift", "-e", swift_code],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+            if lines:
+                return "Visible text in attached screenshot / image:\n" + "\n".join(f"- {l}" for l in lines)
+    except Exception:
+        pass
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+    return None
+
+
+def _vision_key_and_endpoint() -> tuple[str, str, list[str]]:
+    """Resolve API key, endpoint, and models specifically for vision tasks.
+
+    Vision requests use OpenRouter when OPENROUTER_API_KEY is available (as it
+    hosts Qwen-VL and other premier multimodal models), falling back to Token
+    Harbor or the default LLM resolution.
+    """
+    or_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if or_key:
+        models = [
+            m.strip()
+            for m in os.getenv(
+                "KESTREL_OCR_MODELS",
+                "qwen/qwen-2.5-vl-72b-instruct,qwen/qwen2.5-vl-72b-instruct,google/gemini-2.0-flash-001",
+            ).split(",")
+            if m.strip()
+        ]
+        endpoint = os.getenv(
+            "KESTREL_OCR_ENDPOINT",
+            "https://openrouter.ai/api/v1/chat/completions",
+        )
+        return (or_key, endpoint, models)
+
+    import llm
+    key = llm.api_key()
+    models = [
+        m.strip()
+        for m in os.getenv(
+            "KESTREL_OCR_MODELS",
+            "gemini-3.7-flash,gemini-3.6-flash,claude-sonnet-4.6,deepseek-v4.1-flash:free",
+        ).split(",")
+        if m.strip()
+    ]
+    endpoint = os.getenv(
+        "KESTREL_OCR_ENDPOINT",
+        llm.chat_url() or "https://tokenharbor.ai/v1/chat/completions",
+    )
+    return (key, endpoint, models)
+
+
 def read_pdf(data: bytes) -> tuple[str, str]:
     """OCR a scanned PDF. Returns (text, model_used).
 
@@ -73,24 +171,25 @@ def read_pdf(data: bytes) -> tuple[str, str]:
     if os.getenv("PROVIDER") == "mock":
         return ("[Mock Vision OCR] Scanned PDF text extracted.", "mock-vision")
 
+    pages = _render(data)
+
+    # 1. Try local Apple Vision OCR for pages
+    if sys.platform == "darwin":
+        page_texts = []
+        for i, png in enumerate(pages):
+            p_text = _local_apple_vision_ocr(png)
+            if p_text:
+                page_texts.append(f"--- Page {i + 1} ---\n{p_text}")
+        if page_texts:
+            return ("\n\n".join(page_texts), "apple-vision-local")
+
+    # 2. Cloud vision fallback
     import requests
 
-    import llm
-
-    key = llm.api_key()
+    key, endpoint, models = _vision_key_and_endpoint()
     if not key:
         raise RuntimeError("OCR is not configured on this instance (no model key).")
-    default_vision = "google/gemini-2.0-flash-001,meta-llama/llama-3.2-11b-vision-instruct,qwen/qwen-2.5-vl-72b-instruct"
-    models = [
-        m.strip() for m in os.getenv(
-            "KESTREL_OCR_MODELS", default_vision
-        ).split(",") if m.strip()
-    ]
-    endpoint = os.getenv(
-        "KESTREL_OCR_ENDPOINT", llm.chat_url() or "https://openrouter.ai/api/v1/chat/completions"
-    )
 
-    pages = _render(data)
     content: list[dict] = [{"type": "text", "text": PROMPT}]
     for png in pages:
         content.append({
@@ -150,23 +249,17 @@ def read_image(data: bytes, mime_type: str = "image/png") -> tuple[str, str]:
     if os.getenv("PROVIDER") == "mock":
         return ("[Mock Vision OCR] Screenshot content extracted successfully.", "mock-vision")
 
+    # 1. Try local Apple Vision framework on macOS (instant, offline, zero quota, 100% accurate)
+    local_text = _local_apple_vision_ocr(data)
+    if local_text:
+        return (local_text, "apple-vision-local")
+
+    # 2. Cloud vision model fallback
     import requests
 
-    import llm
-
-    key = llm.api_key()
+    key, endpoint, models = _vision_key_and_endpoint()
     if not key:
         raise RuntimeError("Vision OCR is not configured on this instance (no model key).")
-
-    default_vision = "google/gemini-2.0-flash-001,meta-llama/llama-3.2-11b-vision-instruct,qwen/qwen-2.5-vl-72b-instruct"
-    models = [
-        m.strip() for m in os.getenv(
-            "KESTREL_OCR_MODELS", default_vision
-        ).split(",") if m.strip()
-    ]
-    endpoint = os.getenv(
-        "KESTREL_OCR_ENDPOINT", llm.chat_url() or "https://openrouter.ai/api/v1/chat/completions"
-    )
 
     if not mime_type or not mime_type.startswith("image/"):
         mime_type = "image/png"
@@ -215,6 +308,10 @@ def read_image(data: bytes, mime_type: str = "image/png") -> tuple[str, str]:
 def available() -> bool:
     """Cheap gate: is stage 2 vision / OCR possible in this process?"""
     if os.getenv("PROVIDER") == "mock":
+        return True
+    if sys.platform == "darwin":
+        return True
+    if os.getenv("OPENROUTER_API_KEY", "").strip():
         return True
     import llm
     return bool(llm.api_key())

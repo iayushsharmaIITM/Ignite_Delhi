@@ -188,14 +188,51 @@ function stageLabel(raw: string): string {
 // memory; files under 1.5 MB are snapshotted as data URLs so reopening the chat
 // still shows what the question was about.
 const MAX_ATTACH_BYTES = 8 * 1024 * 1024
-const ATTACH_SNAPSHOT_BYTES = 1.5 * 1024 * 1024
+const ATTACH_SNAPSHOT_BYTES = 100 * 1024
 
 async function buildAttachments(files: File[]): Promise<Attachment[]> {
   const out: Attachment[] = []
   for (const f of files) {
-    const kind: Attachment["kind"] = (f.type || "").startsWith("image/") ? "image" : "file"
+    const isImg = (f.type || "").startsWith("image/")
+    const kind: Attachment["kind"] = isImg ? "image" : "file"
     let url: string | undefined
-    if (f.size <= ATTACH_SNAPSHOT_BYTES) {
+    if (isImg) {
+      // Downscale image to a clean thumbnail so it never bloats chat history metadata
+      url = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const img = new Image()
+          img.onload = () => {
+            const canvas = document.createElement("canvas")
+            const maxDim = 320
+            let { width, height } = img
+            if (width > maxDim || height > maxDim) {
+              if (width > height) {
+                height = Math.round((height * maxDim) / width)
+                width = maxDim
+              } else {
+                width = Math.round((width * maxDim) / height)
+                height = maxDim
+              }
+            }
+            canvas.width = width
+            canvas.height = height
+            const ctx = canvas.getContext("2d")
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height)
+              resolve(canvas.toDataURL("image/jpeg", 0.75))
+              return
+            }
+            resolve(String(reader.result || "").slice(0, 80 * 1024))
+          }
+          img.onerror = () => resolve("")
+          img.src = String(reader.result || "")
+        }
+        reader.onerror = () => resolve("")
+        reader.readAsDataURL(f)
+      })
+      if (!url) url = undefined
+    } else if (f.size <= ATTACH_SNAPSHOT_BYTES) {
       url = await new Promise<string>((resolve) => {
         const reader = new FileReader()
         reader.onload = () => resolve(String(reader.result || ""))
