@@ -354,24 +354,12 @@ export default function App() {
   const [streaming, setStreaming] = useState(false)
   const [input, setInput] = useState("")
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
-  const [sourcesPanel, setSourcesPanel] = useState<{ title: string; excerpt?: string; version?: string } | null>(null)
-  const [expandedSourcesByTurn, setExpandedSourcesByTurn] = useState<Record<number, Set<number>>>({})
-
-  const handleToggleSource = useCallback((turnIdx: number, srcIdx: number) => {
-    setExpandedSourcesByTurn((prev) => {
-      const current = new Set(prev[turnIdx] || [])
-      if (current.has(srcIdx)) {
-        current.delete(srcIdx)
-      } else {
-        current.add(srcIdx)
-      }
-      return { ...prev, [turnIdx]: current }
-    })
-    setTimeout(() => {
-      const el = document.getElementById(`src-expanded-${turnIdx}-${srcIdx}`)
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" })
-    }, 50)
-  }, [])
+  const [sourcesPanel, setSourcesPanel] = useState<{
+    title: string
+    excerpt?: string
+    version?: string
+    sources?: Source[]
+  } | null>(null)
 
   // Stable object URLs for the previews above.
   const attachmentPreviews = useObjectUrls(pendingFiles)
@@ -1225,7 +1213,7 @@ export default function App() {
     history.replaceState(null, "", u)
     setChatId(null)
     setTurns([])
-    setExpandedSourcesByTurn({})
+    setSourcesPanel(null)
     // These two belong to the section being left, not to a fresh conversation.
     // /upload lands on ?view=brains&new=1 with the create dialog open, so without
     // this "New chat" returned the composer to the screen behind a modal.
@@ -1635,8 +1623,14 @@ export default function App() {
             <Suspense fallback={<span>{turn.text}</span>}>
               <Markdown
                 sources={turn.sources}
-                onOpenSource={(item) => setSourcesPanel({ title: item.source, excerpt: item.excerpt, version: item.version })}
-                onToggleExpandSource={(srcIdx) => handleToggleSource(i, srcIdx)}
+                onOpenSource={(item, all) =>
+                  setSourcesPanel({
+                    title: item.source,
+                    excerpt: item.excerpt,
+                    version: item.version,
+                    sources: all || turn.sources,
+                  })
+                }
               >
                 {turn.text}
               </Markdown>
@@ -1647,9 +1641,14 @@ export default function App() {
           <SourcesSection
             sources={turn.sources}
             turnIndex={i}
-            expandedIndices={expandedSourcesByTurn[i]}
-            onToggleIndex={(srcIdx) => handleToggleSource(i, srcIdx)}
-            onOpenSource={(item) => setSourcesPanel({ title: item.source, excerpt: item.excerpt, version: item.version })}
+            onOpenSource={(item, all) =>
+              setSourcesPanel({
+                title: item.source,
+                excerpt: item.excerpt,
+                version: item.version,
+                sources: all || turn.sources,
+              })
+            }
           />
         )}
         {!streamingHere && (
@@ -2066,6 +2065,7 @@ export default function App() {
           title={sourcesPanel.title}
           excerpt={sourcesPanel.excerpt}
           version={sourcesPanel.version}
+          sources={sourcesPanel.sources}
           brain={brain}
           onClose={() => setSourcesPanel(null)}
         />

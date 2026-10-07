@@ -5,14 +5,19 @@ import remarkGfm from "remark-gfm"
 import {
   Bookmark,
   Code,
+  Copy,
   Eye,
   FileCode,
   FileSpreadsheet,
   FileText,
+  Maximize2,
+  Minimize2,
+  X,
 } from "lucide-react"
 import { t } from "@/lib/i18n"
 import { useDialog } from "@/lib/utils"
 import { apiFetch } from "@/lib/api"
+import type { SourceItem } from "@/components/CitationChip"
 
 type Props = {
   title: string
@@ -20,6 +25,7 @@ type Props = {
   // Which exact document version the answer was produced from. Optional: citations
   // made before the server knew cannot supply one, and then the newest is opened.
   version?: string
+  sources?: SourceItem[]
   brain: string
   onClose: () => void
 }
@@ -114,7 +120,21 @@ function parseCsvRows(text: string): { headers: string[]; rows: string[][] } {
   }
 }
 
-export function SourceModal({ title, excerpt, version, brain, onClose }: Props) {
+export function SourceModal({ title, excerpt, version, sources, brain, onClose }: Props) {
+  const [activeSource, setActiveSource] = useState<SourceItem>({
+    source: title,
+    excerpt,
+    version,
+  })
+
+  useEffect(() => {
+    setActiveSource({ source: title, excerpt, version })
+  }, [title, excerpt, version])
+
+  const currentTitle = activeSource.source || title
+  const currentExcerpt = activeSource.excerpt !== undefined ? activeSource.excerpt : excerpt
+  const currentVersion = activeSource.version !== undefined ? activeSource.version : version
+
   const [where, setWhere] = useState("loading…")
   const [plainText, setPlainText] = useState("")
   const [loading, setLoading] = useState(true)
@@ -125,8 +145,8 @@ export function SourceModal({ title, excerpt, version, brain, onClose }: Props) 
   const markRef = useRef<HTMLElement | null>(null)
   const panelRef = useDialog<HTMLDivElement>(true, onClose)
 
-  const docType = useMemo(() => getDocType(title), [title])
-  const match = useMemo(() => findMatch(plainText, excerpt), [plainText, excerpt])
+  const docType = useMemo(() => getDocType(currentTitle), [currentTitle])
+  const match = useMemo(() => findMatch(plainText, currentExcerpt), [plainText, currentExcerpt])
 
   useEffect(() => {
     let alive = true
@@ -134,9 +154,9 @@ export function SourceModal({ title, excerpt, version, brain, onClose }: Props) 
     setLoading(true)
     setError(null)
 
-    const params = new URLSearchParams({ name: title })
+    const params = new URLSearchParams({ name: currentTitle })
     if (brain) params.set("dataset", brain)
-    if (version) params.set("document_version_id", version)
+    if (currentVersion) params.set("document_version_id", currentVersion)
 
     apiFetch(`/api/source?${params.toString()}`, { signal: ac.signal })
       .then((r) => r.json().catch(() => ({})).then((d) => ({ ok: r.ok, d })))
@@ -162,7 +182,7 @@ export function SourceModal({ title, excerpt, version, brain, onClose }: Props) 
       alive = false
       ac.abort()
     }
-  }, [title, brain, version])
+  }, [currentTitle, brain, currentVersion])
 
   // Automatically scroll the cited highlight into view when loaded
   useEffect(() => {
@@ -489,48 +509,56 @@ export function SourceModal({ title, excerpt, version, brain, onClose }: Props) 
   return (
     <div
       id="source-modal"
-      ref={panelRef}
-      role="dialog"
-      aria-modal="true"
-      tabIndex={-1}
-      aria-label="Cited source"
+      className="km-scrim"
+      style={{ zIndex: 95 }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className={`sheet ${isExpanded ? "expanded" : ""}`}>
-        <div className="head flex items-center gap-3 px-4 py-3 border-b border-line bg-panel-2">
-          <span className="nm font-mono text-xs font-semibold text-fg" id="src-name">
-            {title}
-          </span>
-          {renderBadge()}
-          <span className="where text-[11px] text-muted" id="src-where">
-            {where}
-          </span>
-
-          <div className="src-view-tabs ml-2">
-            <button
-              type="button"
-              className={tab === "live" ? "active" : ""}
-              onClick={() => setTab("live")}
-              title="Formatted Live Document View"
-            >
-              <Eye className="h-3.5 w-3.5" />
-              <span>Live Doc</span>
-            </button>
-            <button
-              type="button"
-              className={tab === "raw" ? "active" : ""}
-              onClick={() => setTab("raw")}
-              title="Raw Source Text View"
-            >
-              <Code className="h-3.5 w-3.5" />
-              <span>Raw</span>
-            </button>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
+        aria-label="Cited source document"
+        className={`km-sheet sheet max-w-[860px] w-full max-h-[88vh] p-0 overflow-hidden rounded-2xl shadow-2xl border border-line-2 bg-panel animate-in fade-in-0 zoom-in-95 relative flex flex-col ${
+          isExpanded ? "expanded !max-w-[96vw] !h-[92vh] !max-h-[92vh]" : ""
+        }`}
+      >
+        <div className="head flex items-center justify-between gap-3 px-5 py-3.5 border-b border-line bg-panel-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="nm font-mono text-xs font-semibold text-fg truncate" id="src-name" title={currentTitle}>
+              {currentTitle}
+            </span>
+            {renderBadge()}
+            <span className="where text-[11px] text-muted hidden sm:inline" id="src-where">
+              {where}
+            </span>
           </div>
 
-          <span className="sp ml-auto flex items-center gap-2">
-            {excerpt && (
+          <div className="flex items-center gap-2 ml-auto">
+            <div className="src-view-tabs">
+              <button
+                type="button"
+                className={tab === "live" ? "active" : ""}
+                onClick={() => setTab("live")}
+                title="Formatted Live Document View"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                <span>Live Doc</span>
+              </button>
+              <button
+                type="button"
+                className={tab === "raw" ? "active" : ""}
+                onClick={() => setTab("raw")}
+                title="Raw Source Text View"
+              >
+                <Code className="h-3.5 w-3.5" />
+                <span>Raw</span>
+              </button>
+            </div>
+
+            {currentExcerpt && (
               <button
                 type="button"
                 className="src-jump-btn"
@@ -538,33 +566,80 @@ export function SourceModal({ title, excerpt, version, brain, onClose }: Props) 
                 title="Jump to cited section"
               >
                 <Bookmark className="h-3.5 w-3.5" />
-                <span>Jump to cited section</span>
+                <span className="hidden sm:inline">Jump to citation</span>
               </button>
             )}
+
             <button
               type="button"
               id="src-expand"
+              className="p-1.5 hover:bg-wash-2 rounded-lg text-muted hover:text-fg transition-colors"
               title={isExpanded ? t("src.restore", "Restore size") : t("src.expand", "Expand")}
               aria-label={isExpanded ? "Restore size" : "Expand"}
               onClick={() => setIsExpanded((e) => !e)}
             >
-              {isExpanded ? t("src.restore", "Restore") : t("src.expand", "Expand")}
+              {isExpanded ? (
+                <Minimize2 className="h-3.5 w-3.5" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" />
+              )}
             </button>
-            <button type="button" id="src-copy" onClick={copy}>
-              {t("src.copy", "Copy")}
+            <button
+              type="button"
+              id="src-copy"
+              className="p-1.5 hover:bg-wash-2 rounded-lg text-muted hover:text-fg transition-colors"
+              title={t("src.copy", "Copy source text")}
+              aria-label={t("src.copy", "Copy source text")}
+              onClick={copy}
+            >
+              <Copy className="h-3.5 w-3.5" />
             </button>
-            <button type="button" id="src-close" onClick={onClose}>
-              {t("src.close", "Close")}
+            <button
+              type="button"
+              id="src-close"
+              className="km-x p-1 hover:bg-wash-2 rounded-lg transition-colors"
+              title={t("src.close", "Close")}
+              aria-label={t("src.close", "Close")}
+              onClick={onClose}
+            >
+              <X className="h-4 w-4" />
             </button>
-          </span>
+          </div>
         </div>
 
+        {sources && sources.length > 1 && (
+          <div className="flex items-center gap-1.5 px-5 py-2 border-b border-line bg-panel overflow-x-auto">
+            <span className="text-[11px] font-semibold text-muted uppercase tracking-wider whitespace-nowrap mr-1">
+              Sources ({sources.length}):
+            </span>
+            {sources.map((s, idx) => {
+              const isActive = s.source === currentTitle
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  className={`text-xs px-2.5 py-1 rounded-full font-mono flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                    isActive
+                      ? "bg-primary text-primary-foreground font-semibold shadow-sm"
+                      : "bg-panel-2 text-fg-2 hover:bg-wash-2 hover:text-fg border border-line"
+                  }`}
+                  onClick={() => setActiveSource(s)}
+                  title={s.source}
+                >
+                  <span className="text-[10px] font-bold">[{idx + 1}]</span>
+                  <span className="truncate max-w-[160px]">{s.source}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {tab === "live" ? (
-          <div id="src-body" className="live-doc-canvas">
+          <div id="src-body" className="live-doc-canvas flex-1 overflow-y-auto min-h-0">
             {renderLiveContent()}
           </div>
         ) : (
-          <pre id="src-body">{renderRawContent()}</pre>
+          <pre id="src-body" className="flex-1 overflow-y-auto min-h-0">{renderRawContent()}</pre>
         )}
       </div>
     </div>

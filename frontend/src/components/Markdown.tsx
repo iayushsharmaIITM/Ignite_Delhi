@@ -6,13 +6,13 @@ import { CitationChip, type SourceItem } from "@/components/CitationChip"
 type Props = {
   children: string
   sources?: SourceItem[]
-  onOpenSource?: (item: SourceItem) => void
+  onOpenSource?: (item: SourceItem, allSources?: SourceItem[]) => void
   onToggleExpandSource?: (index: number) => void
 }
 
 // Split into its own module so the ~150 kB markdown pipeline loads only
 // when the first bot answer actually renders.
-export default function Markdown({ children, sources, onOpenSource, onToggleExpandSource }: Props) {
+export default function Markdown({ children, sources, onOpenSource }: Props) {
   // Pre-process inline [N] citations to [^N] if N corresponds to a known source
   const processedText = useMemo(() => {
     if (!children || !sources || sources.length === 0) return children || ""
@@ -40,8 +40,7 @@ export default function Markdown({ children, sources, onOpenSource, onToggleExpa
                   index={num}
                   source={src}
                   inline
-                  onOpenSource={onOpenSource}
-                  onToggleExpand={() => onToggleExpandSource?.(num - 1)}
+                  onOpenSource={() => onOpenSource(src, sources)}
                 />
               )
             }
@@ -57,7 +56,7 @@ export default function Markdown({ children, sources, onOpenSource, onToggleExpa
         return <section className={className} {...props}>{secChildren}</section>
       },
     }
-  }, [sources, onOpenSource, onToggleExpandSource])
+  }, [sources, onOpenSource])
 
   return (
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>

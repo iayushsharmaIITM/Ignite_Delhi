@@ -11,8 +11,6 @@ type Props = {
   index: number
   source: SourceItem
   inline?: boolean
-  expanded?: boolean
-  onToggleExpand?: () => void
   onOpenSource: (item: SourceItem) => void
 }
 
@@ -20,8 +18,6 @@ export function CitationChip({
   index,
   source,
   inline,
-  expanded,
-  onToggleExpand,
   onOpenSource,
 }: Props) {
   const [hovered, setHovered] = useState(false)
@@ -56,11 +52,7 @@ export function CitationChip({
     e.stopPropagation()
     setHovered(false)
     if (isUnresolved) return
-    if (onToggleExpand) {
-      onToggleExpand()
-    } else {
-      onOpenSource(source)
-    }
+    onOpenSource(source)
   }
 
   return (
@@ -73,7 +65,7 @@ export function CitationChip({
     >
       <button
         type="button"
-        className={`src-chip ${inline ? "inline" : ""} ${isUnresolved ? "unresolved" : ""} ${expanded ? "expanded" : ""}`}
+        className={`src-chip ${inline ? "inline" : ""} ${isUnresolved ? "unresolved" : ""}`}
         disabled={isUnresolved}
         onClick={handleClick}
         onKeyDown={(e) => {
@@ -81,11 +73,9 @@ export function CitationChip({
             setHovered(false)
           }
         }}
-        title={isUnresolved ? t("src.unresolved", "Unresolved source") : source.source}
-        aria-label={isUnresolved ? "Unresolved source" : `Source ${index}: ${source.source}`}
+        title={isUnresolved ? t("src.unresolved", "Unresolved source") : `${source.source} — Click to open source`}
+        aria-label={isUnresolved ? "Unresolved source" : `Source ${index}: ${source.source}. Click to open document`}
         aria-haspopup={!isUnresolved ? "dialog" : undefined}
-        aria-expanded={!isUnresolved ? (expanded !== undefined ? expanded : hovered) : undefined}
-        aria-describedby={hovered && !isUnresolved ? `popover-citation-${index}` : undefined}
       >
         {inline ? (
           <span className="src-num">{index}</span>
@@ -94,22 +84,24 @@ export function CitationChip({
             <span className="src-num">[{index}]</span>
             <span className="src-name">{isUnresolved ? t("src.unresolved", "Unresolved") : source.source}</span>
             <svg
-              className={`src-chev ${expanded ? "expanded" : ""}`}
+              className="src-open-icon"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2.5"
+              strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
               aria-hidden="true"
             >
-              <polyline points="6 9 12 15 18 9" />
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
             </svg>
           </>
         )}
       </button>
 
-      {hovered && !isUnresolved && !expanded && (
+      {hovered && !isUnresolved && (
         <span id={`popover-citation-${index}`} className="src-popover" role="tooltip">
           <span className="pop-head">
             <span className="pop-idx">[{index}]</span>
@@ -122,6 +114,7 @@ export function CitationChip({
             className="pop-foot"
             onClick={(e) => {
               e.stopPropagation()
+              setHovered(false)
               onOpenSource(source)
             }}
           >

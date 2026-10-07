@@ -600,9 +600,6 @@ kbd {
   body:not(.sb-collapsed) [data-slot="dialog-content"] {
     left: calc(50% + (var(--sb-w) / 2));
   }
-  body:not(.sb-collapsed) #source-modal {
-    padding-left: calc(24px + var(--sb-w));
-  }
 }
 
 /* Clerk modal styling: adapt to platform theme */
